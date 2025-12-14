@@ -55,6 +55,7 @@ Thumbs.db
 
 # 配置文件（包含敏感信息）
 # config.local.py
+.env
 
 # 其他
 *.pyc

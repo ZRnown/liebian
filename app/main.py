@@ -21,7 +21,10 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import DB_PATH, DATA_DIR, LOG_PATH, PID_PATH, SESSION_PATH, UPLOAD_DIR
+from config import (
+    DB_PATH, DATA_DIR, LOG_PATH, PID_PATH, SESSION_PATH, UPLOAD_DIR,
+    API_ID, API_HASH, BOT_TOKEN, ADMIN_IDS, USE_PROXY, PROXY_TYPE, PROXY_HOST, PROXY_PORT
+)
 from core_functions import (
     check_user_in_group, check_bot_is_admin, get_upline_chain,
     get_downline_tree, calculate_team_stats, check_user_conditions,
@@ -34,13 +37,8 @@ from bot_commands_addon import (
     handle_check_status, handle_my_team
 )
 
-# 配置
-API_ID = 21332425
-API_HASH = 'f5d0cddc784e3a7a09ea9714ed01f238'
-BOT_TOKEN = '8282974213:AAEISGP5ijUbJSBMA9N5eoygWjAB266-1UE'
-
-# 管理员列表
-ADMIN_IDS = [7935612165]
+# 配置已从 config.py 导入
+# API_ID, API_HASH, BOT_TOKEN, ADMIN_IDS 等配置现在从 .env 文件或环境变量读取
 
 # 定义中国时区
 CN_TIMEZONE = timezone(timedelta(hours=8))
@@ -509,11 +507,16 @@ class DB:
         }
 
 
-# 代理配置 - 如果服务器不需要代理，注释掉proxy参数
-
-USE_PROXY = False  # 服务器部署时改为False
+# 代理配置 - 从配置文件读取
 if USE_PROXY:
-    proxy = (socks.SOCKS5, '127.0.0.1', 7897)
+    if PROXY_TYPE.lower() == 'socks5':
+        proxy = (socks.SOCKS5, PROXY_HOST, PROXY_PORT)
+    elif PROXY_TYPE.lower() == 'socks4':
+        proxy = (socks.SOCKS4, PROXY_HOST, PROXY_PORT)
+    elif PROXY_TYPE.lower() == 'http':
+        proxy = (socks.HTTP, PROXY_HOST, PROXY_PORT)
+    else:
+        proxy = (socks.SOCKS5, PROXY_HOST, PROXY_PORT)
     bot = TelegramClient('bot', API_ID, API_HASH, proxy=proxy).start(bot_token=BOT_TOKEN)
 else:
     bot = TelegramClient(MemorySession(), API_ID, API_HASH).start(bot_token=BOT_TOKEN)
@@ -3283,9 +3286,12 @@ async def message_handler(event):
 # ============ Web管理后台 (集成在同一程序中) ============
 
 # Flask应用
+# 指定模板目录和静态文件目录（项目根目录下的 templates 和 static）
+# os 已在文件开头导入，这里直接使用
+TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'templates')
+STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static')
 
-
-app = Flask(__name__)
+app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 app.secret_key = 'fission-bot-secret-key-2025' # 请修改此密钥
 app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=90)
 app.config['TEMPLATES_AUTO_RELOAD'] = True  # 禁用模板缓存
