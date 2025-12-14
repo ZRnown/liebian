@@ -169,108 +169,13 @@ def add_new_routes_to_app(app, DB, login_required, jsonify, request, render_temp
         """捡漏账号管理页面"""
         return render_template('fallback_accounts.html', active_page='fallback_accounts')
     
-    @app.route('/api/fallback-accounts')
-    @login_required
-    def api_get_fallback_accounts():
-        """获取捡漏账号列表"""
-        try:
-            conn = DB.get_conn()
-            c = conn.cursor()
-            
-            c.execute('''
-                SELECT 
-                    fa.id, fa.telegram_id, fa.username, fa.group_link,
-                    fa.total_earned, fa.is_active, fa.create_time,
-                    m.balance, m.is_group_bound, m.is_bot_admin
-                FROM fallback_accounts fa
-                LEFT JOIN members m ON fa.telegram_id = m.telegram_id
-                ORDER BY fa.id
-            ''')
-            
-            rows = c.fetchall()
-            accounts = []
-            for row in rows:
-                accounts.append({
-                    'id': row[0],
-                    'telegram_id': row[1],
-                    'username': row[2],
-                    'group_link': row[3] or '',
-                    'total_earned': row[4] or 0,
-                    'is_active': row[5],
-                    'create_time': row[6][:19] if row[6] else '',
-                    'balance': row[7] or 0,
-                    'is_group_bound': row[8],
-                    'is_bot_admin': row[9]
-                })
-            
-            conn.close()
-            return jsonify({'accounts': accounts})
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
-    
-    @app.route('/api/fallback-accounts', methods=['POST'])
-    @login_required
-    def api_create_fallback_account():
-        try:
-            data = request.get_json()
-            username = data.get('username', '')
-            group_link = data.get('group_link', '')
-            conn = DB.get_conn()
-            c = conn.cursor()
-            c.execute('SELECT MAX(telegram_id) FROM fallback_accounts')
-            max_id = c.fetchone()[0] or 9000000000
-            new_telegram_id = max_id + 1
-            c.execute('INSERT INTO fallback_accounts (telegram_id, username, group_link, total_earned, is_active) VALUES (?, ?, ?, 0, 1)', (new_telegram_id, username, group_link))
-            conn.commit()
-            conn.close()
-            return jsonify({'success': True, 'message': '添加成功'})
-        except Exception as e:
-            return jsonify({'success': False, 'message': str(e)}), 500
-
-    @app.route('/api/fallback-accounts/<int:account_id>', methods=['DELETE'])
-    @login_required
-    def api_delete_fallback_account(account_id):
-        try:
-            conn = DB.get_conn()
-            c = conn.cursor()
-            c.execute('DELETE FROM fallback_accounts WHERE id = ?', (account_id,))
-            conn.commit()
-            conn.close()
-            return jsonify({'success': True, 'message': '删除成功'})
-        except Exception as e:
-            return jsonify({'success': False, 'message': str(e)}), 500
-
-    @app.route('/api/fallback-accounts/<int:account_id>', methods=['PUT'])
-    @login_required
-    def api_update_fallback_account(account_id):
-        """更新捡漏账号"""
-        try:
-            data = request.get_json()
-            group_link = data.get('group_link')
-            is_active = data.get('is_active', 1)
-            
-            conn = DB.get_conn()
-            c = conn.cursor()
-            
-            c.execute('''
-                UPDATE fallback_accounts 
-                SET group_link = ?, is_active = ?
-                WHERE id = ?
-            ''', (group_link, is_active, account_id))
-            
-            # 同时更新members表的group_link
-            c.execute('''
-                UPDATE members 
-                SET group_link = ?
-                WHERE telegram_id = (SELECT telegram_id FROM fallback_accounts WHERE id = ?)
-            ''', (group_link, account_id))
-            
-            conn.commit()
-            conn.close()
-            
-            return jsonify({'success': True})
-        except Exception as e:
-            return jsonify({'success': False, 'message': str(e)}), 500
+    # 注意：fallback-accounts 相关的 API 路由已在 main.py 中定义，这里不再重复定义
+    # 包括：
+    # - GET /api/fallback-accounts (已在 main.py 第5066-5098行定义)
+    # - POST /api/fallback-accounts (如果需要，请在 main.py 中添加)
+    # - DELETE /api/fallback-accounts/<int:id> (已在 main.py 第5131-5143行定义)
+    # - PUT /api/fallback-accounts/<int:id> (已在 main.py 第5101-5128行定义)
+    # - PUT /api/fallback-accounts/<int:id>/status (已在 main.py 第5146行定义)
     
     # ==================== 团队图谱 ====================
     
@@ -411,66 +316,17 @@ def add_new_routes_to_app(app, DB, login_required, jsonify, request, render_temp
     
     # ==================== 充值管理 ====================
     
-    @app.route('/recharges')
-    @login_required
-    def recharges_page():
-        """充值管理页面"""
-        return render_template('recharges.html', active_page='recharges')
+    # 注意：recharges 相关的路由已在 main.py 中定义，这里不再重复定义
+    # - GET /recharges (已在 main.py 第3957-3960行定义)
+    # - GET /api/recharges (已在 main.py 第3963行定义)
     
-    @app.route('/api/recharges')
-    @login_required
-    def api_get_recharges():
-        """获取充值记录"""
-        try:
-            page = request.args.get('page', 1, type=int)
-            per_page = request.args.get('per_page', 20, type=int)
-            
-            conn = DB.get_conn()
-            c = conn.cursor()
-            
-            offset = (page - 1) * per_page
-            
-            # 获取总数
-            c.execute('SELECT COUNT(*) FROM recharge_records')
-            total = c.fetchone()[0]
-            
-            # 获取记录列表
-            c.execute('''
-                SELECT 
-                    rr.id, rr.member_id, rr.amount, rr.payment_method,
-                    rr.order_id, rr.status, rr.callback_result, rr.create_time,
-                    m.username
-                FROM recharge_records rr
-                LEFT JOIN members m ON rr.member_id = m.telegram_id
-                ORDER BY rr.id DESC
-                LIMIT ? OFFSET ?
-            ''', (per_page, offset))
-            
-            rows = c.fetchall()
-            records = []
-            for row in rows:
-                records.append({
-                    'id': row[0],
-                    'member_id': row[1],
-                    'amount': row[2],
-                    'payment_method': row[3] or '',
-                    'order_id': row[4] or '',
-                    'status': row[5],
-                    'callback_result': row[6] or '',
-                    'create_time': row[7][:19] if row[7] else '',
-                    'username': row[8] or ''
-                })
-            
-            conn.close()
-            
-            return jsonify({
-                'records': records,
-                'total': total,
-                'page': page,
-                'per_page': per_page
-            })
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+    # 以下代码已注释，因为路由已在 main.py 中定义
+    # @app.route('/recharges')
+    # @login_required
+    # def recharges_page():
+    #     """充值管理页面"""
+    #     return render_template('recharges.html', active_page='recharges')
+    # 
     
     # ==================== 增强统计API ====================
     
