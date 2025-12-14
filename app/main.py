@@ -221,6 +221,51 @@ def init_db():
         main_account_id INTEGER
     )''')
 
+    # 群发队列表
+    c.execute('''CREATE TABLE IF NOT EXISTS broadcast_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_link TEXT,
+        group_name TEXT,
+        message TEXT,
+        status TEXT DEFAULT 'pending',
+        result TEXT,
+        create_time TEXT
+    )''')
+
+    # 群发消息表
+    c.execute('''CREATE TABLE IF NOT EXISTS broadcast_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        content TEXT,
+        media_type TEXT,
+        media_url TEXT,
+        image_url TEXT,
+        video_url TEXT,
+        buttons TEXT,
+        buttons_per_row INTEGER DEFAULT 2,
+        schedule_enabled INTEGER DEFAULT 0,
+        schedule_time TEXT,
+        is_active INTEGER DEFAULT 1,
+        create_time TEXT
+    )''')
+
+    # 会员群组表
+    c.execute('''CREATE TABLE IF NOT EXISTS member_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        telegram_id INTEGER,
+        group_id INTEGER,
+        group_name TEXT,
+        group_link TEXT,
+        member_count INTEGER DEFAULT 0,
+        bot_id INTEGER,
+        is_bot_admin INTEGER DEFAULT 0,
+        owner_username TEXT,
+        group_type TEXT DEFAULT 'group',
+        schedule_broadcast INTEGER DEFAULT 1,
+        create_time TEXT,
+        FOREIGN KEY (telegram_id) REFERENCES members(telegram_id)
+    )''')
+
     # 检查是否有管理员，如果没有则创建默认管理员
     c.execute('SELECT COUNT(*) FROM admin_users')
     if c.fetchone()[0] == 0:
@@ -5214,6 +5259,39 @@ def api_delete_bot_token(index):
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # 从complete_all_features模块导入并注册所有新路由
+
+# 更新members表结构（添加缺失的字段）
+def upgrade_members_table():
+    conn = DB.get_conn()
+    c = conn.cursor()
+    try:
+        c.execute('ALTER TABLE members ADD COLUMN is_group_bound INTEGER DEFAULT 0')
+    except: pass
+    try:
+        c.execute('ALTER TABLE members ADD COLUMN is_bot_admin INTEGER DEFAULT 0')
+    except: pass
+    try:
+        c.execute('ALTER TABLE members ADD COLUMN is_joined_upline INTEGER DEFAULT 0')
+    except: pass
+    try:
+        c.execute('ALTER TABLE members ADD COLUMN level_path TEXT')
+    except: pass
+    try:
+        c.execute('ALTER TABLE members ADD COLUMN direct_count INTEGER DEFAULT 0')
+    except: pass
+    try:
+        c.execute('ALTER TABLE members ADD COLUMN team_count INTEGER DEFAULT 0')
+    except: pass
+    try:
+        c.execute('ALTER TABLE members ADD COLUMN total_earned REAL DEFAULT 0')
+    except: pass
+    try:
+        c.execute('ALTER TABLE members ADD COLUMN withdraw_address TEXT')
+    except: pass
+    conn.commit()
+    conn.close()
+
+upgrade_members_table()
 
 # 更新member_groups表结构
 def upgrade_member_groups_table():
