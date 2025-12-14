@@ -83,7 +83,7 @@ def get_fallback_resource(resource_type='group'):
     """获取捡漏账号资源"""
     try:
         import sqlite3
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_conn()
         c = conn.cursor()
         if resource_type == 'group':
             c.execute("SELECT group_link FROM fallback_accounts WHERE group_link IS NOT NULL AND group_link != ''")
@@ -116,7 +116,7 @@ def get_main_keyboard(user_id=None):
 
 # 初始化数据库
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     c = conn.cursor()
     
     # 会员表
@@ -294,7 +294,7 @@ def init_db():
 # 动态获取系统配置
 def get_system_config():
     """从数据库动态读取系统配置"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     c = conn.cursor()
     c.execute('SELECT key, value FROM system_config')
     config_rows = c.fetchall()
@@ -350,7 +350,7 @@ def update_system_config(key, value):
     
     db_key = reverse_key_mapping.get(key, key)
     
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_conn()
     c = conn.cursor()
     
     # 插入或更新配置
@@ -363,11 +363,22 @@ def update_system_config(key, value):
     conn.commit()
     conn.close()
 
+# 数据库连接辅助函数
+def get_db_conn():
+    """获取数据库连接，设置超时和 WAL 模式以避免锁定"""
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    # 启用 WAL 模式，提高并发性能
+    conn.execute('PRAGMA journal_mode=WAL')
+    # 设置忙等待超时（10秒）
+    conn.execute('PRAGMA busy_timeout=10000')
+    return conn
+
 # 数据库操作类
 class DB:
     @staticmethod
     def get_conn():
-        return sqlite3.connect(DB_PATH)
+        """获取数据库连接，设置超时和 WAL 模式以避免锁定"""
+        return get_db_conn()
     
     @staticmethod
     def get_member(telegram_id):
@@ -407,7 +418,20 @@ class DB:
             conn.commit()
         except sqlite3.IntegrityError:
             pass
-        conn.close()
+        except sqlite3.OperationalError as e:
+            # 如果数据库被锁定，等待后重试
+            if 'locked' in str(e).lower():
+                import time
+                time.sleep(0.1)
+                try:
+                    c.execute('''INSERT INTO members (telegram_id, username, referrer_id, register_time)
+                                VALUES (?, ?, ?, ?)''',
+                             (telegram_id, username, referrer_id, datetime.now().isoformat()))
+                    conn.commit()
+                except:
+                    pass
+        finally:
+            conn.close()
     
     @staticmethod
     def update_member(telegram_id, **kwargs):
