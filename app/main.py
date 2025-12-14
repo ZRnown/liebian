@@ -324,7 +324,7 @@ def update_system_config(key, value):
 class DB:
     @staticmethod
     def get_conn():
-        return sqlite3.connect('bot.db')
+        return sqlite3.connect(DB_PATH)
     
     @staticmethod
     def get_member(telegram_id):
@@ -1826,51 +1826,6 @@ async def my_promote_handler(event):
     
     await event.respond(text, buttons=buttons, parse_mode='md')
 
-# 账户充值（可选功能，如不需要可删除）
-# @bot.on(events.NewMessage(pattern=BTN_RECHARGE))
-# async def recharge_handler(event):
-    # 账号关联处理
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
-    except: pass
-#     member = DB.get_member(event.sender_id)
-#     if not member:
-#         await event.respond('请先发送 /start 注册')
-#         return
-#     
-#     # 检查是否有未完成的订单
-#     for order in payment_orders.values():
-#         if order['telegram_id'] == event.sender_id:
-#             await event.respond(
-#                 f'⚠️ 您有未完成的充值订单\n\n'
-#                 f'订单号: {order["order_number"]}\n'
-#                 f'金额: <code>{order["amount"]}</code> U\n'
-#                 f'收款地址: <code>{order["usdt_address"]}</code>\n\n'
-#                 f'请先完成或取消当前订单',
-#                 buttons=[[Button.inline('🚫 取消订单', f'cancel_order_{order["order_number"]}'.encode())]],
-#                 parse_mode='html'
-#             )
-#             return
-#     
-#     text = (
-#         f'⚡️ 账户充值\n\n'
-#         f'💰 当前余额: {member["balance"]} U\n\n'
-#         f'<b>⚠️ 充值须知:</b>\n'
-#         f'1. 充值通道为 USDT TRC20\n'
-#         f'2. 转账金额必须完全对应\n'
-#         f'3. 支付完成后自动到账\n\n'
-#         f'<b>请选择充值金额:</b>'
-#     )
-#     
-#     buttons = [
-#         [Button.inline('5 U', b'recharge_5'), Button.inline('10 U', b'recharge_10')],
-#         [Button.inline('30 U', b'recharge_30'), Button.inline('50 U', b'recharge_50')],
-#         [Button.inline('200 U', b'recharge_100'), Button.inline('500 U', b'recharge_500')],
-#         [Button.inline('✏️ 自定义金额', b'recharge_custom')]
-#     ]
-#     
-#     await event.respond(text, buttons=buttons, parse_mode='html')
 
 # 返回主菜单
 @bot.on(events.NewMessage(pattern=BTN_BACK))
@@ -2735,27 +2690,6 @@ async def recharge_amount_callback(event):
     # VIP充值专用回调已在上面处理
     if data == 'recharge_vip':
         return
-    
-    # 以下为通用充值功能（如不需要可删除）
-    # if data == 'recharge_custom':
-    #     # 自定义金额
-    #     
-    #     await event.respond(
-    #         '✏️ 自定义充值金额\n\n'
-    #         '请输入您要充值的金额（U）\n'
-    #         '例如: 88\n\n'
-    #         '发送 /cancel 取消'
-    #     )
-    #     await event.answer()
-    # else:
-    #     # 预设金额
-    #     amount_str = data.replace('recharge_', '')
-    #     try:
-    #         amount = float(amount_str)
-    #         await create_recharge_order(event, amount)
-    #         await event.answer()
-    #     except ValueError:
-    #         await event.answer('金额格式错误', alert=True)
 
 # 取消充值订单
 @bot.on(events.CallbackQuery(pattern=b'cancel_order_'))
@@ -4019,7 +3953,6 @@ def withdrawals_page():
     return render_template('withdrawals.html', active_page='withdrawals')
 
 
-# 充值订单管理页面
 # 充值订单管理页面
 @app.route('/recharges')
 @login_required
@@ -5325,7 +5258,6 @@ def upgrade_broadcast_table():
     conn.commit()
     conn.close()
 
-upgrade_broadcast_table()
 upgrade_broadcast_table()
 from complete_all_features import add_new_routes_to_app
 add_new_routes_to_app(app, DB, login_required, jsonify, request, render_template)
