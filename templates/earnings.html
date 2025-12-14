@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}收益记录{% endblock %}
+
+{% block content %}
+<div>
+    <nav class="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200">
+        <div class="px-6 py-4">
+            <div class="flex items-center gap-4">
+                <div class="bg-green-50 p-2 rounded-xl text-green-600">
+                    <i class="ti ti-coins text-2xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-slate-900 leading-tight">收益记录</h1>
+                    <p class="text-xs text-slate-400 font-medium tracking-wide">EARNINGS RECORDS</p>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="px-6 py-8">
+        <!-- 搜索 -->
+        <div class="flex items-center gap-4 mb-6">
+            <div class="flex gap-2 flex-1 max-w-md">
+                <input type="text" id="search-input" placeholder="搜索用户ID或用户名..." 
+                    class="flex-1 pl-4 pr-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none text-sm">
+                <button id="search-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">搜索</button>
+            </div>
+        </div>
+
+        <!-- 表格 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-slate-500 font-medium">
+                    <tr>
+                        <th class="px-6 py-4 text-left">ID</th>
+                        <th class="px-6 py-4 text-left">用户</th>
+                        <th class="px-6 py-4 text-left">金额</th>
+                        <th class="px-6 py-4 text-left">来源</th>
+                        <th class="px-6 py-4 text-left">说明</th>
+                        <th class="px-6 py-4 text-left">时间</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body" class="divide-y divide-slate-100"></tbody>
+            </table>
+            <div id="empty" class="hidden py-16 text-center text-slate-400">暂无数据</div>
+            <div class="px-6 py-4 border-t border-slate-100 flex justify-between">
+                <span class="text-sm text-slate-500">共 <b id="total">0</b> 条</span>
+                <div class="flex gap-2">
+                    <button id="prev-btn" class="px-3 py-1 rounded border border-slate-200 text-slate-500 disabled:opacity-30">←</button>
+                    <span id="page-num" class="px-3 py-1 text-slate-600">1</span>
+                    <button id="next-btn" class="px-3 py-1 rounded border border-slate-200 text-slate-500 disabled:opacity-30">→</button>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed top-6 right-6 z-50 transform transition-all duration-300 translate-x-full opacity-0">
+    <div class="bg-white rounded-xl shadow-xl border p-4 flex items-center gap-3 min-w-[300px]">
+        <div id="toast-icon"></div>
+        <div>
+            <div id="toast-title" class="font-semibold text-slate-900"></div>
+            <div id="toast-msg" class="text-sm text-slate-500"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    let page = 1, search = '', pages = 1;
+    
+    // Toast
+    function toast(title, msg, ok) {
+        const t = document.getElementById('toast');
+        document.getElementById('toast-icon').innerHTML = ok 
+            ? '<div class="w-8 h-8 rounded-full bg-green-50 flex items-center justify-center"><i class="ti ti-check text-green-600"></i></div>'
+            : '<div class="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center"><i class="ti ti-x text-red-600"></i></div>';
+        document.getElementById('toast-title').textContent = title;
+        document.getElementById('toast-msg').textContent = msg;
+        t.classList.remove('translate-x-full', 'opacity-0');
+        setTimeout(() => t.classList.add('translate-x-full', 'opacity-0'), 3000);
+    }
+    
+    // 加载数据
+    async function load() {
+        let url = `/api/earnings?page=${page}`;
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            
+            const tbody = document.getElementById('table-body');
+            const empty = document.getElementById('empty');
+            
+            if (!data.records || data.records.length === 0) {
+                tbody.innerHTML = '';
+                empty.classList.remove('hidden');
+            } else {
+                empty.classList.add('hidden');
+                tbody.innerHTML = data.records.map(item => {
+                    return `<tr class="hover:bg-slate-50">
+                        <td class="px-6 py-4 text-slate-500">#${item.id}</td>
+                        <td class="px-6 py-4"><div class="font-medium text-slate-900">@${item.username || 'N/A'}</div><div class="text-xs text-slate-500">ID: ${item.member_id}</div></td>
+                        <td class="px-6 py-4 font-bold text-emerald-600">+${item.amount} U</td>
+                        <td class="px-6 py-4 text-slate-600">${item.source_type || '-'}</td>
+                        <td class="px-6 py-4 text-slate-600">${item.description || '-'}</td>
+                        <td class="px-6 py-4 text-slate-500 text-xs">${item.create_time}</td>
+                    </tr>`;
+                }).join('');
+            }
+            
+            document.getElementById('total').textContent = data.total || 0;
+            document.getElementById('page-num').textContent = data.page || 1;
+            pages = data.pages || 1;
+            document.getElementById('prev-btn').disabled = page <= 1;
+            document.getElementById('next-btn').disabled = page >= pages;
+        } catch (e) {
+            console.error('Load error:', e);
+            toast('加载失败', '网络错误', false);
+        }
+    }
+    
+    // 搜索按钮
+    document.getElementById('search-btn').addEventListener('click', function() {
+        search = document.getElementById('search-input').value.trim();
+        page = 1;
+        load();
+    });
+    
+    // 回车搜索
+    document.getElementById('search-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            search = this.value.trim();
+            page = 1;
+            load();
+        }
+    });
+    
+    // 分页
+    document.getElementById('prev-btn').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.getElementById('next-btn').addEventListener('click', () => { if (page < pages) { page++; load(); } });
+    
+    // 初始加载
+    load();
+})();
+</script>
+{% endblock %}
+

@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>会员管理 - 裂变机器人后台</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff', 100: '#e0e7ff',
+                            500: '#6366f1', 600: '#4f46e5', 700: '#4338ca'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .fade-in-up { animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(30, 41, 59, 0.05); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(71, 85, 105, 0.2); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.5); }
+        .modal { display: none; }
+        .modal.show { display: flex; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-600 antialiased">
+
+    <!-- 左侧导航栏 -->
+    <aside class="fixed left-0 top-0 h-screen w-64 bg-white border-r border-slate-100 flex flex-col transition-all duration-300 z-50 font-sans">
+        <div class="h-24 flex items-center px-6 border-b border-slate-50">
+            <div class="flex items-center gap-3">
+                <div class="relative group">
+                    <div class="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl blur opacity-10 group-hover:opacity-30 transition duration-200"></div>
+                    <div class="relative h-10 w-10 rounded-xl bg-white border border-indigo-50 flex items-center justify-center shadow-sm">
+                        <i class="ti ti-atom-2 text-xl text-indigo-600"></i>
+                    </div>
+                </div>
+                <div>
+                    <h1 class="text-base font-bold text-slate-800 tracking-tight font-sans">裂变机器人</h1>
+                    <div class="flex items-center gap-1.5">
+                        <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <p class="text-[10px] text-slate-400 font-bold tracking-widest uppercase">Admin Console</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <nav class="flex-1 overflow-y-auto py-6 px-4 space-y-1 custom-scrollbar">
+            <div class="px-3 mb-2 flex items-center gap-2">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">核心管理</span>
+                <div class="h-px flex-1 bg-slate-50"></div>
+            </div>
+            
+            <a href="/" class="group relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 bg-indigo-50 text-indigo-600">
+                <i class="ti ti-users text-lg"></i>
+                <span class="font-medium tracking-wide text-sm">会员管理</span>
+            </a>
+            
+            <a href="/settings" class="group relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 hover:bg-slate-50 hover:text-slate-900 text-slate-500 mt-1">
+                <i class="ti ti-settings-automation text-lg group-hover:text-indigo-500 transition-colors"></i>
+                <span class="font-medium tracking-wide text-sm">系统配置</span>
+            </a>
+
+            <div class="px-3 mb-2 mt-6 flex items-center gap-2">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">数据与财务</span>
+                <div class="h-px flex-1 bg-slate-50"></div>
+            </div>
+
+            <a href="/statistics" class="group relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 hover:bg-slate-50 hover:text-slate-900 text-slate-500">
+                <i class="ti ti-chart-pie text-lg group-hover:text-indigo-500 transition-colors"></i>
+                <span class="font-medium tracking-wide text-sm">统计报表</span>
+            </a>
+
+            <a href="/withdrawals" class="group relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 hover:bg-slate-50 hover:text-slate-900 text-slate-500">
+                <i class="ti ti-wallet text-lg group-hover:text-indigo-500 transition-colors"></i>
+                <span class="font-medium tracking-wide text-sm">提现审核</span>
+            </a>
+
+            <div class="px-3 mb-2 mt-6 flex items-center gap-2">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">内容管理</span>
+                <div class="h-px flex-1 bg-slate-50"></div>
+            </div>
+
+            <a href="/resources" class="group relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 hover:bg-slate-50 hover:text-slate-900 text-slate-500">
+                <i class="ti ti-folders text-lg group-hover:text-indigo-500 transition-colors"></i>
+                <span class="font-medium tracking-wide text-sm">行业资源</span>
+            </a>
+
+            <a href="/customer-service" class="group relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 hover:bg-slate-50 hover:text-slate-900 text-slate-500">
+                <i class="ti ti-headset text-lg group-hover:text-indigo-500 transition-colors"></i>
+                <span class="font-medium tracking-wide text-sm">客服管理</span>
+            </a>
+        </nav>
+
+        <div class="p-4 border-t border-slate-100">
+            <div class="flex items-center gap-3 p-2 rounded-xl bg-slate-50/50 border border-slate-100 hover:bg-white hover:shadow-md hover:border-indigo-100 transition-all duration-300 group cursor-pointer">
+                <div class="relative">
+                    <div class="h-8 w-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-indigo-200 shadow-lg">
+                        <i class="ti ti-user-shield text-sm"></i>
+                    </div>
+                    <span class="absolute bottom-0 right-0 block h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white"></span>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-bold text-slate-700 truncate group-hover:text-indigo-600 transition-colors">超级管理员</p>
+                    <p class="text-[10px] text-slate-400 truncate font-medium tracking-wide">System Admin</p>
+                </div>
+                <a href="/logout" class="text-slate-400 group-hover:text-slate-600 transition-colors">
+                    <i class="ti ti-logout text-sm"></i>
+                </a>
+            </div>
+        </div>
+    </aside>
+
+    <!-- 主内容区域 -->
+    <div class="ml-64 transition-all duration-300">
+        <nav class="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200">
+            <div class="px-6 py-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="bg-purple-50 p-2 rounded-xl text-purple-600">
+                            <i class="ti ti-users text-2xl"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-lg font-bold text-slate-900 leading-tight">会员管理</h1>
+                            <p class="text-xs text-slate-400 font-medium tracking-wide">MEMBER MANAGEMENT</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <main class="px-6 py-8 fade-in-up">
+            <!-- 统计卡片 -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center">
+                            <i class="ti ti-users text-2xl text-blue-600"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-slate-500 font-medium">总会员数</p>
+                            <p class="text-2xl font-bold text-slate-900" id="totalMembers">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center">
+                            <i class="ti ti-crown text-2xl text-amber-600"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-slate-500 font-medium">VIP会员</p>
+                            <p class="text-2xl font-bold text-slate-900" id="vipMembers">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center">
+                            <i class="ti ti-wallet text-2xl text-emerald-600"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-slate-500 font-medium">总余额 (U)</p>
+                            <p class="text-2xl font-bold text-emerald-600" id="totalBalance">0.00</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-rose-50 flex items-center justify-center">
+                            <i class="ti ti-alert-triangle text-2xl text-rose-600"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-slate-500 font-medium">错过余额 (U)</p>
+                            <p class="text-2xl font-bold text-rose-600" id="totalMissed">0.00</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 搜索栏 -->
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6 p-4">
+                <div class="flex gap-3">
+                    <div class="flex-1 relative">
+                        <i class="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                        <input type="text" id="searchInput" placeholder="搜索用户ID或用户名..." 
+                            class="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                            onkeypress="if(event.key==='Enter') searchMembers()">
+                    </div>
+                    <button onclick="searchMembers()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2">
+                        <i class="ti ti-search"></i> 搜索
+                    </button>
+                    <button onclick="loadMembers()" class="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors flex items-center gap-2">
+                        <i class="ti ti-refresh"></i> 刷新
+                    </button>
+                </div>
+            </div>
+
+            <!-- 会员表格 -->
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-slate-50 text-slate-500 font-medium">
+                            <tr>
+                                <th class="px-6 py-4">ID</th>
+                                <th class="px-6 py-4">用户ID</th>
+                                <th class="px-6 py-4">用户名</th>
+                                <th class="px-6 py-4">推荐人</th>
+                                <th class="px-6 py-4">余额</th>
+                                <th class="px-6 py-4">错过余额</th>
+                                <th class="px-6 py-4">VIP状态</th>
+                                <th class="px-6 py-4">注册时间</th>
+                                <th class="px-6 py-4 text-right">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="membersList" class="divide-y divide-slate-100">
+                            <tr><td colspan="9" class="px-6 py-12 text-center text-slate-400">
+                                <i class="ti ti-loader-2 animate-spin text-3xl mb-2"></i>
+                                <p>加载中...</p>
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 分页 -->
+                <div class="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-between">
+                    <div class="text-sm text-slate-600">
+                        共 <span id="totalCount" class="font-medium">0</span> 条记录
+                    </div>
+                    <div id="pagination" class="flex gap-2"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast提示 -->
+    <div id="toast" class="fixed top-6 right-6 z-[70] transform transition-all duration-300 translate-x-full opacity-0">
+        <div class="bg-white rounded-xl shadow-2xl border border-slate-100 p-4 flex items-start gap-3 min-w-[320px]">
+            <div id="toast-icon"></div>
+            <div class="flex-1">
+                <h4 id="toast-title" class="text-sm font-semibold text-slate-900"></h4>
+                <p id="toast-message" class="text-sm text-slate-500 mt-1"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 详情模态框 -->
+    <div id="detailModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl m-4 max-h-[90vh] overflow-y-auto">
+            <div class="p-6 border-b border-slate-200">
+                <h3 class="text-lg font-bold text-slate-900">会员详情</h3>
+            </div>
+            <div id="memberDetail" class="p-6"></div>
+            <div class="p-6 border-t border-slate-200 flex justify-end">
+                <button onclick="closeModal('detailModal')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑模态框 -->
+    <div id="editModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg m-4">
+            <div class="p-6 border-b border-slate-200">
+                <h3 class="text-lg font-bold text-slate-900">编辑会员</h3>
+            </div>
+            <div id="editForm" class="p-6"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 1;
+        let totalPages = 1;
+        let currentMember = null;
+
+        // Toast提示
+        function showToast(title, message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const icon = document.getElementById('toast-icon');
+            const titleEl = document.getElementById('toast-title');
+            const messageEl = document.getElementById('toast-message');
+
+            const icons = {
+                success: '<div class="h-8 w-8 rounded-full bg-green-50 flex items-center justify-center"><i class="ti ti-check text-green-600"></i></div>',
+                error: '<div class="h-8 w-8 rounded-full bg-red-50 flex items-center justify-center"><i class="ti ti-alert-triangle text-red-600"></i></div>'
+            };
+
+            icon.innerHTML = icons[type] || icons.success;
+            titleEl.textContent = title;
+            messageEl.textContent = message;
+
+            toast.classList.remove('translate-x-full', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-x-full', 'opacity-0');
+            }, 3000);
+        }
+
+        // 加载统计数据
+        async function loadStatistics() {
+            try {
+                const response = await fetch('/api/statistics');
+                const data = await response.json();
+
+                document.getElementById('totalMembers').textContent = data.total_members.toLocaleString();
+                document.getElementById('vipMembers').textContent = data.vip_members.toLocaleString();
+                document.getElementById('totalBalance').textContent = data.total_balance.toFixed(2);
+                document.getElementById('totalMissed').textContent = data.total_missed.toFixed(2);
+            } catch (error) {
+                console.error('加载统计失败:', error);
+                showToast('加载失败', error.message, 'error');
+            }
+        }
+
+        // 加载会员列表
+        async function loadMembers(page = 1) {
+            currentPage = page;
+            const search = document.getElementById('searchInput').value;
+            
+            try {
+                const response = await fetch(`/api/members?page=${page}&per_page=20&search=${encodeURIComponent(search)}`);
+                const data = await response.json();
+                
+                displayMembers(data.members);
+                displayPagination(data);
+                document.getElementById('totalCount').textContent = data.total;
+                totalPages = data.pages;
+            } catch (error) {
+                console.error('加载会员列表失败:', error);
+                document.getElementById('membersList').innerHTML = '<tr><td colspan="9" class="px-6 py-12 text-center text-red-500">加载失败，请刷新重试</td></tr>';
+                showToast('加载失败', error.message, 'error');
+            }
+        }
+
+        // 显示会员列表
+        function displayMembers(members) {
+            if (members.length === 0) {
+                document.getElementById('membersList').innerHTML = '<tr><td colspan="9" class="px-6 py-12 text-center text-slate-400">暂无数据</td></tr>';
+                return;
+            }
+
+            const html = members.map(m => {
+                const vipBadge = m.is_vip 
+                    ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700"><i class="ti ti-circle-check"></i> VIP</span>'
+                    : '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600"><i class="ti ti-user"></i> 普通</span>';
+                
+                return `<tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-6 py-4 text-slate-600">${m.id}</td>
+                    <td class="px-6 py-4 font-medium text-slate-900">${m.telegram_id}</td>
+                    <td class="px-6 py-4 text-indigo-600">@${m.username || 'N/A'}</td>
+                    <td class="px-6 py-4 text-slate-600">${m.referrer_name ? '@' + m.referrer_name : '-'}</td>
+                    <td class="px-6 py-4 font-bold text-slate-900">${m.balance} U</td>
+                    <td class="px-6 py-4 text-rose-500">${m.missed_balance} U</td>
+                    <td class="px-6 py-4">${vipBadge}</td>
+                    <td class="px-6 py-4 text-slate-500">${m.register_time ? m.register_time.split(' ')[0] : '-'}</td>
+                    <td class="px-6 py-4 text-right space-x-2">
+                        <button onclick="viewMember(${m.telegram_id})" class="text-indigo-600 hover:text-indigo-800 font-medium">详情</button>
+                        <button onclick="editMember(${m.telegram_id})" class="text-blue-600 hover:text-blue-800 font-medium">编辑</button>
+                        <button onclick="deleteMember(${m.telegram_id}, '@${m.username}')" class="text-red-600 hover:text-red-800 font-medium">删除</button>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            document.getElementById('membersList').innerHTML = html;
+        }
+
+        // 显示分页
+        function displayPagination(data) {
+            let html = '';
+            
+            // 上一页
+            if (currentPage > 1) {
+                html += `<button onclick="loadMembers(${currentPage - 1})" class="px-3 py-1 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"><i class="ti ti-chevron-left"></i></button>`;
+            }
+            
+            // 页码
+            const startPage = Math.max(1, currentPage - 2);
+            const endPage = Math.min(data.pages, currentPage + 2);
+            
+            for (let i = startPage; i <= endPage; i++) {
+                if (i === currentPage) {
+                    html += `<button class="px-3 py-1 bg-indigo-600 text-white rounded-lg font-medium">${i}</button>`;
+                } else {
+                    html += `<button onclick="loadMembers(${i})" class="px-3 py-1 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">${i}</button>`;
+                }
+            }
+            
+            // 下一页
+            if (currentPage < data.pages) {
+                html += `<button onclick="loadMembers(${currentPage + 1})" class="px-3 py-1 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"><i class="ti ti-chevron-right"></i></button>`;
+            }
+            
+            document.getElementById('pagination').innerHTML = html;
+        }
+
+        // 查看会员详情
+        async function viewMember(telegramId) {
+            try {
+                const response = await fetch(`/api/member/${telegramId}`);
+                const member = await response.json();
+                
+                const createRow = (label, value) => `
+                    <div class="flex justify-between py-3 border-b border-slate-100 last:border-0">
+                        <span class="text-sm font-medium text-slate-500">${label}</span>
+                        <span class="text-sm text-slate-900 font-medium">${value}</span>
+                    </div>`;
+
+                let html = '<div class="bg-slate-50 rounded-lg p-4 space-y-1">';
+                html += createRow('用户ID', member.telegram_id);
+                html += createRow('用户名', `@${member.username || 'N/A'}`);
+                html += createRow('推荐人', member.referrer_name ? `@${member.referrer_name}` : '无');
+                html += createRow('余额', `<span class="text-emerald-600 font-bold">${member.balance} U</span>`);
+                html += createRow('错过余额', `<span class="text-rose-500">${member.missed_balance} U</span>`);
+                html += createRow('群链接', member.group_link || '未设置');
+                html += createRow('备用号', member.backup_account || '未设置');
+                html += createRow('VIP状态', member.is_vip ? '<span class="text-emerald-600 font-bold">✓ 已开通</span>' : '<span class="text-slate-500">✗ 未开通</span>');
+                html += createRow('注册时间', member.register_time || '-');
+                if (member.vip_upgrade_time) {
+                    html += createRow('VIP开通时间', member.vip_upgrade_time);
+                }
+                html += '</div>';
+
+                // 显示下级列表
+                if (member.downlines && member.downlines.length > 0) {
+                    html += '<div class="mt-4"><h4 class="text-sm font-bold text-slate-900 mb-3">下级会员</h4>';
+                    html += '<div class="bg-slate-50 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">';
+                    member.downlines.forEach(d => {
+                        const vipIcon = d.is_vip ? '<i class="ti ti-circle-check text-emerald-600"></i>' : '<i class="ti ti-circle-x text-slate-400"></i>';
+                        html += `<div class="flex items-center justify-between py-2 px-3 bg-white rounded-lg">
+                            <span class="text-sm text-slate-700"><i class="ti ti-user-circle"></i> @${d.username || d.telegram_id}</span>
+                            <span>${vipIcon}</span>
+                        </div>`;
+                    });
+                    html += '</div></div>';
+                }
+                
+                document.getElementById('memberDetail').innerHTML = html;
+                showModal('detailModal');
+            } catch (error) {
+                console.error('加载详情失败:', error);
+                showToast('加载失败', error.message, 'error');
+            }
+        }
+
+        // 编辑会员
+        async function editMember(telegramId) {
+            try {
+                const response = await fetch(`/api/member/${telegramId}`);
+                currentMember = await response.json();
+                
+                const html = `
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">用户ID (不可修改)</label>
+                            <input type="text" value="${currentMember.telegram_id}" disabled class="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-500 cursor-not-allowed">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-2">余额 (U)</label>
+                                <input type="number" step="0.01" id="editBalance" value="${currentMember.balance}" class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-2">错过余额 (U)</label>
+                                <input type="number" step="0.01" id="editMissedBalance" value="${currentMember.missed_balance}" class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">VIP状态</label>
+                            <select id="editVipStatus" class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <option value="1" ${currentMember.is_vip ? 'selected' : ''}>VIP会员</option>
+                                <option value="0" ${!currentMember.is_vip ? 'selected' : ''}>普通会员</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">群链接</label>
+                            <input type="text" id="editGroupLink" value="${currentMember.group_link || ''}" class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="https://t.me/xxx">
+                        </div>
+                        <div class="flex gap-3 pt-4 border-t border-slate-200">
+                            <button onclick="closeModal('editModal')" class="flex-1 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-medium transition-colors">取消</button>
+                            <button onclick="saveEdit()" class="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors">保存</button>
+                        </div>
+                    </div>
+                `;
+                
+                document.getElementById('editForm').innerHTML = html;
+                showModal('editModal');
+            } catch (error) {
+                console.error('加载编辑表单失败:', error);
+                showToast('加载失败', error.message, 'error');
+            }
+        }
+
+        // 保存编辑
+        async function saveEdit() {
+            if (!currentMember) return;
+            
+            const data = {
+                balance: parseFloat(document.getElementById('editBalance').value),
+                missed_balance: parseFloat(document.getElementById('editMissedBalance').value),
+                is_vip: parseInt(document.getElementById('editVipStatus').value),
+                group_link: document.getElementById('editGroupLink').value
+            };
+            
+            try {
+                const response = await fetch(`/api/member/${currentMember.telegram_id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    showToast('保存成功', '会员信息已更新');
+                    closeModal('editModal');
+                    loadMembers(currentPage);
+                    loadStatistics();
+                } else {
+                    showToast('保存失败', result.message, 'error');
+                }
+            } catch (error) {
+                showToast('保存失败', error.message, 'error');
+            }
+        }
+
+        // 删除会员
+        async function deleteMember(telegramId, username) {
+            if (!confirm(`确定要删除会员 ${username} 吗？此操作不可恢复！`)) return;
+            
+            try {
+                const response = await fetch(`/api/member/${telegramId}`, { method: 'DELETE' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showToast('删除成功', '会员已删除');
+                    loadMembers(currentPage);
+                    loadStatistics();
+                } else {
+                    showToast('删除失败', result.message, 'error');
+                }
+            } catch (error) {
+                showToast('删除失败', error.message, 'error');
+            }
+        }
+
+        // 搜索会员
+        function searchMembers() {
+            loadMembers(1);
+        }
+
+        // 模态框控制
+        function showModal(modalId) {
+            document.getElementById(modalId).classList.add('show');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStatistics();
+            loadMembers();
+        });
+    </script>
+</body>
+</html>

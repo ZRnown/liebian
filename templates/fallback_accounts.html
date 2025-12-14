@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-8">
+        <h1 class="text-2xl font-bold text-slate-800">捡漏账号管理</h1>
+        <button onclick="showAddAccountModal()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+            添加账号
+        </button>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="p-6">
+            <div id="accountsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- 账号列表将通过JavaScript动态加载 -->
+                <div class="text-center py-8 text-slate-400">加载中...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加/编辑账号模态框 -->
+<div id="accountModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+    <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold" id="modalTitle">添加捡漏账号</h3>
+            <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600">
+                <i class="ti ti-x text-xl"></i>
+            </button>
+        </div>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Telegram 用户名</label>
+                <input type="text" id="usernameInput" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">群组链接</label>
+                <input type="text" id="groupLinkInput" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="https://t.me/your_group">
+            </div>
+            <div class="pt-2">
+                <button onclick="saveAccount()" class="w-full py-2 px-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+                    保存
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentEditId = null;
+
+    // 加载账号列表
+    async function loadAccounts() {
+        try {
+            const res = await fetch('/api/fallback-accounts');
+            const data = await res.json();
+            const container = document.getElementById('accountsList');
+
+            if (!data.accounts || data.accounts.length === 0) {
+                container.innerHTML = '<div class="col-span-full text-center py-8 text-slate-400">暂无数据</div>';
+                return;
+            }
+
+            container.innerHTML = data.accounts.map(acc => `
+                <div class="bg-white rounded-lg shadow-sm p-6 border border-slate-200 hover:shadow-md transition">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-bold text-slate-900">${acc.username || '未设置'}</h3>
+                        <span class="px-3 py-1 rounded-full text-xs font-semibold ${acc.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
+                            ${acc.is_active ? '✅ 启用' : '❌ 停用'}
+                        </span>
+                    </div>
+                    <div class="space-y-2 text-sm text-slate-600">
+                        <div class="flex items-center">
+                            <i class="ti ti-id mr-2"></i>
+                            <span>ID: ${acc.id}</span>
+                        </div>
+                        <div class="flex items-center">
+                            <i class="ti ti-link mr-2"></i>
+                            <a href="${acc.group_link || '#'}" target="_blank" class="text-indigo-600 hover:underline truncate">
+                                ${acc.group_link || '未设置群组链接'}
+                            </a>
+                        </div>
+                        <div class="flex items-center">
+                            <i class="ti ti-coin mr-2"></i>
+                            <span>累计收益: ${acc.total_earned || 0} U</span>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex space-x-2">
+                        <button onclick="editAccount(${acc.id}, '${(acc.username || '').replace(/'/g, "\\'")}', '${(acc.group_link || '').replace(/'/g, "\\'")}')" class="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors">
+                            编辑
+                        </button>
+                        <button onclick="toggleAccountStatus(${acc.id}, ${acc.is_active ? 'false' : 'true'})" class="px-3 py-1.5 text-sm ${acc.is_active ? 'bg-red-50 hover:bg-red-100 text-red-600' : 'bg-green-50 hover:bg-green-100 text-green-600'} rounded-lg transition-colors">
+                            ${acc.is_active ? '停用' : '启用'}
+                        </button>
+                        <button onclick="deleteAccount(${acc.id})" class="px-3 py-1.5 text-sm bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors">
+                            删除
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        } catch (error) {
+            console.error('加载账号失败:', error);
+            showToast('错误', '加载账号失败: ' + error.message, 'error');
+        }
+    }
+
+    // 显示添加账号模态框
+    function showAddAccountModal() {
+        currentEditId = null;
+        document.getElementById('modalTitle').textContent = '添加捡漏账号';
+        document.getElementById('usernameInput').value = '';
+        document.getElementById('groupLinkInput').value = '';
+        document.getElementById('accountModal').classList.remove('hidden');
+    }
+
+    // 显示编辑账号模态框
+    function editAccount(id, username, groupLink) {
+        currentEditId = id;
+        document.getElementById('modalTitle').textContent = '编辑捡漏账号';
+        document.getElementById('usernameInput').value = username || '';
+        document.getElementById('groupLinkInput').value = groupLink || '';
+        document.getElementById('accountModal').classList.remove('hidden');
+    }
+    
+    // 删除账号
+    async function deleteAccount(id) {
+        if (!confirm('确定要删除此捡漏账号吗？删除后无法恢复！')) return;
+        
+        try {
+            const response = await fetch(`/api/fallback-accounts/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                showToast('成功', '账号已删除');
+                loadAccounts();
+            } else {
+                showToast('错误', data.message || '删除失败', 'error');
+            }
+        } catch (error) {
+            console.error('删除失败:', error);
+            showToast('错误', '删除失败: ' + error.message, 'error');
+        }
+    }
+
+    // 关闭模态框
+    function closeModal() {
+        document.getElementById('accountModal').classList.add('hidden');
+    }
+
+    // 保存账号
+    async function saveAccount() {
+        const username = document.getElementById('usernameInput').value.trim();
+        const groupLink = document.getElementById('groupLinkInput').value.trim();
+
+        if (!username && !currentEditId) {
+            showToast('错误', '请输入Telegram用户名', 'error');
+            return;
+        }
+
+        try {
+            const url = currentEditId 
+                ? `/api/fallback-accounts/${currentEditId}`
+                : '/api/fallback-accounts';
+            
+            const method = currentEditId ? 'PUT' : 'POST';
+            
+            // 如果是编辑，需要telegram_id
+            let bodyData = {
+                username: username || undefined,
+                group_link: groupLink
+            };
+            const response = await fetch(url, {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(bodyData),
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                showToast('成功', currentEditId ? '更新成功' : '添加成功');
+                closeModal();
+                loadAccounts();
+            } else {
+                showToast('错误', data.message || '操作失败', 'error');
+            }
+        } catch (error) {
+            console.error('保存失败:', error);
+            showToast('错误', '保存失败: ' + error.message, 'error');
+        }
+    }
+
+    // 切换账号状态
+    async function toggleAccountStatus(id, isActive) {
+        if (!confirm(`确定要${isActive ? '启用' : '停用'}此账号吗？`)) return;
+
+        try {
+            const response = await fetch(`/api/fallback-accounts/${id}/status`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    is_active: isActive
+                }),
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                showToast('成功', `账号已${isActive ? '启用' : '停用'}`);
+                loadAccounts();
+            } else {
+                showToast('错误', data.message || '操作失败', 'error');
+            }
+        } catch (error) {
+            console.error('操作失败:', error);
+            showToast('错误', '操作失败: ' + error.message, 'error');
+        }
+    }
+
+    // 显示提示
+    function showToast(title, message, type = 'success') {
+        // 创建提示元素
+        const toast = document.createElement('div');
+        toast.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
+            type === 'success' ? 'bg-green-500' : 'bg-red-500'
+        } text-white max-w-xs`;
+        
+        toast.innerHTML = `
+            <div class="font-semibold">${title}</div>
+            <div class="text-sm opacity-90">${message}</div>
+        `;
+        
+        document.body.appendChild(toast);
+        
+        // 3秒后自动移除
+        setTimeout(() => {
+            toast.classList.add('opacity-0', 'transition-opacity', 'duration-300');
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 300);
+        }, 3000);
+    }
+
+    // 页面加载完成后执行
+    document.addEventListener('DOMContentLoaded', () => {
+        loadAccounts();
+    });
+</script>
+{% endblock %}

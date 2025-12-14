@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+
+{% block title %}会员管理{% endblock %}
+
+{% block content %}
+<main class="px-6 py-8">
+    <!-- 统计卡片 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center">
+                    <i class="ti ti-users text-2xl text-blue-600"></i>
+                </div>
+                <div>
+                    <p class="text-sm text-slate-500 font-medium">总会员数</p>
+                    <p class="text-2xl font-bold text-slate-900" id="totalMembers">0</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center">
+                    <i class="ti ti-crown text-2xl text-amber-600"></i>
+                </div>
+                <div>
+                    <p class="text-sm text-slate-500 font-medium">VIP会员</p>
+                    <p class="text-2xl font-bold text-slate-900" id="vipMembers">0</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center">
+                    <i class="ti ti-wallet text-2xl text-emerald-600"></i>
+                </div>
+                <div>
+                    <p class="text-sm text-slate-500 font-medium">总余额 (U)</p>
+                    <p class="text-2xl font-bold text-emerald-600" id="totalBalance">0.00</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-rose-50 flex items-center justify-center">
+                    <i class="ti ti-alert-triangle text-2xl text-rose-600"></i>
+                </div>
+                <div>
+                    <p class="text-sm text-slate-500 font-medium">错过余额 (U)</p>
+                    <p class="text-2xl font-bold text-rose-600" id="totalMissed">0.00</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 搜索栏 -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6 p-4">
+        <div class="flex gap-3">
+            <div class="flex-1 relative">
+                <i class="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                <input type="text" id="searchInput" placeholder="搜索用户ID或用户名..." 
+                    class="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    onkeypress="if(event.key==='Enter') searchMembers()">
+            </div>
+            <button onclick="searchMembers()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2">
+                <i class="ti ti-search"></i> 搜索
+            </button>
+            <button onclick="loadMembers()" class="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors flex items-center gap-2">
+                <i class="ti ti-refresh"></i> 刷新
+            </button>
+        </div>
+    </div>
+
+    <!-- 会员表格 -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left">
+                <thead class="bg-slate-50 text-slate-500 font-medium">
+                    <tr>
+                        <th class="px-6 py-4">ID</th>
+                        <th class="px-6 py-4">用户ID</th>
+                        <th class="px-6 py-4">用户名</th>
+                        <th class="px-6 py-4">备用号</th>
+                        <th class="px-6 py-4">推荐人</th>
+                        <th class="px-6 py-4">余额</th>
+                        <th class="px-6 py-4">错过余额</th>
+                        <th class="px-6 py-4">群链接</th>
+                        <th class="px-6 py-4">是否拉群</th>
+                        <th class="px-6 py-4">是否群管</th>
+                        <th class="px-6 py-4">是否加群</th>
+                        <th class="px-6 py-4">VIP状态</th>
+                        <th class="px-6 py-4">直推人数</th>
+                        <th class="px-6 py-4">团队人数</th>
+                        <th class="px-6 py-4">注册时间</th>
+                        <th class="px-6 py-4">VIP时间</th>
+                        <th class="px-6 py-4 text-right">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="membersList" class="divide-y divide-slate-100">
+                    <tr><td colspan="17" class="px-6 py-12 text-center text-slate-400">
+                        <i class="ti ti-loader-2 animate-spin text-3xl mb-2"></i>
+                        <p>加载中...</p>
+                    </td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- 分页 -->
+        <div class="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-between">
+            <div class="text-sm text-slate-600">
+                共 <span id="totalCount" class="font-medium">0</span> 条记录
+            </div>
+            <div id="pagination" class="flex gap-2"></div>
+        </div>
+    </div>
+</main>
+
+<!-- Toast提示 -->
+<div id="toast" class="fixed top-6 right-6 z-[70] transform transition-all duration-300 translate-x-full opacity-0">
+    <div class="bg-white rounded-xl shadow-2xl border border-slate-100 p-4 flex items-start gap-3 min-w-[320px]">
+        <div id="toast-icon"></div>
+        <div class="flex-1">
+            <h4 id="toast-title" class="text-sm font-semibold text-slate-900"></h4>
+            <p id="toast-message" class="text-sm text-slate-500 mt-1"></p>
+        </div>
+    </div>
+</div>
+
+<!-- 详情模态框 -->
+<div id="detailModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl m-4 max-h-[90vh] overflow-y-auto">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-bold text-slate-900">会员详情</h3>
+        </div>
+        <div id="memberDetail" class="p-6"></div>
+        <div class="p-6 border-t border-slate-200 flex justify-end">
+            <button onclick="closeModal('detailModal')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors">关闭</button>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑模态框 -->
+<div id="editModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm hidden">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg m-4">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-bold text-slate-900">编辑会员</h3>
+        </div>
+        <div id="editForm" class="p-6"></div>
+    </div>
+</div>
+
+<style>
+.modal.show { display: flex !important; }
+</style>
+
+<script>
+let currentPage = 1;
+let totalPages = 1;
+let currentMember = null;
+
+function showToast(title, message, type = 'success') {
+    const toast = document.getElementById('toast');
+    const icon = document.getElementById('toast-icon');
+    document.getElementById('toast-title').textContent = title;
+    document.getElementById('toast-message').textContent = message;
+    icon.innerHTML = type === 'success' 
+        ? '<div class="h-8 w-8 rounded-full bg-green-50 flex items-center justify-center"><i class="ti ti-check text-green-600"></i></div>'
+        : '<div class="h-8 w-8 rounded-full bg-red-50 flex items-center justify-center"><i class="ti ti-alert-triangle text-red-600"></i></div>';
+    toast.classList.remove('translate-x-full', 'opacity-0');
+    setTimeout(() => toast.classList.add('translate-x-full', 'opacity-0'), 3000);
+}
+
+async function loadStatistics() {
+    try {
+        const response = await fetch('/api/statistics');
+        const data = await response.json();
+        document.getElementById('totalMembers').textContent = data.total_members.toLocaleString();
+        document.getElementById('vipMembers').textContent = data.vip_members.toLocaleString();
+        document.getElementById('totalBalance').textContent = data.total_balance.toFixed(2);
+        document.getElementById('totalMissed').textContent = data.total_missed.toFixed(2);
+    } catch (error) {
+        console.error('加载统计失败:', error);
+    }
+}
+
+async function loadMembers(page = 1) {
+    currentPage = page;
+    const search = document.getElementById('searchInput').value;
+    try {
+        const response = await fetch(`/api/members?page=${page}&per_page=20&search=${encodeURIComponent(search)}`);
+        const data = await response.json();
+        displayMembers(data.members);
+        displayPagination(data);
+        document.getElementById('totalCount').textContent = data.total;
+    } catch (error) {
+        document.getElementById('membersList').innerHTML = '<tr><td colspan="17" class="px-6 py-12 text-center text-red-500">加载失败</td></tr>';
+    }
+}
+
+function displayMembers(members) {
+    if (!members || members.length === 0) {
+        document.getElementById('membersList').innerHTML = '<tr><td colspan="17" class="px-6 py-12 text-center text-slate-400">暂无数据</td></tr>';
+        return;
+    }
+    const checkIcon = (v) => v ? '<span class="text-green-500">✅</span>' : '<span class="text-red-500">❌</span>';
+    const html = members.map(m => `<tr class="hover:bg-slate-50">
+        <td class="px-6 py-4">${m.id}</td>
+        <td class="px-6 py-4 font-medium">${m.telegram_id}</td>
+        <td class="px-6 py-4 text-indigo-600">@${m.username || 'N/A'}</td>
+        <td class="px-6 py-4">${m.backup_account || '-'}</td>
+        <td class="px-6 py-4">${m.referrer_name ? '@' + m.referrer_name : '-'}</td>
+        <td class="px-6 py-4 font-bold">${m.balance} U</td>
+        <td class="px-6 py-4 text-rose-500">${m.missed_balance} U</td>
+        <td class="px-6 py-4">${m.group_link ? '<a href="' + m.group_link + '" target="_blank" class="text-blue-500">查看</a>' : '-'}</td>
+        <td class="px-6 py-4 text-center">${checkIcon(m.is_group_bound)}</td>
+        <td class="px-6 py-4 text-center">${checkIcon(m.is_bot_admin)}</td>
+        <td class="px-6 py-4 text-center">${checkIcon(m.is_joined_upline)}</td>
+        <td class="px-6 py-4">${m.is_vip ? '<span class="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700">VIP</span>' : '<span class="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">普通</span>'}</td>
+        <td class="px-6 py-4 text-center">${m.direct_count || 0}</td>
+        <td class="px-6 py-4 text-center">${m.team_count || 0}</td>
+        <td class="px-6 py-4">${m.register_time ? m.register_time.split(' ')[0] : '-'}</td>
+        <td class="px-6 py-4">${m.vip_time ? m.vip_time.split(' ')[0] : '-'}</td>
+        <td class="px-6 py-4 text-right space-x-2">
+            <button onclick="viewMember(${m.telegram_id})" class="text-indigo-600 hover:text-indigo-800">详情</button>
+            <a href="/team-graph/${m.telegram_id}" class="text-purple-600 hover:text-purple-800">团队</a>
+            <button onclick="editMember(${m.telegram_id})" class="text-blue-600 hover:text-blue-800">编辑</button>
+            <button onclick="deleteMember(${m.telegram_id}, '@${m.username}')" class="text-red-600 hover:text-red-800">删除</button>
+        </td>
+    </tr>`).join('');
+    document.getElementById('membersList').innerHTML = html;
+}
+
+function displayPagination(data) {
+    let html = '';
+    if (currentPage > 1) html += `<button onclick="loadMembers(${currentPage-1})" class="px-3 py-1 border rounded-lg hover:bg-slate-50"><i class="ti ti-chevron-left"></i></button>`;
+    for (let i = Math.max(1, currentPage-2); i <= Math.min(data.pages, currentPage+2); i++) {
+        html += i === currentPage 
+            ? `<button class="px-3 py-1 bg-indigo-600 text-white rounded-lg">${i}</button>`
+            : `<button onclick="loadMembers(${i})" class="px-3 py-1 border rounded-lg hover:bg-slate-50">${i}</button>`;
+    }
+    if (currentPage < data.pages) html += `<button onclick="loadMembers(${currentPage+1})" class="px-3 py-1 border rounded-lg hover:bg-slate-50"><i class="ti ti-chevron-right"></i></button>`;
+    document.getElementById('pagination').innerHTML = html;
+}
+
+async function viewMember(telegramId) {
+    try {
+        const response = await fetch(`/api/member/${telegramId}`);
+        const m = await response.json();
+        document.getElementById('memberDetail').innerHTML = `<div class="space-y-3">
+            <p><strong>用户ID:</strong> ${m.telegram_id}</p>
+            <p><strong>用户名:</strong> @${m.username || 'N/A'}</p>
+            <p><strong>余额:</strong> ${m.balance} U</p>
+            <p><strong>VIP状态:</strong> ${m.is_vip ? '✅ VIP' : '❌ 普通'}</p>
+            <p><strong>注册时间:</strong> ${m.register_time || '-'}</p>
+        </div>`;
+        showModal('detailModal');
+    } catch (error) {
+        showToast('加载失败', error.message, 'error');
+    }
+}
+
+async function editMember(telegramId) {
+    try {
+        const response = await fetch(`/api/member/${telegramId}`);
+        currentMember = await response.json();
+        document.getElementById('editForm').innerHTML = `<div class="space-y-4">
+            <div><label class="block text-sm font-medium mb-2">余额 (U)</label>
+            <input type="number" step="0.01" id="editBalance" value="${currentMember.balance}" class="w-full px-3 py-2 border rounded-lg"></div>
+            <div><label class="block text-sm font-medium mb-2">VIP状态</label>
+            <select id="editVipStatus" class="w-full px-3 py-2 border rounded-lg">
+                <option value="1" ${currentMember.is_vip ? 'selected' : ''}>VIP</option>
+                <option value="0" ${!currentMember.is_vip ? 'selected' : ''}>普通</option>
+            </select></div>
+            <div class="flex gap-3 pt-4">
+                <button onclick="closeModal('editModal')" class="flex-1 px-4 py-2 border rounded-lg">取消</button>
+                <button onclick="saveEdit()" class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg">保存</button>
+            </div>
+        </div>`;
+        showModal('editModal');
+    } catch (error) {
+        showToast('加载失败', error.message, 'error');
+    }
+}
+
+async function saveEdit() {
+    if (!currentMember) return;
+    try {
+        const response = await fetch(`/api/member/${currentMember.telegram_id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                balance: parseFloat(document.getElementById('editBalance').value),
+                is_vip: parseInt(document.getElementById('editVipStatus').value)
+            })
+        });
+        const result = await response.json();
+        if (result.success) {
+            showToast('保存成功', '会员信息已更新');
+            closeModal('editModal');
+            loadMembers(currentPage);
+            loadStatistics();
+        } else {
+            showToast('保存失败', result.message, 'error');
+        }
+    } catch (error) {
+        showToast('保存失败', error.message, 'error');
+    }
+}
+
+async function deleteMember(telegramId, username) {
+    if (!confirm(`确定要删除会员 ${username} 吗？`)) return;
+    try {
+        const response = await fetch(`/api/member/${telegramId}`, { method: 'DELETE' });
+        const result = await response.json();
+        if (result.success) {
+            showToast('删除成功', '会员已删除');
+            loadMembers(currentPage);
+            loadStatistics();
+        }
+    } catch (error) {
+        showToast('删除失败', error.message, 'error');
+    }
+}
+
+function searchMembers() { loadMembers(1); }
+function showModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadStatistics();
+    loadMembers();
+});
+</script>
+{% endblock %}

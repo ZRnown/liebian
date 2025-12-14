@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+
+{% block title %}提现管理{% endblock %}
+
+{% block content %}
+<div>
+    <nav class="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200">
+        <div class="px-6 py-4">
+            <div class="flex items-center gap-4">
+                <div class="bg-purple-50 p-2 rounded-xl text-purple-600">
+                    <i class="ti ti-wallet text-2xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-slate-900 leading-tight">提现审核</h1>
+                    <p class="text-xs text-slate-400 font-medium tracking-wide">WITHDRAWAL MANAGEMENT</p>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="px-6 py-8">
+        <!-- 搜索和筛选 -->
+        <div class="flex items-center gap-4 mb-6">
+            <div class="flex gap-2 flex-1 max-w-md">
+                <input type="text" id="search-input" placeholder="搜索用户名或ID..." 
+                    class="flex-1 pl-4 pr-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none text-sm">
+                <button id="search-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">搜索</button>
+            </div>
+            <div class="flex gap-2">
+                <button class="filter-btn px-4 py-2 rounded-lg text-sm font-medium bg-indigo-50 text-indigo-600 border border-indigo-200" data-status="all">全部</button>
+                <button class="filter-btn px-4 py-2 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-600" data-status="pending">待处理</button>
+                <button class="filter-btn px-4 py-2 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-600" data-status="approved">已完成</button>
+                <button class="filter-btn px-4 py-2 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-600" data-status="rejected">已拒绝</button>
+            </div>
+        </div>
+
+        <!-- 表格 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-slate-500 font-medium">
+                    <tr>
+                        <th class="px-6 py-4 text-left">ID</th>
+                        <th class="px-6 py-4 text-left">用户</th>
+                        <th class="px-6 py-4 text-left">金额</th>
+                        <th class="px-6 py-4 text-left">地址</th>
+                        <th class="px-6 py-4 text-left">时间</th>
+                        <th class="px-6 py-4 text-left">状态</th>
+                        <th class="px-6 py-4 text-right">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body" class="divide-y divide-slate-100"></tbody>
+            </table>
+            <div id="empty" class="hidden py-16 text-center text-slate-400">暂无数据</div>
+            <div class="px-6 py-4 border-t border-slate-100 flex justify-between">
+                <span class="text-sm text-slate-500">共 <b id="total">0</b> 条</span>
+                <div class="flex gap-2">
+                    <button id="prev-btn" class="px-3 py-1 rounded border border-slate-200 text-slate-500 disabled:opacity-30">←</button>
+                    <span id="page-num" class="px-3 py-1 text-slate-600">1</span>
+                    <button id="next-btn" class="px-3 py-1 rounded border border-slate-200 text-slate-500 disabled:opacity-30">→</button>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed top-6 right-6 z-50 transform transition-all duration-300 translate-x-full opacity-0">
+    <div class="bg-white rounded-xl shadow-xl border p-4 flex items-center gap-3 min-w-[300px]">
+        <div id="toast-icon"></div>
+        <div>
+            <div id="toast-title" class="font-semibold text-slate-900"></div>
+            <div id="toast-msg" class="text-sm text-slate-500"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    let page = 1, status = 'all', search = '', pages = 1;
+    
+    // Toast
+    function toast(title, msg, ok) {
+        const t = document.getElementById('toast');
+        document.getElementById('toast-icon').innerHTML = ok 
+            ? '<div class="w-8 h-8 rounded-full bg-green-50 flex items-center justify-center"><i class="ti ti-check text-green-600"></i></div>'
+            : '<div class="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center"><i class="ti ti-x text-red-600"></i></div>';
+        document.getElementById('toast-title').textContent = title;
+        document.getElementById('toast-msg').textContent = msg;
+        t.classList.remove('translate-x-full', 'opacity-0');
+        setTimeout(() => t.classList.add('translate-x-full', 'opacity-0'), 3000);
+    }
+    
+    // 加载数据
+    async function load() {
+        let url = `/api/withdrawals?page=${page}&status=${status}`;
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        
+        console.log('Loading:', url);
+        
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            console.log('Data:', data);
+            
+            const tbody = document.getElementById('table-body');
+            const empty = document.getElementById('empty');
+            
+            if (!data.withdrawals || data.withdrawals.length === 0) {
+                tbody.innerHTML = '';
+                empty.classList.remove('hidden');
+            } else {
+                empty.classList.add('hidden');
+                tbody.innerHTML = data.withdrawals.map(item => {
+                    let statusHtml = '', actionHtml = '';
+                    if (item.status === 'pending') {
+                        statusHtml = '<span class="px-2 py-1 rounded-full text-xs bg-amber-50 text-amber-700">待处理</span>';
+                        actionHtml = `<button onclick="window.processW(${item.id}, 'approve')" class="text-emerald-600 hover:text-emerald-800 font-medium mr-3">✓ 同意</button>
+                                      <button onclick="window.processW(${item.id}, 'reject')" class="text-rose-600 hover:text-rose-800 font-medium">✗ 拒绝</button>`;
+                    } else if (item.status === 'approved') {
+                        statusHtml = '<span class="px-2 py-1 rounded-full text-xs bg-emerald-50 text-emerald-700">已完成</span>';
+                        actionHtml = `<span class="text-xs text-slate-400">${item.process_time || ''}</span>`;
+                    } else {
+                        statusHtml = '<span class="px-2 py-1 rounded-full text-xs bg-rose-50 text-rose-700">已拒绝</span>';
+                        actionHtml = `<button onclick="window.processW(${item.id}, 'approve')" class="text-emerald-600 hover:text-emerald-800 font-medium mr-3">✓ 改为已完成</button>
+                                      <span class="text-xs text-slate-400">${item.process_time || ''}</span>`;
+                    }
+                    return `<tr class="hover:bg-slate-50">
+                        <td class="px-6 py-4 text-slate-500">#${item.id}</td>
+                        <td class="px-6 py-4"><div class="font-medium text-slate-900">@${item.username || 'N/A'}</div><div class="text-xs text-slate-500">ID: ${item.member_id}</div></td>
+                        <td class="px-6 py-4 font-bold text-slate-700">${item.amount} U</td>
+                        <td class="px-6 py-4">
+                            <div class="flex items-center gap-2">
+                                <div class="font-mono text-xs text-slate-700" id="addr-${item.id}">${item.usdt_address || '-'}</div>
+                                ${item.usdt_address ? `<button onclick="copyAddress(${item.id})" class="px-2 py-1 text-xs bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition-colors" title="复制地址">
+                                    <i class="ti ti-copy"></i>
+                                </button>` : ''}
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 text-slate-500 text-xs">${item.create_time}</td>
+                        <td class="px-6 py-4">${statusHtml}</td>
+                        <td class="px-6 py-4 text-right">${actionHtml}</td>
+                    </tr>`;
+                }).join('');
+            }
+            
+            document.getElementById('total').textContent = data.total || 0;
+            document.getElementById('page-num').textContent = data.page || 1;
+            pages = data.pages || 1;
+            document.getElementById('prev-btn').disabled = page <= 1;
+            document.getElementById('next-btn').disabled = page >= pages;
+        } catch (e) {
+            console.error('Load error:', e);
+            toast('加载失败', '网络错误', false);
+        }
+    }
+    
+    // 复制地址
+    function copyAddress(id) {
+        const addr = document.getElementById(`addr-${id}`).textContent;
+        navigator.clipboard.writeText(addr).then(() => {
+            toast('已复制', '地址已复制到剪贴板', true);
+        }).catch(() => {
+            // 降级方案
+            const textarea = document.createElement('textarea');
+            textarea.value = addr;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            toast('已复制', '地址已复制到剪贴板', true);
+        });
+    }
+    
+    // 处理提现
+    window.processW = async function(id, action) {
+        try {
+            const res = await fetch(`/api/withdrawals/${id}/process`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action})
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast('操作成功', data.message, true);
+                load();
+            } else {
+                toast('操作失败', data.message, false);
+            }
+        } catch (e) {
+            toast('操作失败', '网络错误', false);
+        }
+    };
+    
+    // 搜索按钮
+    document.getElementById('search-btn').addEventListener('click', function() {
+        search = document.getElementById('search-input').value.trim();
+        page = 1;
+        console.log('Search clicked, keyword:', search);
+        load();
+    });
+    
+    // 回车搜索
+    document.getElementById('search-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            search = this.value.trim();
+            page = 1;
+            console.log('Enter pressed, keyword:', search);
+            load();
+        }
+    });
+    
+    // 筛选按钮
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            status = this.dataset.status;
+            page = 1;
+            document.querySelectorAll('.filter-btn').forEach(b => {
+                b.className = b.dataset.status === status 
+                    ? 'filter-btn px-4 py-2 rounded-lg text-sm font-medium bg-indigo-50 text-indigo-600 border border-indigo-200'
+                    : 'filter-btn px-4 py-2 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-600';
+            });
+            load();
+        });
+    });
+    
+    // 分页
+    document.getElementById('prev-btn').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.getElementById('next-btn').addEventListener('click', () => { if (page < pages) { page++; load(); } });
+    
+    // 初始加载
+    load();
+})();
+</script>
+{% endblock %}

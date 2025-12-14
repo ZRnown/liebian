@@ -1,0 +1,714 @@
+{% extends "base.html" %}
+
+{% block title %}会员管理{% endblock %}
+
+{% block content %}
+<main class="px-4 py-6">
+    <!-- 统计卡片 -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+                    <i class="ti ti-users text-xl text-blue-600"></i>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-500">总会员</p>
+                    <p class="text-xl font-bold text-slate-900" id="totalMembers">0</p>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center">
+                    <i class="ti ti-crown text-xl text-amber-600"></i>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-500">VIP会员</p>
+                    <p class="text-xl font-bold text-amber-600" id="vipMembers">0</p>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center">
+                    <i class="ti ti-wallet text-xl text-emerald-600"></i>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-500">总余额</p>
+                    <p class="text-xl font-bold text-emerald-600" id="totalBalance">0</p>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-rose-50 flex items-center justify-center">
+                    <i class="ti ti-alert-triangle text-xl text-rose-600"></i>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-500">错过余额</p>
+                    <p class="text-xl font-bold text-rose-600" id="totalMissed">0</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 筛选工具栏 -->
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 p-3">
+        <div class="flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-2">
+                <span class="text-sm text-slate-600 font-medium">筛选:</span>
+                <select id="filterType" onchange="loadMembers(1)" class="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white">
+                    <option value="all">全部</option>
+                    <option value="vip">VIP会员</option>
+                    <option value="normal">普通会员</option>
+                </select>
+            </div>
+            
+            <div class="flex-1 min-w-[200px]">
+                <div class="relative">
+                    <i class="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                    <input type="text" id="searchInput" placeholder="搜索ID/用户名..."
+                        class="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg"
+                        onkeypress="if(event.key==='Enter') loadMembers(1)">
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-2">
+                <button onclick="loadMembers(1)" class="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium">
+                    <i class="ti ti-search text-sm"></i> 搜索
+                </button>
+                <button onclick="loadMembers()" class="px-3 py-1.5 text-sm border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg font-medium">
+                    <i class="ti ti-refresh text-sm"></i> 刷新
+                </button>
+            </div>
+            
+            <div class="flex items-center gap-2 border-l border-slate-200 pl-3">
+                <button onclick="showAddModal()" class="px-3 py-1.5 text-sm bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium">
+                    <i class="ti ti-plus text-sm"></i> 注册会员
+                </button>
+                <button onclick="selectAll()" class="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium">
+                    全选
+                </button>
+                <button onclick="batchDelete()" class="px-3 py-1.5 text-sm bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium">
+                    批量删除
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 会员表格 -->
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead class="bg-slate-100 text-slate-600 font-semibold">
+                    <tr>
+                        <th class="px-2 py-3 text-center w-10"><input type="checkbox" id="checkAll" onchange="toggleAll()" class="w-4 h-4 rounded"></th>
+                        <th class="px-2 py-3 text-left">ID</th>
+                        <th class="px-2 py-3 text-left">用户ID</th>
+                        <th class="px-2 py-3 text-left">用户名/备用</th>
+                        <th class="px-2 py-3 text-left">推荐人</th>
+                        <th class="px-2 py-3 text-right">余额</th>
+                        <th class="px-2 py-3 text-center">群链接</th>
+                        <th class="px-2 py-3 text-center">拉群</th>
+                        <th class="px-2 py-3 text-center">群管</th>
+                        <th class="px-2 py-3 text-center">加群</th>
+                        <th class="px-2 py-3 text-center">VIP</th>
+                        <th class="px-2 py-3 text-center">直推</th>
+                        <th class="px-2 py-3 text-center">团队</th>
+                        <th class="px-2 py-3 text-center">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="membersList" class="divide-y divide-slate-100">
+                    <tr><td colspan="14" class="px-4 py-8 text-center text-slate-400">
+                        <i class="ti ti-loader-2 animate-spin text-2xl"></i>
+                        <p class="mt-2 text-sm">加载中...</p>
+                    </td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 分页 -->
+        <div class="bg-slate-50 px-4 py-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <span class="text-sm text-slate-600">共 <span id="totalCount" class="font-semibold text-indigo-600">0</span> 条</span>
+                <div class="flex items-center gap-2">
+                    <span class="text-sm text-slate-500">每页</span>
+                    <select id="perPage" onchange="loadMembers(1)" class="px-2 py-1 text-sm border border-slate-200 rounded-lg bg-white">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                    <span class="text-sm text-slate-500">条</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-sm text-slate-500">第 <span id="currentPageNum" class="font-semibold">1</span> / <span id="totalPageNum">1</span> 页</span>
+                <div id="pagination" class="flex gap-1"></div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<!-- Toast -->
+<div id="toast" class="fixed top-4 right-4 z-[70] transform transition-all duration-300 translate-x-full opacity-0">
+    <div class="bg-white rounded-lg shadow-xl border p-3 flex items-center gap-3 min-w-[280px]">
+        <div id="toast-icon"></div>
+        <div class="flex-1">
+            <h4 id="toast-title" class="text-sm font-semibold"></h4>
+            <p id="toast-message" class="text-xs text-slate-500 mt-0.5"></p>
+        </div>
+    </div>
+</div>
+
+<!-- 注册会员模态框 -->
+<div id="addModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm hidden">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg m-4 max-h-[90vh] overflow-y-auto">
+        <div class="p-4 border-b border-slate-200 flex justify-between items-center">
+            <h3 class="text-base font-bold text-slate-900">注册会员</h3>
+            <button onclick="closeModal('addModal')" class="text-slate-400 hover:text-slate-600"><i class="ti ti-x text-xl"></i></button>
+        </div>
+        <div class="p-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">用户ID <span class="text-red-500">*</span></label>
+                    <input type="number" id="addTelegramId" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="Telegram ID">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">用户名</label>
+                    <input type="text" id="addUsername" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="不带@">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">推荐人ID</label>
+                    <input type="number" id="addReferrerId" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="推荐人Telegram ID">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">余额</label>
+                    <input type="number" step="0.01" id="addBalance" value="0" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">群链接</label>
+                    <input type="text" id="addGroupLink" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="https://t.me/xxx">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">是否拉群</label>
+                    <select id="addIsGroupBound" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                        <option value="0">否</option>
+                        <option value="1">是</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">是否群管</label>
+                    <select id="addIsBotAdmin" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                        <option value="0">否</option>
+                        <option value="1">是</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">是否加群</label>
+                    <select id="addIsJoinedUpline" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                        <option value="0">否</option>
+                        <option value="1">是</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">VIP状态</label>
+                    <select id="addIsVip" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                        <option value="0">普通</option>
+                        <option value="1">VIP</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex gap-3 pt-4">
+                <button onclick="closeModal('addModal')" class="flex-1 px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">取消</button>
+                <button onclick="saveMember()" class="flex-1 px-4 py-2 text-sm bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium">注册</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑会员模态框 -->
+<div id="editModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm hidden">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg m-4 max-h-[90vh] overflow-y-auto">
+        <div class="p-4 border-b border-slate-200 flex justify-between items-center">
+            <h3 class="text-base font-bold text-slate-900">编辑会员</h3>
+            <button onclick="closeModal('editModal')" class="text-slate-400 hover:text-slate-600"><i class="ti ti-x text-xl"></i></button>
+        </div>
+        <div id="editForm" class="p-4"></div>
+    </div>
+</div>
+
+<!-- 团队图谱模态框 -->
+<div id="graphModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm hidden">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-4xl m-4 max-h-[90vh] overflow-y-auto">
+        <div class="p-4 border-b border-slate-200 flex justify-between items-center">
+            <h3 class="text-base font-bold text-slate-900">团队关系图谱</h3>
+            <button onclick="closeModal('graphModal')" class="text-slate-400 hover:text-slate-600"><i class="ti ti-x text-xl"></i></button>
+        </div>
+        <div id="graphContent" class="p-4"></div>
+    </div>
+</div>
+
+<style>
+.modal.show { display: flex !important; }
+</style>
+
+<script>
+let currentPage = 1;
+let currentMember = null;
+let selectedMembers = new Set();
+
+function showToast(title, message, type = 'success') {
+    const toast = document.getElementById('toast');
+    document.getElementById('toast-title').textContent = title;
+    document.getElementById('toast-message').textContent = message;
+    document.getElementById('toast-icon').innerHTML = type === 'success'
+        ? '<div class="h-7 w-7 rounded-full bg-green-50 flex items-center justify-center"><i class="ti ti-check text-green-600"></i></div>'
+        : '<div class="h-7 w-7 rounded-full bg-red-50 flex items-center justify-center"><i class="ti ti-alert-triangle text-red-600"></i></div>';
+    toast.classList.remove('translate-x-full', 'opacity-0');
+    setTimeout(() => toast.classList.add('translate-x-full', 'opacity-0'), 3000);
+}
+
+async function loadStatistics() {
+    try {
+        const response = await fetch('/api/statistics');
+        const data = await response.json();
+        console.log('Graph API Response:', data);
+        console.log('downline_by_level:', data.downline_by_level);
+        document.getElementById('totalMembers').textContent = data.total_members.toLocaleString();
+        document.getElementById('vipMembers').textContent = data.vip_members.toLocaleString();
+        document.getElementById('totalBalance').textContent = data.total_balance.toFixed(2);
+        document.getElementById('totalMissed').textContent = data.total_missed.toFixed(2);
+    } catch (error) {
+        console.error('加载统计失败:', error);
+    }
+}
+
+async function loadMembers(page = currentPage) {
+    currentPage = page;
+    const search = document.getElementById('searchInput').value;
+    const filterType = document.getElementById('filterType').value;
+    const perPage = document.getElementById('perPage').value;
+    
+    try {
+        const response = await fetch(`/api/members?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&filter=${filterType}`);
+        const data = await response.json();
+        console.log('Graph API Response:', data);
+        console.log('downline_by_level:', data.downline_by_level);
+        displayMembers(data.members);
+        displayPagination(data);
+        document.getElementById('totalCount').textContent = data.total;
+        document.getElementById('currentPageNum').textContent = currentPage;
+        document.getElementById('totalPageNum').textContent = data.pages || 1;
+        selectedMembers.clear();
+        document.getElementById('checkAll').checked = false;
+    } catch (error) {
+        document.getElementById('membersList').innerHTML = '<tr><td colspan="14" class="px-4 py-8 text-center text-red-500">加载失败</td></tr>';
+    }
+}
+
+function displayMembers(members) {
+    if (!members || members.length === 0) {
+        document.getElementById('membersList').innerHTML = '<tr><td colspan="14" class="px-4 py-8 text-center text-slate-400">暂无数据</td></tr>';
+        return;
+    }
+    
+    const yesNo = (v) => v ? '<span class="text-green-600 font-bold">是</span>' : '<span class="text-slate-400">否</span>';
+    
+    const html = members.map(m => `<tr class="hover:bg-slate-50 border-b border-slate-100">
+        <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;"><input type="checkbox" class="member-check w-3 h-3 rounded" data-id="${m.telegram_id}" onchange="toggleSelect(${m.telegram_id})"></td>
+        <td class="py-1 text-slate-500" style="padding-left:4px;padding-right:4px;">${m.id}</td>
+        <td class="py-1 font-mono text-slate-700" style="padding-left:4px;padding-right:4px;">${m.telegram_id}</td>
+        <td class="py-1" style="padding-left:4px;padding-right:0px;">
+            <span class="${m.is_fallback ? 'text-orange-600 font-bold' : 'text-indigo-600 font-medium'}">@${m.username || 'N/A'}</span>
+            ${m.backup_account ? '<br><span class="text-slate-400">备:@' + m.backup_account + '</span>' : ''}
+        </td>
+        <td class="py-1 text-slate-500" style="padding-left:2px;padding-right:4px;">${m.referrer_name ? '@' + m.referrer_name : '-'}</td>
+        <td class="py-1 text-right font-semibold text-emerald-600" style="padding-left:4px;padding-right:4px;">${m.balance}U</td>
+        <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">${m.group_link ? '<a href="' + m.group_link + '" target="_blank" class="text-blue-500">查看</a>' : '-'}</td>
+        <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">${yesNo(m.is_group_bound)}</td>
+        <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">${yesNo(m.is_bot_admin)}</td>
+        <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">${yesNo(m.is_joined_upline)}</td>
+        <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">
+            ${m.is_vip ? `<span class="px-1 py-0.5 rounded font-semibold ${m.is_fallback ? 'bg-orange-200 text-orange-800' : 'bg-amber-100 text-amber-700'}">VIP</span>` : '<span class="text-slate-400">普通</span>'}
+        </td>
+        <td class="py-1 text-center text-slate-600" style="padding-left:4px;padding-right:4px;">${m.direct_count || 0}</td>
+        <td class="py-1 text-center text-slate-600" style="padding-left:4px;padding-right:4px;">${m.team_count || 0}</td>
+        <td class="py-1" style="padding-left:4px;padding-right:4px;"><div class="flex items-center gap-1"><button onclick="showGraph(${m.telegram_id})" class="px-2 py-0.5 text-xs rounded bg-purple-500 text-white">图谱</button><button onclick="editMember(${m.telegram_id})" class="px-2 py-0.5 text-xs rounded bg-blue-500 text-white">编辑</button><button onclick="deleteMember(${m.telegram_id}, '@${m.username}')" class="px-2 py-0.5 text-xs rounded bg-red-500 text-white">删除</button></div></td>
+    </tr>`).join('');
+    document.getElementById('membersList').innerHTML = html;
+}
+
+function displayPagination(data) {
+    let html = '';
+    const totalPages = data.pages || 1;
+    
+    html += `<button onclick="loadMembers(${currentPage-1})" ${currentPage <= 1 ? 'disabled' : ''} class="px-2 py-1 text-sm border rounded hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"><i class="ti ti-chevron-left"></i></button>`;
+    
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, currentPage + 2);
+    
+    if (startPage > 1) {
+        html += `<button onclick="loadMembers(1)" class="px-2 py-1 text-sm border rounded hover:bg-slate-50">1</button>`;
+        if (startPage > 2) html += `<span class="px-1 text-slate-400">...</span>`;
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+        html += i === currentPage
+            ? `<button class="px-2 py-1 text-sm bg-indigo-600 text-white rounded">${i}</button>`
+            : `<button onclick="loadMembers(${i})" class="px-2 py-1 text-sm border rounded hover:bg-slate-50">${i}</button>`;
+    }
+    
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) html += `<span class="px-1 text-slate-400">...</span>`;
+        html += `<button onclick="loadMembers(${totalPages})" class="px-2 py-1 text-sm border rounded hover:bg-slate-50">${totalPages}</button>`;
+    }
+    
+    html += `<button onclick="loadMembers(${currentPage+1})" ${currentPage >= totalPages ? 'disabled' : ''} class="px-2 py-1 text-sm border rounded hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"><i class="ti ti-chevron-right"></i></button>`;
+    
+    document.getElementById('pagination').innerHTML = html;
+}
+
+function toggleAll() {
+    const checked = document.getElementById('checkAll').checked;
+    document.querySelectorAll('.member-check').forEach(cb => {
+        cb.checked = checked;
+        const id = parseInt(cb.dataset.id);
+        if (checked) selectedMembers.add(id);
+        else selectedMembers.delete(id);
+    });
+}
+
+function toggleSelect(id) {
+    if (selectedMembers.has(id)) selectedMembers.delete(id);
+    else selectedMembers.add(id);
+}
+
+function selectAll() {
+    document.getElementById('checkAll').checked = true;
+    toggleAll();
+}
+
+async function batchDelete() {
+    if (selectedMembers.size === 0) {
+        showToast('提示', '请先选择要删除的会员', 'error');
+        return;
+    }
+    if (!confirm(`确定要删除选中的 ${selectedMembers.size} 个会员吗？`)) return;
+    
+    let successCount = 0;
+    for (const id of selectedMembers) {
+        try {
+            const response = await fetch(`/api/member/${id}`, { method: 'DELETE' });
+            const result = await response.json();
+            if (result.success) successCount++;
+        } catch (error) {}
+    }
+    showToast('删除完成', `成功删除 ${successCount} 个会员`);
+    loadMembers(currentPage);
+    loadStatistics();
+}
+
+function showAddModal() {
+    document.getElementById('addTelegramId').value = '';
+    document.getElementById('addUsername').value = '';
+    document.getElementById('addReferrerId').value = '';
+    document.getElementById('addBalance').value = '0';
+    document.getElementById('addGroupLink').value = '';
+    document.getElementById('addIsGroupBound').value = '0';
+    document.getElementById('addIsBotAdmin').value = '0';
+    document.getElementById('addIsJoinedUpline').value = '0';
+    document.getElementById('addIsVip').value = '0';
+    showModal('addModal');
+}
+
+async function saveMember() {
+    const telegramId = document.getElementById('addTelegramId').value;
+    if (!telegramId) {
+        showToast('错误', '请输入用户ID', 'error');
+        return;
+    }
+    
+    const data = {
+        telegram_id: parseInt(telegramId),
+        username: document.getElementById('addUsername').value,
+        referrer_id: document.getElementById('addReferrerId').value ? parseInt(document.getElementById('addReferrerId').value) : null,
+        balance: parseFloat(document.getElementById('addBalance').value) || 0,
+        group_link: document.getElementById('addGroupLink').value,
+        is_group_bound: parseInt(document.getElementById('addIsGroupBound').value),
+        is_bot_admin: parseInt(document.getElementById('addIsBotAdmin').value),
+        is_joined_upline: parseInt(document.getElementById('addIsJoinedUpline').value),
+        is_vip: parseInt(document.getElementById('addIsVip').value)
+    };
+    
+    try {
+        const response = await fetch('/api/member/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const result = await response.json();
+        if (result.success) {
+            showToast('成功', '会员注册成功');
+            closeModal('addModal');
+            loadMembers(currentPage);
+            loadStatistics();
+        } else {
+            showToast('失败', result.message || '注册失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', error.message, 'error');
+    }
+}
+
+async function editMember(telegramId) {
+    try {
+        const response = await fetch(`/api/member/${telegramId}`);
+        currentMember = await response.json();
+        
+        // 获取捡漏账号状态
+        const fallbackRes = await fetch('/api/fallback_accounts');
+        const fallbackData = await fallbackRes.json();
+        const isFallback = fallbackData.accounts ? fallbackData.accounts.some(a => a.telegram_id == telegramId) : false;
+        
+        document.getElementById('editForm').innerHTML = `
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">用户ID</label>
+                    <input type="number" id="editTelegramId" value="${currentMember.telegram_id}" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50" readonly>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">用户名</label>
+                    <input type="text" id="editUsername" value="${currentMember.username || ''}" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">推荐人ID</label>
+                    <input type="number" id="editReferrerId" value="${currentMember.referrer_id || ''}" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">余额</label>
+                    <input type="number" step="0.01" id="editBalance" value="${currentMember.balance}" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">群链接</label>
+                    <input type="text" id="editGroupLink" value="${currentMember.group_link || ''}" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">是否拉群</label>
+                    <select id="editIsGroupBound" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                        <option value="0" ${!currentMember.is_group_bound ? 'selected' : ''}>否</option>
+                        <option value="1" ${currentMember.is_group_bound ? 'selected' : ''}>是</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">是否群管</label>
+                    <select id="editIsBotAdmin" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                        <option value="0" ${!currentMember.is_bot_admin ? 'selected' : ''}>否</option>
+                        <option value="1" ${currentMember.is_bot_admin ? 'selected' : ''}>是</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">是否加群</label>
+                    <select id="editIsJoinedUpline" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                        <option value="0" ${!currentMember.is_joined_upline ? 'selected' : ''}>否</option>
+                        <option value="1" ${currentMember.is_joined_upline ? 'selected' : ''}>是</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">VIP状态</label>
+                    <select id="editIsVip" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                        <option value="0" ${!currentMember.is_vip ? 'selected' : ''}>普通</option>
+                        <option value="1" ${currentMember.is_vip ? 'selected' : ''}>VIP</option>
+                    </select>
+                </div>
+                <div class="col-span-2 border-t pt-4 mt-2">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="editIsFallback" ${isFallback ? 'checked' : ''} class="w-4 h-4 rounded border-slate-300 text-orange-500">
+                        <span class="text-sm font-medium text-orange-600">设为捡漏账号</span>
+                    </label>
+                    <p class="text-xs text-slate-500 mt-1">捡漏账号将接收上级未满足条件时的分红</p>
+                </div>
+            </div>
+            <div class="flex gap-3 pt-4">
+                <button onclick="closeModal('editModal')" class="flex-1 px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">取消</button>
+                <button onclick="saveEdit()" class="flex-1 px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium">保存</button>
+            </div>`;
+        showModal('editModal');
+    } catch (error) {
+        showToast('加载失败', error.message, 'error');
+    }
+}
+
+async function saveEdit() {
+    if (!currentMember) return;
+    
+    const data = {
+        username: document.getElementById('editUsername').value,
+        referrer_id: document.getElementById('editReferrerId').value ? parseInt(document.getElementById('editReferrerId').value) : null,
+        balance: parseFloat(document.getElementById('editBalance').value),
+        group_link: document.getElementById('editGroupLink').value,
+        is_group_bound: parseInt(document.getElementById('editIsGroupBound').value),
+        is_bot_admin: parseInt(document.getElementById('editIsBotAdmin').value),
+        is_joined_upline: parseInt(document.getElementById('editIsJoinedUpline').value),
+        is_vip: parseInt(document.getElementById('editIsVip').value),
+        is_fallback: document.getElementById('editIsFallback').checked ? 1 : 0
+    };
+    
+    try {
+        const response = await fetch(`/api/member/${currentMember.telegram_id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const result = await response.json();
+        if (result.success) {
+            showToast('保存成功', '会员信息已更新');
+            closeModal('editModal');
+            loadMembers(currentPage);
+            loadStatistics();
+        } else {
+            showToast('保存失败', result.message, 'error');
+        }
+    } catch (error) {
+        showToast('保存失败', error.message, 'error');
+    }
+}
+
+
+function toggleLevel(level) {
+    const content = document.getElementById(`level-${level}-content`);
+    const icon = document.getElementById(`icon-level-${level}`);
+    if (content.style.display === 'none') {
+        content.style.display = 'grid';
+        icon.classList.remove('ti-chevron-right');
+        icon.classList.add('ti-chevron-down');
+    } else {
+        content.style.display = 'none';
+        icon.classList.remove('ti-chevron-down');
+        icon.classList.add('ti-chevron-right');
+    }
+}
+
+async function showGraph(telegramId) {
+    try {
+        const response = await fetch(`/api/member/${telegramId}/graph`);
+        const data = await response.json();
+        console.log('Graph API Response:', data);
+        console.log('downline_by_level:', data.downline_by_level);
+        
+        let html = '<div class="space-y-6">';
+        
+        // 上级链
+        html += '<div class="bg-blue-50 rounded-lg p-4">';
+        html += '<h4 class="font-bold text-blue-800 mb-3 flex items-center gap-2"><i class="ti ti-arrow-up"></i> 上级链</h4>';
+        if (data.upline && data.upline.length > 0) {
+            html += '<div class="space-y-2">';
+            data.upline.forEach((u, i) => {
+                const levelName = i === 0 ? '上一层' : (i === 1 ? '上二层' : `上${i+1}层`);
+                const statusClass = u.is_valid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
+                const statusText = u.is_valid ? '正常' : '异常';
+                html += `<div class="flex items-center gap-3 bg-white rounded-lg p-3 border">
+                    <span class="px-2 py-1 text-xs rounded bg-blue-100 text-blue-700 font-bold">${levelName}</span>
+                    <span class="font-mono">${u.telegram_id}</span>
+                    <span class="text-indigo-600 font-medium">@${u.username || 'N/A'}</span>
+                    <span class="px-2 py-0.5 text-xs rounded ${u.is_vip ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}">${u.is_vip ? 'VIP' : '普通'}</span>
+                    <span class="text-slate-500">直推:${u.direct_count || 0}</span>
+                    <span class="text-slate-500">团队:${u.team_count || 0}</span>
+                    <span class="px-2 py-0.5 text-xs rounded ${statusClass}">${statusText}</span>
+                </div>`;
+            });
+            html += '</div>';
+        } else {
+            html += '<p class="text-slate-500">无上级</p>';
+        }
+        html += '</div>';
+        
+        // 当前用户
+        html += '<div class="bg-indigo-100 rounded-lg p-4">';
+        html += '<h4 class="font-bold text-indigo-800 mb-3 flex items-center gap-2"><i class="ti ti-user"></i> 当前会员</h4>';
+        html += `<div class="bg-white rounded-lg p-3 border-2 border-indigo-400">
+            <div class="flex items-center gap-3">
+                <span class="font-mono text-lg">${data.current.telegram_id}</span>
+                <span class="text-indigo-600 font-bold text-lg">@${data.current.username || 'N/A'}</span>
+                <span class="px-2 py-0.5 text-xs rounded ${data.current.is_vip ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}">${data.current.is_vip ? 'VIP' : '普通'}</span>
+                <span class="text-emerald-600 font-bold">${data.current.balance}U</span>
+            </div>
+        </div>`;
+        html += '</div>';
+        
+        // 下级成员（兼容新旧API）
+        html += '<div class="bg-green-50 rounded-lg p-4">';
+        html += '<h4 class="font-bold text-green-800 mb-3 flex items-center gap-2"><i class="ti ti-arrow-down"></i> 下级成员</h4>';
+        
+        // 兼容旧API格式 (data.downline) 和新API格式 (data.downline_by_level)
+        let downlineData = data.downline_by_level || (data.downline ? {1: data.downline} : {});
+        
+        if (Object.keys(downlineData).length > 0) {
+            const levels = Object.keys(downlineData).sort((a,b) => parseInt(a) - parseInt(b));
+            levels.forEach(level => {
+                const members = downlineData[level];
+                if (members && members.length > 0) {
+                    html += `<div class="mb-4">
+                        <div class="text-sm font-bold text-green-700 mb-2 flex items-center gap-2 cursor-pointer hover:bg-green-100 p-2 rounded transition-colors" onclick="toggleLevel(${level})">
+                            <i id="icon-level-${level}" class="ti ti-chevron-down text-lg"></i>
+                            <span class="px-2 py-1 rounded bg-green-200">第${level}层</span>
+                            <span class="text-slate-500">(${members.length}人)</span>
+                        </div>
+                        <div id="level-${level}-content" class="grid grid-cols-2 gap-2">`;
+                    members.forEach(d => {
+                        const statusClass = (d.is_group_bound && d.is_bot_admin && d.is_joined_upline) ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700';
+                        const statusText = (d.is_group_bound && d.is_bot_admin && d.is_joined_upline) ? '正常' : '未完成';
+                        html += `<div class="bg-white rounded-lg p-2 border text-xs">
+                            <div class="flex items-center gap-1 flex-wrap">
+                                <span class="font-mono">${d.telegram_id}</span>
+                                <span class="text-indigo-600 font-medium">@${d.username || 'N/A'}</span>
+                            </div>
+                            <div class="flex items-center gap-1 mt-1">
+                                <span class="px-1 py-0.5 rounded ${d.is_vip ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}">${d.is_vip ? 'VIP' : '普通'}</span>
+                                <span class="text-slate-500">直:${d.direct_count || 0}</span>
+                                <span class="text-slate-500">团:${d.team_count || 0}</span>
+                                <span class="px-1 py-0.5 rounded ${statusClass}">${statusText}</span>
+                            </div>
+                        </div>`;
+                    });
+                    html += '</div></div>';
+                }
+            });
+        } else {
+            html += '<p class="text-slate-500">暂无下级</p>';
+        }
+        html += '</div>';
+        
+        html += '</div>';
+        
+        document.getElementById('graphContent').innerHTML = html;
+        showModal('graphModal');
+    } catch (error) {
+        showToast('加载失败', error.message, 'error');
+    }
+}
+
+async function deleteMember(telegramId, username) {
+    if (!confirm(`确定要删除会员 ${username} 吗？`)) return;
+    try {
+        const response = await fetch(`/api/member/${telegramId}`, { method: 'DELETE' });
+        const result = await response.json();
+        if (result.success) {
+            showToast('删除成功', '会员已删除');
+            loadMembers(currentPage);
+            loadStatistics();
+        }
+    } catch (error) {
+        showToast('删除失败', error.message, 'error');
+    }
+}
+
+function showModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadStatistics();
+    loadMembers(1);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,454 @@
+{% extends "base.html" %}
+
+{% block title %}会员群管理{% endblock %}
+
+{% block content %}
+<main class="px-4 py-6">
+    <div class="mb-6 flex justify-between items-center">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">会员群管理</h1>
+            <p class="text-slate-500 text-sm mt-1">管理所有会员的群组，支持群发消息</p>
+        </div>
+    </div>
+
+    <!-- 工具栏 -->
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 p-3">
+        <div class="flex flex-wrap items-center gap-3">
+            <button onclick="showAddModal()" class="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium">
+                <i class="ti ti-plus"></i> 添加
+            </button>
+            <button onclick="editSelected()" class="px-3 py-1.5 text-sm bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-medium">
+                <i class="ti ti-edit"></i> 编辑
+            </button>
+            <button onclick="deleteSelected()" class="px-3 py-1.5 text-sm bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium">
+                <i class="ti ti-trash"></i> 删除
+            </button>
+            <button onclick="refreshAll()" class="px-3 py-1.5 text-sm bg-slate-500 hover:bg-slate-600 text-white rounded-lg font-medium">
+                <i class="ti ti-refresh"></i> 刷新
+            </button>
+            
+            <div class="border-l border-slate-200 h-6 mx-2"></div>
+            
+            <button onclick="broadcastSelected()" class="px-4 py-1.5 text-sm bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium border-2 border-green-600">
+                选群发
+            </button>
+            <button onclick="broadcastAll()" class="px-4 py-1.5 text-sm bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium border-2 border-orange-600">
+                一键群发
+            </button>
+            
+            <div class="flex-1"></div>
+            
+            <div class="relative">
+                <input type="text" id="searchInput" placeholder="搜索..." class="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-48" onkeypress="if(event.key==='Enter') loadGroups()">
+                <i class="ti ti-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- 群组表格 -->
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead class="bg-slate-100 text-slate-600 font-semibold">
+                    <tr>
+                        <th class="px-2 py-3 text-center w-10"><input type="checkbox" id="checkAll" onchange="toggleAll()" class="w-4 h-4 rounded"></th>
+                        <th class="px-2 py-3 text-left">ID</th>
+                        <th class="px-2 py-3 text-left">添加者ID</th>
+                        <th class="px-2 py-3 text-left">名称</th>
+                        <th class="px-2 py-3 text-left">群主/频道用户名</th>
+                        <th class="px-2 py-3 text-center">类型</th>
+                        <th class="px-2 py-3 text-center">定时群发消息</th>
+                        <th class="px-2 py-3 text-left">添加时间</th>
+                        <th class="px-2 py-3 text-center">是否管理</th>
+                        <th class="px-2 py-3 text-center">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="groupsBody" class="divide-y divide-slate-100">
+                    <tr><td colspan="10" class="px-4 py-8 text-center text-slate-400">
+                        <i class="ti ti-loader-2 animate-spin text-2xl"></i>
+                        <p class="mt-2 text-sm">加载中...</p>
+                    </td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- 分页 -->
+        <div class="bg-slate-50 px-4 py-3 border-t border-slate-200 flex items-center justify-between">
+            <span class="text-sm text-slate-600">显示第 1 到第 <span id="showCount">0</span> 条记录, 总共 <span id="totalCount">0</span> 条记录</span>
+            <div id="pagination" class="flex gap-1"></div>
+        </div>
+    </div>
+</main>
+
+<!-- Toast -->
+<div id="toast" class="fixed top-4 right-4 z-[70] transform transition-all duration-300 translate-x-full opacity-0">
+    <div class="bg-white rounded-lg shadow-xl border p-3 flex items-center gap-3 min-w-[280px]">
+        <div id="toast-icon"></div>
+        <div class="flex-1">
+            <h4 id="toast-title" class="text-sm font-semibold"></h4>
+            <p id="toast-message" class="text-xs text-slate-500 mt-0.5"></p>
+        </div>
+    </div>
+</div>
+
+<!-- 添加/编辑群模态框 -->
+<div id="addModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm hidden">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg m-4">
+        <div class="p-4 border-b border-slate-200 flex justify-between items-center">
+            <h3 class="text-base font-bold text-slate-900" id="modalTitle">添加群组</h3>
+            <button onclick="closeModal('addModal')" class="text-slate-400 hover:text-slate-600"><i class="ti ti-x text-xl"></i></button>
+        </div>
+        <div class="p-4">
+            <input type="hidden" id="editId">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">添加者ID</label>
+                    <input type="number" id="addTelegramId" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="会员Telegram ID">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">群ID</label>
+                    <input type="number" id="addGroupId" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="群/频道ID">
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">名称</label>
+                    <input type="text" id="addGroupName" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="群/频道名称">
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">群链接</label>
+                    <input type="text" id="addGroupLink" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="https://t.me/xxx">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">群主/频道用户名</label>
+                    <input type="text" id="addOwnerUsername" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="不带@">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">类型</label>
+                    <select id="addGroupType" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                        <option value="group">群组</option>
+                        <option value="channel">频道</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">是否管理</label>
+                    <select id="addIsBotAdmin" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                        <option value="1">是</option>
+                        <option value="0">否</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">定时群发</label>
+                    <select id="addScheduleBroadcast" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                        <option value="1">开启</option>
+                        <option value="0">关闭</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex gap-3 pt-4">
+                <button onclick="closeModal('addModal')" class="flex-1 px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">取消</button>
+                <button onclick="saveGroup()" class="flex-1 px-4 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 群发消息模态框 -->
+<div id="broadcastModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm hidden">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg m-4">
+        <div class="p-4 border-b border-slate-200 flex justify-between items-center">
+            <h3 class="text-base font-bold text-slate-900">群发消息</h3>
+            <button onclick="closeModal('broadcastModal')" class="text-slate-400 hover:text-slate-600"><i class="ti ti-x text-xl"></i></button>
+        </div>
+        <div class="p-4">
+            <p id="broadcastInfo" class="text-sm text-slate-600 mb-4"></p>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-700 mb-1">消息内容</label>
+                <textarea id="broadcastMessage" rows="5" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="输入要群发的消息内容..."></textarea>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="closeModal('broadcastModal')" class="flex-1 px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">取消</button>
+                <button onclick="sendBroadcast()" class="flex-1 px-4 py-2 text-sm bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium">发送</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.modal.show { display: flex !important; }
+</style>
+
+<script>
+let selectedGroups = new Set();
+let allGroups = [];
+let broadcastTargets = [];
+
+function showToast(title, message, type = 'success') {
+    const toast = document.getElementById('toast');
+    document.getElementById('toast-title').textContent = title;
+    document.getElementById('toast-message').textContent = message;
+    document.getElementById('toast-icon').innerHTML = type === 'success'
+        ? '<div class="h-7 w-7 rounded-full bg-green-50 flex items-center justify-center"><i class="ti ti-check text-green-600"></i></div>'
+        : '<div class="h-7 w-7 rounded-full bg-red-50 flex items-center justify-center"><i class="ti ti-alert-triangle text-red-600"></i></div>';
+    toast.classList.remove('translate-x-full', 'opacity-0');
+    setTimeout(() => toast.classList.add('translate-x-full', 'opacity-0'), 3000);
+}
+
+async function loadGroups() {
+    const search = document.getElementById('searchInput').value;
+    try {
+        selectedGroups.clear(); // 清空选中状态
+        document.getElementById('checkAll').checked = false;
+        const res = await fetch(`/api/member-groups?search=${encodeURIComponent(search)}`);
+        const data = await res.json();
+        allGroups = data.groups || [];
+        displayGroups(allGroups);
+        document.getElementById('totalCount').textContent = allGroups.length;
+        document.getElementById('showCount').textContent = allGroups.length;
+    } catch (error) {
+        document.getElementById('groupsBody').innerHTML = '<tr><td colspan="10" class="px-4 py-8 text-center text-red-500">加载失败</td></tr>';
+    }
+}
+
+function displayGroups(groups) {
+    const tbody = document.getElementById('groupsBody');
+    
+    if (!groups || groups.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" class="px-4 py-8 text-center text-slate-400">暂无数据，点击"添加"按钮创建群组</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = groups.map(g => `
+        <tr class="hover:bg-slate-50">
+            <td class="px-2 py-2 text-center"><input type="checkbox" class="group-check w-4 h-4 rounded" data-id="${g.id}" onchange="toggleSelect(${g.id})"></td>
+            <td class="px-2 py-2 text-slate-500">${g.id}</td>
+            <td class="px-2 py-2 font-mono">${g.telegram_id || '-'}</td>
+            <td class="px-2 py-2 font-medium text-indigo-600">${g.group_name || '未设置'}</td>
+            <td class="px-2 py-2">${g.owner_username ? '@' + g.owner_username : '-'}</td>
+            <td class="px-2 py-2 text-center"><span class="px-2 py-0.5 rounded text-xs ${g.group_type === 'channel' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}">${g.group_type === 'channel' ? '频道' : '群组'}</span></td>
+            <td class="px-2 py-2 text-center">
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" ${g.schedule_broadcast ? 'checked' : ''} onchange="toggleSchedule(${g.id}, this.checked)" class="sr-only peer">
+                    <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-green-500"></div>
+                </label>
+            </td>
+            <td class="px-2 py-2 text-slate-500">${g.create_time || '-'}</td>
+            <td class="px-2 py-2 text-center">${g.is_bot_admin ? '<span class="text-green-600 font-bold">是</span>' : '<span class="text-red-500">否</span>'}</td>
+            <td class="px-2 py-2">
+                <div class="flex items-center justify-center gap-1">
+                    <button onclick="verifyGroup(${g.id})" class="px-2 py-1 text-xs rounded bg-cyan-500 hover:bg-cyan-600 text-white font-medium">验证</button>
+                    <button onclick="editGroup(${g.id})" class="px-2 py-1 text-xs rounded bg-blue-500 hover:bg-blue-600 text-white font-medium">编辑</button>
+                    <button onclick="deleteGroup(${g.id})" class="px-2 py-1 text-xs rounded bg-red-500 hover:bg-red-600 text-white font-medium">删除</button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function toggleAll() {
+    const checked = document.getElementById('checkAll').checked;
+    document.querySelectorAll('.group-check').forEach(cb => {
+        cb.checked = checked;
+        const id = parseInt(cb.dataset.id);
+        if (checked) selectedGroups.add(id);
+        else selectedGroups.delete(id);
+    });
+}
+
+function toggleSelect(id) {
+    const cb = document.querySelector(`.group-check[data-id="${id}"]`);
+    if (cb && cb.checked) {
+        selectedGroups.add(id);
+    } else {
+        selectedGroups.delete(id);
+    }
+    console.log('Selected groups:', [...selectedGroups]);
+}
+
+async function toggleSchedule(id, enabled) {
+    try {
+        await fetch(`/api/member-groups/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schedule_broadcast: enabled ? 1 : 0 })
+        });
+        showToast('成功', enabled ? '已开启定时群发' : '已关闭定时群发');
+    } catch (error) {
+        showToast('失败', '操作失败', 'error');
+    }
+}
+
+function showAddModal() {
+    document.getElementById('modalTitle').textContent = '添加群组';
+    document.getElementById('editId').value = '';
+    document.getElementById('addTelegramId').value = '';
+    document.getElementById('addGroupId').value = '';
+    document.getElementById('addGroupName').value = '';
+    document.getElementById('addGroupLink').value = '';
+    document.getElementById('addOwnerUsername').value = '';
+    document.getElementById('addGroupType').value = 'group';
+    document.getElementById('addIsBotAdmin').value = '1';
+    document.getElementById('addScheduleBroadcast').value = '1';
+    showModal('addModal');
+}
+
+function editGroup(id) {
+    const g = allGroups.find(x => x.id === id);
+    if (!g) return;
+    
+    document.getElementById('modalTitle').textContent = '编辑群组';
+    document.getElementById('editId').value = g.id;
+    document.getElementById('addTelegramId').value = g.telegram_id || '';
+    document.getElementById('addGroupId').value = g.group_id || '';
+    document.getElementById('addGroupName').value = g.group_name || '';
+    document.getElementById('addGroupLink').value = g.group_link || '';
+    document.getElementById('addOwnerUsername').value = g.owner_username || '';
+    document.getElementById('addGroupType').value = g.group_type || 'group';
+    document.getElementById('addIsBotAdmin').value = g.is_bot_admin ? '1' : '0';
+    document.getElementById('addScheduleBroadcast').value = g.schedule_broadcast ? '1' : '0';
+    showModal('addModal');
+}
+
+async function saveGroup() {
+    const editId = document.getElementById('editId').value;
+    const data = {
+        telegram_id: document.getElementById('addTelegramId').value || null,
+        group_id: document.getElementById('addGroupId').value || null,
+        group_name: document.getElementById('addGroupName').value,
+        group_link: document.getElementById('addGroupLink').value,
+        owner_username: document.getElementById('addOwnerUsername').value,
+        group_type: document.getElementById('addGroupType').value,
+        is_bot_admin: parseInt(document.getElementById('addIsBotAdmin').value),
+        schedule_broadcast: parseInt(document.getElementById('addScheduleBroadcast').value)
+    };
+    
+    try {
+        const url = editId ? `/api/member-groups/${editId}` : '/api/member-groups';
+        const method = editId ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast('成功', editId ? '群组已更新' : '群组已添加');
+            closeModal('addModal');
+            loadGroups();
+        } else {
+            showToast('失败', result.message || '操作失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', error.message, 'error');
+    }
+}
+
+async function deleteGroup(id) {
+    if (!confirm('确定要删除这个群组吗？')) return;
+    try {
+        const res = await fetch(`/api/member-groups/${id}`, { method: 'DELETE' });
+        const result = await res.json();
+        if (result.success) {
+            showToast('成功', '群组已删除');
+            loadGroups();
+        }
+    } catch (error) {
+        showToast('失败', '删除失败', 'error');
+    }
+}
+
+function editSelected() {
+    if (selectedGroups.size !== 1) {
+        showToast('提示', '请选择一个群组进行编辑', 'error');
+        return;
+    }
+    editGroup([...selectedGroups][0]);
+}
+
+async function deleteSelected() {
+    if (selectedGroups.size === 0) {
+        showToast('提示', '请先选择要删除的群组', 'error');
+        return;
+    }
+    if (!confirm(`确定要删除选中的 ${selectedGroups.size} 个群组吗？`)) return;
+    
+    for (const id of selectedGroups) {
+        await fetch(`/api/member-groups/${id}`, { method: 'DELETE' });
+    }
+    showToast('成功', `已删除 ${selectedGroups.size} 个群组`);
+    selectedGroups.clear();
+    loadGroups();
+}
+
+function refreshAll() {
+    loadGroups();
+    showToast('成功', '已刷新');
+}
+
+async function verifyGroup(id) {
+    showToast('验证中', '正在验证群组状态...');
+    try {
+        const res = await fetch(`/api/member-groups/${id}/verify`, { method: 'POST' });
+        const result = await res.json();
+        if (result.success) {
+            showToast('成功', result.message || '验证成功');
+            loadGroups();
+        } else {
+            showToast('失败', result.message || '验证失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', '验证请求失败', 'error');
+    }
+}
+
+function broadcastSelected() {
+    if (selectedGroups.size === 0) {
+        showToast('提示', '请先选择要群发的群组', 'error');
+        return;
+    }
+    broadcastTargets = [...selectedGroups];
+    document.getElementById('broadcastInfo').textContent = `将向 ${broadcastTargets.length} 个选中的群组发送消息`;
+    document.getElementById('broadcastMessage').value = '';
+    showModal('broadcastModal');
+}
+
+function broadcastAll() {
+    if (allGroups.length === 0) {
+        showToast('提示', '暂无群组可群发', 'error');
+        return;
+    }
+    broadcastTargets = allGroups.map(g => g.id);
+    document.getElementById('broadcastInfo').textContent = `将向全部 ${broadcastTargets.length} 个群组发送消息`;
+    document.getElementById('broadcastMessage').value = '';
+    showModal('broadcastModal');
+}
+
+async function sendBroadcast() {
+    const message = document.getElementById('broadcastMessage').value.trim();
+    if (!message) {
+        showToast('提示', '请输入消息内容', 'error');
+        return;
+    }
+    
+    try {
+        const res = await fetch('/api/member-groups/broadcast', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ group_ids: broadcastTargets, message: message })
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast('提示', `已提交群发任务，将发送到 ${result.sent_count || 0} 个群组（实际发送由后台机器人执行）`);
+            closeModal('broadcastModal');
+        } else {
+            showToast('失败', result.message || '发送失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', error.message, 'error');
+    }
+}
+
+function showModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+document.addEventListener('DOMContentLoaded', loadGroups);
+</script>
+{% endblock %}

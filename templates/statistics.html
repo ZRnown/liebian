@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}统计报表{% endblock %}
+
+{% block content %}
+<main class="px-6 py-8 fade-in-up">
+            <!-- 顶部统计卡片 -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+                <div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm hover:shadow-md transition-all">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                            <i class="ti ti-users text-xl"></i>
+                        </div>
+                        <span class="flex items-center text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-md">
+                            <i class="ti ti-arrow-up-right mr-1"></i> 增长中
+                        </span>
+                    </div>
+                    <div>
+                        <p class="text-sm text-slate-500 font-medium">总会员数</p>
+                        <h3 class="text-2xl font-bold text-slate-900 mt-1" id="stat-total-members">-</h3>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm hover:shadow-md transition-all">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="p-2 bg-amber-50 text-amber-600 rounded-lg">
+                            <i class="ti ti-crown text-xl"></i>
+                        </div>
+                        <span class="flex items-center text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-1 rounded-md" id="vip-ratio-badge">
+                            - %
+                        </span>
+                    </div>
+                    <div>
+                        <p class="text-sm text-slate-500 font-medium">VIP会员</p>
+                        <h3 class="text-2xl font-bold text-slate-900 mt-1" id="stat-vip-members">-</h3>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm hover:shadow-md transition-all">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                            <i class="ti ti-wallet text-xl"></i>
+                        </div>
+                        <span class="text-xs font-semibold text-slate-400 bg-slate-50 px-2 py-1 rounded-md">累计</span>
+                    </div>
+                    <div>
+                        <p class="text-sm text-slate-500 font-medium">总余额</p>
+                        <h3 class="text-2xl font-bold text-slate-900 mt-1" id="stat-total-balance">-</h3>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm hover:shadow-md transition-all">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="p-2 bg-rose-50 text-rose-600 rounded-lg">
+                            <i class="ti ti-alert-triangle text-xl"></i>
+                        </div>
+                        <span class="text-xs font-semibold text-slate-400 bg-slate-50 px-2 py-1 rounded-md">需注意</span>
+                    </div>
+                    <div>
+                        <p class="text-sm text-slate-500 font-medium">错过余额</p>
+                        <h3 class="text-2xl font-bold text-slate-900 mt-1" id="stat-missed-balance">-</h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 图表区域 -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                <!-- 用户增长趋势 -->
+                <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-900">用户增长趋势</h3>
+                            <p class="text-sm text-slate-500">近7天新注册用户统计</p>
+                        </div>
+                        <div class="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                            <i class="ti ti-chart-line text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="h-[300px]">
+                        <canvas id="growthChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- 用户构成 -->
+                <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-900">用户构成</h3>
+                            <p class="text-sm text-slate-500">VIP与普通用户比例</p>
+                        </div>
+                        <div class="p-2 bg-purple-50 text-purple-600 rounded-lg">
+                            <i class="ti ti-chart-pie text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="h-[250px] flex items-center justify-center">
+                        <canvas id="compositionChart"></canvas>
+                    </div>
+                    <div class="mt-6 grid grid-cols-2 gap-4">
+                        <div class="text-center p-3 bg-slate-50 rounded-xl">
+                            <p class="text-xs text-slate-500 mb-1">VIP用户</p>
+                            <p class="font-bold text-indigo-600" id="chart-vip-count">-</p>
+                        </div>
+                        <div class="text-center p-3 bg-slate-50 rounded-xl">
+                            <p class="text-xs text-slate-500 mb-1">普通用户</p>
+                            <p class="font-bold text-slate-600" id="chart-normal-count">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+
+
+
+
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// 格式化数字
+        function formatNumber(num) {
+            return new Intl.NumberFormat('en-US').format(num);
+        }
+
+        // 格式化金额
+        function formatMoney(num) {
+            return new Intl.NumberFormat('en-US', { style: 'decimal', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+        }
+
+        // 加载统计数据
+        async function loadStats() {
+            try {
+                // 加载基础统计
+                const statsRes = await fetch('/api/statistics');
+                const stats = await statsRes.json();
+                
+                document.getElementById('stat-total-members').textContent = formatNumber(stats.total_members);
+                document.getElementById('stat-vip-members').textContent = formatNumber(stats.vip_members);
+                document.getElementById('stat-total-balance').textContent = formatMoney(stats.total_balance);
+                document.getElementById('stat-missed-balance').textContent = formatMoney(stats.total_missed);
+                
+                if (stats.total_members > 0) {
+                    const ratio = ((stats.vip_members / stats.total_members) * 100).toFixed(1);
+                    document.getElementById('vip-ratio-badge').textContent = `${ratio}%`;
+                }
+
+                // 加载图表数据
+                const chartRes = await fetch('/api/statistics/chart');
+                const chartData = await chartRes.json();
+
+                // 渲染增长趋势图
+                const ctxGrowth = document.getElementById('growthChart').getContext('2d');
+                new Chart(ctxGrowth, {
+                    type: 'line',
+                    data: {
+                        labels: chartData.growth.labels,
+                        datasets: [{
+                            label: '新增用户',
+                            data: chartData.growth.data,
+                            borderColor: '#4f46e5',
+                            backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true,
+                            pointBackgroundColor: '#ffffff',
+                            pointBorderColor: '#4f46e5',
+                            pointBorderWidth: 2,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: {
+                                    borderDash: [2, 4],
+                                    color: '#e2e8f0',
+                                    drawBorder: false,
+                                },
+                                ticks: {
+                                    stepSize: 1
+                                }
+                            },
+                            x: {
+                                grid: {
+                                    display: false
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // 渲染构成图
+                const ctxComp = document.getElementById('compositionChart').getContext('2d');
+                new Chart(ctxComp, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['VIP用户', '普通用户'],
+                        datasets: [{
+                            data: [chartData.composition.vip, chartData.composition.normal],
+                            backgroundColor: [
+                                '#4f46e5', // Indigo 600
+                                '#e2e8f0'  // Slate 200
+                            ],
+                            borderWidth: 0,
+                            hoverOffset: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '75%',
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    usePointStyle: true,
+                                    padding: 20,
+                                    font: {
+                                        size: 12
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // 更新文字数据
+                document.getElementById('chart-vip-count').textContent = formatNumber(chartData.composition.vip);
+                document.getElementById('chart-normal-count').textContent = formatNumber(chartData.composition.normal);
+
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStats();
+            
+            // 自动高亮当前页面导航栏
+            const currentPath = window.location.pathname;
+            const navLinks = document.querySelectorAll('nav a[href]');
+            navLinks.forEach(link => {
+                const href = link.getAttribute('href');
+                // 移除所有高亮
+                link.classList.remove('bg-indigo-50', 'text-indigo-600', 'border', 'border-indigo-100/50', 'shadow-sm');
+                link.classList.add('hover:bg-slate-50', 'text-slate-500', 'hover:text-slate-900');
+                
+                // 高亮当前页面
+                if ((currentPath === '/' && href === '/') || (currentPath === href && href !== '/')) {
+                    link.classList.remove('hover:bg-slate-50', 'text-slate-500', 'hover:text-slate-900');
+                    link.classList.add('bg-indigo-50', 'text-indigo-600', 'border', 'border-indigo-100/50', 'shadow-sm');
+                }
+            });
+        });
+</script>
+{% endblock %}

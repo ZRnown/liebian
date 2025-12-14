@@ -1,0 +1,468 @@
+{% extends "base.html" %}
+
+{% block title %}机器人设置{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-slate-50 p-8">
+    <div class="max-w-7xl mx-auto space-y-6">
+        
+        <!-- 页面标题 -->
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900">机器人设置</h1>
+            <p class="text-slate-500 mt-1">管理多个机器人、广告和欢迎语</p>
+        </div>
+
+        <!-- 机器人Token管理 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-slate-900">机器人Token管理</h3>
+                <button onclick="showBotModal()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
+                    <i class="ti ti-plus"></i>
+                    添加机器人
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left">ID</th>
+                            <th class="px-4 py-3 text-left">Bot用户名</th>
+                            <th class="px-4 py-3 text-left">Token</th>
+                            <th class="px-4 py-3 text-left">状态</th>
+                            <th class="px-4 py-3 text-left">创建时间</th>
+                            <th class="px-4 py-3 text-right">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="botsList">
+                        <tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 广告设置 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-slate-900">置顶广告设置</h3>
+                <button onclick="showAdModal()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
+                    <i class="ti ti-plus"></i>
+                    添加广告
+                </button>
+            </div>
+            <div id="adsList"></div>
+        </div>
+
+        <!-- 欢迎语设置 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h3 class="text-lg font-semibold text-slate-900">群欢迎语设置</h3>
+                    <p class="text-sm text-slate-500 mt-1">新成员加入时自动发送的欢迎消息</p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="welcomeSwitch" class="sr-only peer">
+                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                </label>
+            </div>
+            <div id="welcomesList"></div>
+            <button onclick="showWelcomeModal()" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">添加欢迎语</button>
+        </div>
+
+        <!-- 其他开关 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <h3 class="text-lg font-semibold text-slate-900 mb-4">功能开关</h3>
+            <div class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="font-medium text-slate-900">邀请新人自动注册</p>
+                        <p class="text-sm text-slate-500">群成员邀请新人进群时自动注册为下级</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="autoRegisterSwitch" class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Bot模态框 -->
+<div id="botModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-2xl p-8 max-w-2xl w-full mx-4">
+        <h2 class="text-2xl font-bold text-slate-900 mb-6">添加机器人</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">Bot Token</label>
+                <input type="text" id="botToken" class="w-full px-4 py-2 border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">Bot用户名（可选）</label>
+                <input type="text" id="botUsername" class="w-full px-4 py-2 border border-slate-300 rounded-lg">
+            </div>
+        </div>
+        <div class="mt-6 flex gap-3 justify-end">
+            <button onclick="closeBotModal()" class="px-4 py-2 border border-slate-300 rounded-lg">取消</button>
+            <button onclick="saveBot()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- Ad模态框 -->
+<div id="adModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-2xl p-8 max-w-2xl w-full mx-4">
+        <h2 class="text-2xl font-bold text-slate-900 mb-6">添加广告</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">广告标题</label>
+                <input type="text" id="adTitle" class="w-full px-4 py-2 border border-slate-300 rounded-lg">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">广告内容</label>
+                <textarea id="adContent" rows="4" class="w-full px-4 py-2 border border-slate-300 rounded-lg"></textarea>
+            </div>
+        </div>
+        <div class="mt-6 flex gap-3 justify-end">
+            <button onclick="closeAdModal()" class="px-4 py-2 border border-slate-300 rounded-lg">取消</button>
+            <button onclick="saveAd()" class="px-4 py-2 bg-green-600 text-white rounded-lg">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- Welcome模态框 -->
+<div id="welcomeModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-2xl p-8 max-w-2xl w-full mx-4">
+        <h2 class="text-2xl font-bold text-slate-900 mb-6">添加群欢迎语</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">群ID（可选，留空为全局）</label>
+                <input type="text" id="welcomeGroupId" class="w-full px-4 py-2 border border-slate-300 rounded-lg" placeholder="留空表示全局欢迎语">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">欢迎语内容</label>
+                <textarea id="welcomeContent" rows="4" class="w-full px-4 py-2 border border-slate-300 rounded-lg" placeholder="支持变量: {name}用户昵称, {username}用户名, {id}用户ID"></textarea>
+            </div>
+        </div>
+        <div class="mt-6 flex gap-3 justify-end">
+            <button onclick="closeWelcomeModal()" class="px-4 py-2 border border-slate-300 rounded-lg">取消</button>
+            <button onclick="saveWelcome()" class="px-4 py-2 bg-blue-600 text-white rounded-lg">保存</button>
+        </div>
+    </div>
+</div>
+
+<script>
+async function loadBots() {
+    try {
+        const response = await fetch('/api/bot-configs');
+        const data = await response.json();
+        const html = data.configs.map(b => `
+            <tr class="border-b border-slate-100">
+                <td class="px-4 py-3">${b.id}</td>
+                <td class="px-4 py-3">${b.bot_username || '-'}</td>
+                <td class="px-4 py-3 font-mono text-xs">${b.bot_token.substring(0, 20)}...</td>
+                <td class="px-4 py-3">${b.is_active ? '<span class="text-green-600">✅ 启用</span>' : '<span class="text-slate-400">❌ 停用</span>'}</td>
+                <td class="px-4 py-3 text-slate-500">${b.create_time.split(' ')[0]}</td>
+                <td class="px-4 py-3 text-right">
+                    <button onclick="deleteBot(${b.id})" class="text-red-600 hover:text-red-800">删除</button>
+                </td>
+            </tr>
+        `).join('');
+        document.getElementById('botsList').innerHTML = html || '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">暂无数据</td></tr>';
+    } catch (error) {
+        console.error('加载失败:', error);
+    }
+}
+
+async function loadAds() {
+    try {
+        const response = await fetch('/api/advertisements');
+        const data = await response.json();
+        const html = data.ads.map(a => `
+            <div class="p-4 border border-slate-200 rounded-lg mb-3">
+                <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                        <h4 class="font-semibold text-slate-900">${a.title}</h4>
+                        <p class="text-sm text-slate-600 mt-1">${a.content}</p>
+                        <span class="text-xs text-slate-400 mt-2 inline-block">${a.create_time ? a.create_time.split(' ')[0] : ''}</span>
+                    </div>
+                    <div class="flex items-center gap-2 ml-4">
+                        <button onclick="publishAd(${a.id})" class="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700" title="发布到群并置顶">
+                            <i class="ti ti-send"></i> 发布
+                        </button>
+                        <button onclick="deleteAd(${a.id})" class="text-red-600 hover:text-red-800" title="删除">
+                            <i class="ti ti-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+        document.getElementById('adsList').innerHTML = html || '<p class="text-slate-400 text-center py-4">暂无广告</p>';
+    } catch (error) {
+        console.error('加载失败:', error);
+    }
+}
+
+function showBotModal() {
+    document.getElementById('botModal').classList.remove('hidden');
+    document.getElementById('botModal').classList.add('flex');
+}
+
+function closeBotModal() {
+    document.getElementById('botModal').classList.add('hidden');
+}
+
+async function saveBot() {
+    const data = {
+        bot_token: document.getElementById('botToken').value,
+        bot_username: document.getElementById('botUsername').value
+    };
+
+    try {
+        const response = await fetch('/api/bot-config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            alert(result.message);
+            closeBotModal();
+            loadBots();
+        } else {
+            alert('保存失败: ' + result.message);
+        }
+    } catch (error) {
+        alert('保存失败: ' + error.message);
+    }
+}
+
+function showAdModal() {
+    document.getElementById('adModal').classList.remove('hidden');
+    document.getElementById('adModal').classList.add('flex');
+}
+
+function closeAdModal() {
+    document.getElementById('adModal').classList.add('hidden');
+}
+
+async function saveAd() {
+    const data = {
+        title: document.getElementById('adTitle').value,
+        content: document.getElementById('adContent').value
+    };
+
+    try {
+        const response = await fetch('/api/advertisement', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            alert(result.message);
+            closeAdModal();
+            loadAds();
+        }
+    } catch (error) {
+        alert('保存失败: ' + error.message);
+    }
+}
+
+async function deleteAd(id) {
+    if (!confirm('确定删除此广告吗？')) return;
+    
+    try {
+        const response = await fetch(`/api/advertisement/${id}`, {
+            method: 'DELETE'
+        });
+        const result = await response.json();
+        if (result.success) {
+            alert('删除成功');
+            loadAds();
+        } else {
+            alert('删除失败: ' + result.message);
+        }
+    } catch (error) {
+        alert('删除失败: ' + error.message);
+    }
+}
+
+async function deleteBot(id) {
+    if (!confirm('确定删除此机器人配置吗？')) return;
+    
+    try {
+        const response = await fetch(`/api/bot-config/${id}`, {
+            method: 'DELETE'
+        });
+        const result = await response.json();
+        if (result.success) {
+            alert('删除成功');
+            loadBots();
+        } else {
+            alert('删除失败: ' + result.message);
+        }
+    } catch (error) {
+        alert('删除失败: ' + error.message);
+    }
+}
+
+async function publishAd(id) {
+    if (!confirm('确定要将此广告发布到所有会员群并置顶吗？')) return;
+    
+    try {
+        const response = await fetch(`/api/publish-ad/${id}`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+        if (result.success) {
+            alert(result.message);
+        } else {
+            alert('发布失败: ' + result.message);
+        }
+    } catch (error) {
+        alert('发布失败: ' + error.message);
+    }
+}
+
+// 欢迎语相关函数
+function showWelcomeModal() {
+    document.getElementById('welcomeModal').classList.remove('hidden');
+    document.getElementById('welcomeModal').classList.add('flex');
+}
+
+function closeWelcomeModal() {
+    document.getElementById('welcomeModal').classList.add('hidden');
+}
+
+async function loadWelcomes() {
+    try {
+        const response = await fetch('/api/welcome-messages');
+        const data = await response.json();
+        const html = data.messages && data.messages.length > 0 
+            ? data.messages.map(w => `
+                <div class="p-3 border border-slate-200 rounded-lg mb-2 flex items-start justify-between">
+                    <div class="flex-1">
+                        <p class="text-sm text-slate-600">${w.content}</p>
+                        <span class="text-xs text-slate-400">${w.group_id ? '群:' + w.group_id : '全局'}</span>
+                    </div>
+                    <button onclick="deleteWelcome(${w.id})" class="text-red-600 hover:text-red-800 ml-2">
+                        <i class="ti ti-trash"></i>
+                    </button>
+                </div>
+            `).join('') 
+            : '<p class="text-slate-400 text-sm">暂无欢迎语</p>';
+        document.getElementById('welcomesList').innerHTML = html;
+    } catch (error) {
+        console.error('加载欢迎语失败:', error);
+    }
+}
+
+async function saveWelcome() {
+    const data = {
+        group_id: document.getElementById('welcomeGroupId').value || null,
+        content: document.getElementById('welcomeContent').value
+    };
+    
+    if (!data.content) {
+        alert('请输入欢迎语内容');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/welcome-message', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const result = await response.json();
+        if (result.success) {
+            alert('保存成功');
+            closeWelcomeModal();
+            loadWelcomes();
+        } else {
+            alert('保存失败: ' + result.message);
+        }
+    } catch (error) {
+        alert('保存失败: ' + error.message);
+    }
+}
+
+async function deleteWelcome(id) {
+    if (!confirm('确定删除此欢迎语吗？')) return;
+    
+    try {
+        const response = await fetch(`/api/welcome-message/${id}`, {
+            method: 'DELETE'
+        });
+        const result = await response.json();
+        if (result.success) {
+            alert('删除成功');
+            loadWelcomes();
+        } else {
+            alert('删除失败: ' + result.message);
+        }
+    } catch (error) {
+        alert('删除失败: ' + error.message);
+    }
+}
+
+// 加载开关状态
+async function loadSwitchSettings() {
+    try {
+        const response = await fetch('/api/settings');
+        const data = await response.json();
+        console.log('Settings API返回:', data);
+        if (data.success && data.settings) {
+            const welcomeEnabled = data.settings.welcome_enabled;
+            const autoRegisterEnabled = data.settings.auto_register_enabled;
+            console.log('welcome_enabled:', welcomeEnabled, 'auto_register_enabled:', autoRegisterEnabled);
+            
+            // 检查是否为'1'或1或true或'true'
+            document.getElementById('welcomeSwitch').checked = welcomeEnabled == '1' || welcomeEnabled == 1 || welcomeEnabled === true;
+            document.getElementById('autoRegisterSwitch').checked = autoRegisterEnabled == '1' || autoRegisterEnabled == 1 || autoRegisterEnabled === true;
+        }
+    } catch (error) {
+        console.error('加载开关设置失败:', error);
+    }
+}
+
+// 保存开关状态
+async function saveSwitchSetting(key, value) {
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ key, value: value ? '1' : '0' })
+        });
+        const result = await response.json();
+        if (!result.success) {
+            alert('保存失败: ' + result.message);
+        }
+    } catch (error) {
+        alert('保存失败: ' + error.message);
+    }
+}
+
+// 页面加载
+document.addEventListener('DOMContentLoaded', async () => {
+    loadBots();
+    loadAds();
+    loadWelcomes();
+    await loadSwitchSettings();
+    
+    // 开关事件监听
+    document.getElementById('welcomeSwitch').addEventListener('change', function() {
+        console.log('欢迎语开关变更:', this.checked);
+        saveSwitchSetting('welcome_enabled', this.checked);
+    });
+    document.getElementById('autoRegisterSwitch').addEventListener('change', function() {
+        console.log('自动注册开关变更:', this.checked);
+        saveSwitchSetting('auto_register_enabled', this.checked);
+    });
+});
+</script>
+
+{% endblock %}

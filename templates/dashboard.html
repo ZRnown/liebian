@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+
+{% block title %}数据统计 - 裂变机器人后台{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-6 py-8">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-slate-800">📊 数据统计</h1>
+        <p class="text-slate-500 mt-2">实时查看系统运营数据</p>
+    </div>
+
+    <!-- 核心数据卡片 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <!-- 总会员数 -->
+        <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-blue-600 text-sm font-medium">总会员数</p>
+                    <h3 class="text-3xl font-bold text-blue-700 mt-2" id="total-members">0</h3>
+                </div>
+                <div class="w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center">
+                    <i class="ti ti-users text-white text-2xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIP会员数 -->
+        <div class="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-6 border border-purple-200">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-purple-600 text-sm font-medium">VIP会员数</p>
+                    <h3 class="text-3xl font-bold text-purple-700 mt-2" id="vip-members">0</h3>
+                </div>
+                <div class="w-12 h-12 bg-purple-500 rounded-lg flex items-center justify-center">
+                    <i class="ti ti-crown text-white text-2xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- 今日注册 -->
+        <div class="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-6 border border-green-200">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-green-600 text-sm font-medium">今日注册</p>
+                    <h3 class="text-3xl font-bold text-green-700 mt-2" id="today-register">0</h3>
+                </div>
+                <div class="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center">
+                    <i class="ti ti-user-plus text-white text-2xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- 今日开通VIP -->
+        <div class="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-6 border border-orange-200">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-orange-600 text-sm font-medium">今日开通VIP</p>
+                    <h3 class="text-3xl font-bold text-orange-700 mt-2" id="today-vip">0</h3>
+                </div>
+                <div class="w-12 h-12 bg-orange-500 rounded-lg flex items-center justify-center">
+                    <i class="ti ti-star text-white text-2xl"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 收益统计 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <!-- 平台收益（捡漏账号） -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4 flex items-center">
+                <i class="ti ti-coin text-yellow-500 mr-2"></i>
+                平台收益（捡漏账号前10名）
+            </h2>
+            <div class="grid grid-cols-2 gap-4">
+                <div class="bg-slate-50 rounded-lg p-4">
+                    <p class="text-slate-500 text-sm">今日收益</p>
+                    <h3 class="text-2xl font-bold text-slate-800 mt-1" id="today-income">0 U</h3>
+                </div>
+                <div class="bg-slate-50 rounded-lg p-4">
+                    <p class="text-slate-500 text-sm">昨日收益</p>
+                    <h3 class="text-2xl font-bold text-slate-800 mt-1" id="yesterday-income">0 U</h3>
+                </div>
+                <div class="bg-slate-50 rounded-lg p-4">
+                    <p class="text-slate-500 text-sm">本月收益</p>
+                    <h3 class="text-2xl font-bold text-slate-800 mt-1" id="month-income">0 U</h3>
+                </div>
+                <div class="bg-slate-50 rounded-lg p-4">
+                    <p class="text-slate-500 text-sm">总收益</p>
+                    <h3 class="text-2xl font-bold text-slate-800 mt-1" id="total-income">0 U</h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- 注册开通趋势 -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h2 class="text-lg font-semibold text-slate-800 mb-4 flex items-center">
+                <i class="ti ti-chart-line text-indigo-500 mr-2"></i>
+                注册与开通趋势
+            </h2>
+            <div class="space-y-3">
+                <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                    <span class="text-slate-600">昨日注册</span>
+                    <span class="font-semibold text-slate-800" id="yesterday-register">0</span>
+                </div>
+                <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                    <span class="text-slate-600">昨日开通VIP</span>
+                    <span class="font-semibold text-slate-800" id="yesterday-vip">0</span>
+                </div>
+                <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                    <span class="text-slate-600">本月注册</span>
+                    <span class="font-semibold text-slate-800" id="month-register">0</span>
+                </div>
+                <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                    <span class="text-slate-600">本月开通VIP</span>
+                    <span class="font-semibold text-slate-800" id="month-vip">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 捡漏账号收益详情 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+        <h2 class="text-lg font-semibold text-slate-800 mb-4 flex items-center">
+            <i class="ti ti-trophy text-yellow-500 mr-2"></i>
+            捡漏账号收益排行榜 TOP 10
+        </h2>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-slate-50">
+                    <tr class="text-left text-sm text-slate-600">
+                        <th class="px-4 py-3 rounded-tl-lg">排名</th>
+                        <th class="px-4 py-3">账号名</th>
+                        <th class="px-4 py-3">Telegram ID</th>
+                        <th class="px-4 py-3">当前余额</th>
+                        <th class="px-4 py-3">累计收益</th>
+                        <th class="px-4 py-3 rounded-tr-lg">状态</th>
+                    </tr>
+                </thead>
+                <tbody id="fallback-accounts-table" class="text-sm">
+                    <!-- 动态加载 -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 7日趋势图表 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <h2 class="text-lg font-semibold text-slate-800 mb-4 flex items-center">
+            <i class="ti ti-chart-bar text-blue-500 mr-2"></i>
+            近7日注册与开通VIP趋势
+        </h2>
+        <canvas id="trend-chart" height="80"></canvas>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// 加载统计数据
+async function loadDashboardStats() {
+    try {
+        const response = await fetch('/api/dashboard/stats');
+        const data = await response.json();
+        
+        if (data.success) {
+            const stats = data.data;
+            
+            // 更新核心数据
+            document.getElementById('total-members').textContent = stats.total_members || 0;
+            document.getElementById('vip-members').textContent = stats.vip_members || 0;
+            document.getElementById('today-register').textContent = stats.today_register || 0;
+            document.getElementById('today-vip').textContent = stats.today_vip || 0;
+            
+            // 更新收益数据
+            document.getElementById('today-income').textContent = (stats.today_income || 0) + ' U';
+            document.getElementById('yesterday-income').textContent = (stats.yesterday_income || 0) + ' U';
+            document.getElementById('month-income').textContent = (stats.month_income || 0) + ' U';
+            document.getElementById('total-income').textContent = (stats.total_income || 0) + ' U';
+            
+            // 更新趋势数据
+            document.getElementById('yesterday-register').textContent = stats.yesterday_register || 0;
+            document.getElementById('yesterday-vip').textContent = stats.yesterday_vip || 0;
+            document.getElementById('month-register').textContent = stats.month_register || 0;
+            document.getElementById('month-vip').textContent = stats.month_vip || 0;
+            
+            // 加载捡漏账号排行
+            loadFallbackAccounts(stats.fallback_accounts || []);
+            
+            // 绘制趋势图
+            drawTrendChart(stats.trend_data || {});
+        }
+    } catch (error) {
+        console.error('加载统计数据失败:', error);
+    }
+}
+
+// 加载捡漏账号排行
+function loadFallbackAccounts(accounts) {
+    const tbody = document.getElementById('fallback-accounts-table');
+    tbody.innerHTML = '';
+    
+    accounts.forEach((account, index) => {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-slate-100 hover:bg-slate-50';
+        
+        const rankClass = index === 0 ? 'text-yellow-500' : index === 1 ? 'text-slate-400' : index === 2 ? 'text-orange-400' : 'text-slate-600';
+        
+        tr.innerHTML = `
+            <td class="px-4 py-3">
+                <span class="font-bold ${rankClass}">
+                    ${index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '#' + (index + 1)}
+                </span>
+            </td>
+            <td class="px-4 py-3 font-medium text-slate-800">${account.username || '未知'}</td>
+            <td class="px-4 py-3 text-slate-600">${account.telegram_id || '-'}</td>
+            <td class="px-4 py-3 font-semibold text-green-600">${account.balance || 0} U</td>
+            <td class="px-4 py-3 font-semibold text-blue-600">${account.total_earned || 0} U</td>
+            <td class="px-4 py-3">
+                <span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">
+                    ${account.is_vip ? 'VIP' : '普通'}
+                </span>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// 绘制趋势图表
+let trendChart = null;
+function drawTrendChart(trendData) {
+    const ctx = document.getElementById('trend-chart');
+    
+    if (trendChart) {
+        trendChart.destroy();
+    }
+    
+    trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: trendData.labels || [],
+            datasets: [
+                {
+                    label: '注册人数',
+                    data: trendData.register_counts || [],
+                    borderColor: 'rgb(59, 130, 246)',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                },
+                {
+                    label: '开通VIP',
+                    data: trendData.vip_counts || [],
+                    borderColor: 'rgb(168, 85, 247)',
+                    backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            }
+        }
+    });
+}
+
+// 页面加载时执行
+document.addEventListener('DOMContentLoaded', function() {
+    loadDashboardStats();
+    
+    // 每30秒刷新一次数据
+    setInterval(loadDashboardStats, 30000);
+});
+</script>
+{% endblock %}

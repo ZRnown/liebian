@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block title %}客服管理{% endblock %}
+
+{% block content %}
+<main class="px-6 py-8">
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-50 text-slate-500 font-medium">
+                        <tr>
+                            <th class="px-6 py-4">ID</th>
+                            <th class="px-6 py-4">客服名称</th>
+                            <th class="px-6 py-4">联系方式</th>
+                            <th class="px-6 py-4 text-right">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="servicesList" class="divide-y divide-slate-100">
+                        <tr><td colspan="4" class="px-6 py-12 text-center text-slate-400">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+
+
+
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+            // 自动高亮当前页面导航栏
+            const currentPath = window.location.pathname;
+            const navLinks = document.querySelectorAll('nav a[href]');
+            navLinks.forEach(link => {
+                const href = link.getAttribute('href');
+                // 移除所有高亮
+                link.classList.remove('bg-indigo-50', 'text-indigo-600', 'border', 'border-indigo-100/50', 'shadow-sm');
+                link.classList.add('hover:bg-slate-50', 'text-slate-500', 'hover:text-slate-900');
+                
+                // 高亮当前页面
+                if ((currentPath === '/' && href === '/') || (currentPath === href && href !== '/')) {
+                    link.classList.remove('hover:bg-slate-50', 'text-slate-500', 'hover:text-slate-900');
+                    link.classList.add('bg-indigo-50', 'text-indigo-600', 'border', 'border-indigo-100/50', 'shadow-sm');
+                }
+            });
+        });
+
+let currentServiceId = null;
+
+        function showToast(title, message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const icon = document.getElementById('toast-icon');
+            document.getElementById('toast-title').textContent = title;
+            document.getElementById('toast-message').textContent = message;
+            icon.innerHTML = type === 'success' 
+                ? '<div class="h-8 w-8 rounded-full bg-green-50 flex items-center justify-center"><i class="ti ti-check text-green-600"></i></div>'
+                : '<div class="h-8 w-8 rounded-full bg-red-50 flex items-center justify-center"><i class="ti ti-alert-triangle text-red-600"></i></div>';
+            toast.classList.remove('translate-x-full', 'opacity-0');
+            setTimeout(() => toast.classList.add('translate-x-full', 'opacity-0'), 3000);
+        }
+
+        async function loadServices() {
+            try {
+                const res = await fetch('/api/customer_services');
+                const services = await res.json();
+                
+                const tbody = document.getElementById('servicesList');
+                if (!services || services.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-12 text-center text-slate-400">暂无客服</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = services.map(s => `
+                    <tr class="hover:bg-slate-50">
+                        <td class="px-6 py-4">${s.id}</td>
+                        <td class="px-6 py-4 font-medium">${s.name}</td>
+                        <td class="px-6 py-4 text-indigo-600">${s.link}</td>
+                        <td class="px-6 py-4 text-right space-x-2">
+                            <button onclick="editService(${s.id})" class="text-blue-600 hover:text-blue-800 font-medium">编辑</button>
+                            <button onclick="deleteService(${s.id}, '${s.name}')" class="text-red-600 hover:text-red-800 font-medium">删除</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('加载失败:', error);
+                document.getElementById('servicesList').innerHTML = '<tr><td colspan="4" class="px-6 py-12 text-center text-red-500">加载失败</td></tr>';
+                showToast('加载失败', error.message, 'error');
+            }
+        }
+
+        function showAddModal() {
+            currentServiceId = null;
+            document.getElementById('modalTitle').textContent = '添加客服';
+            document.getElementById('serviceName').value = '';
+            document.getElementById('serviceLink').value = '';
+            document.getElementById('editModal').classList.add('show');
+        }
+
+        async function editService(id) {
+            try {
+                const res = await fetch(`/api/customer_services/${id}`);
+                const s = await res.json();
+                
+                currentServiceId = id;
+                document.getElementById('modalTitle').textContent = '编辑客服';
+                document.getElementById('serviceName').value = s.name;
+                document.getElementById('serviceLink').value = s.link;
+                document.getElementById('editModal').classList.add('show');
+            } catch (error) {
+                showToast('加载失败', error.message, 'error');
+            }
+        }
+
+        async function saveService() {
+            const name = document.getElementById('serviceName').value.trim();
+            const link = document.getElementById('serviceLink').value.trim();
+
+            if (!name || !link) {
+                showToast('验证失败', '请填写所有必填项', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(currentServiceId ? `/api/customer_services/${currentServiceId}` : '/api/customer_services', {
+                    method: currentServiceId ? 'PUT' : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, link })
+                });
+                
+                const result = await res.json();
+                if (result.success) {
+                    showToast('保存成功', currentServiceId ? '客服已更新' : '客服已添加');
+                    closeModal();
+                    loadServices();
+                } else {
+                    showToast('保存失败', result.message, 'error');
+                }
+            } catch (error) {
+                showToast('保存失败', error.message, 'error');
+            }
+        }
+
+        async function deleteService(id, name) {
+            if (!confirm(`确定删除客服"${name}"吗？`)) return;
+            
+            try {
+                const res = await fetch(`/api/customer_services/${id}`, { method: 'DELETE' });
+                const result = await res.json();
+                
+                if (result.success) {
+                    showToast('删除成功', '客服已删除');
+                    loadServices();
+                } else {
+                    showToast('删除失败', result.message, 'error');
+                }
+            } catch (error) {
+                showToast('删除失败', error.message, 'error');
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('editModal').classList.remove('show');
+        }
+
+        document.addEventListener('DOMContentLoaded', loadServices);
+</script>
+{% endblock %}

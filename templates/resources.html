@@ -1,0 +1,384 @@
+{% extends "base.html" %}
+
+{% block title %}行业资源{% endblock %}
+
+{% block content %}
+<style>
+    .modal { display: none; }
+    .modal.show { display: flex; }
+</style>
+
+<main class="px-6 py-8">
+    <!-- 标签页 -->
+    <div class="mb-6 border-b border-slate-200">
+        <div class="flex gap-6">
+            <button onclick="switchTab('categories')" id="tab-categories" class="pb-3 px-1 border-b-2 border-indigo-600 text-indigo-600 font-medium text-sm">
+                资源分类
+            </button>
+            <button onclick="switchTab('resources')" id="tab-resources" class="pb-3 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-700 font-medium text-sm">
+                资源列表
+            </button>
+        </div>
+    </div>
+
+    <!-- 资源分类 -->
+    <div id="content-categories">
+        <div class="flex justify-between items-center mb-6">
+            <p class="text-sm text-slate-500">管理资源分类，用户在机器人端按分类浏览资源</p>
+            <button onclick="showAddCategoryModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2">
+                <i class="ti ti-plus"></i> 添加分类
+            </button>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <table class="w-full text-sm text-left">
+                <thead class="bg-slate-50 text-slate-500 font-medium">
+                    <tr>
+                        <th class="px-6 py-4">ID</th>
+                        <th class="px-6 py-4">分类名称</th>
+                        <th class="px-6 py-4 text-right">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="categoriesList" class="divide-y divide-slate-100">
+                    <tr><td colspan="3" class="px-6 py-12 text-center text-slate-400">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 资源列表 -->
+    <div id="content-resources" style="display:none;">
+        <div class="flex justify-between items-center mb-6">
+            <div class="flex items-center gap-4">
+                <select id="filterCategory" onchange="loadResources()" class="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="">全部分类</option>
+                </select>
+            </div>
+            <button onclick="showAddResourceModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2">
+                <i class="ti ti-plus"></i> 添加资源
+            </button>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <table class="w-full text-sm text-left">
+                <thead class="bg-slate-50 text-slate-500 font-medium">
+                    <tr>
+                        <th class="px-6 py-4">ID</th>
+                        <th class="px-6 py-4">分类</th>
+                        <th class="px-6 py-4">资源名称</th>
+                        <th class="px-6 py-4">链接</th>
+                        <th class="px-6 py-4">类型</th>
+                        <th class="px-6 py-4">人数</th>
+                        <th class="px-6 py-4 text-right">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="resourcesList" class="divide-y divide-slate-100">
+                    <tr><td colspan="7" class="px-6 py-12 text-center text-slate-400">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<!-- Toast -->
+<div id="toast" class="fixed top-6 right-6 z-[70] transform transition-all duration-300 translate-x-full opacity-0">
+    <div class="bg-white rounded-xl shadow-2xl border border-slate-100 p-4 flex items-start gap-3 min-w-[320px]">
+        <div id="toast-icon"></div>
+        <div class="flex-1">
+            <h4 id="toast-title" class="text-sm font-semibold text-slate-900"></h4>
+            <p id="toast-message" class="text-sm text-slate-500 mt-1"></p>
+        </div>
+    </div>
+</div>
+
+<!-- 分类模态框 -->
+<div id="categoryModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg m-4">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-bold text-slate-900" id="categoryModalTitle">添加分类</h3>
+        </div>
+        <div class="p-6">
+            <label class="block text-sm font-medium text-slate-700 mb-2">分类名称</label>
+            <input type="text" id="categoryName" placeholder="例如：同城交友" class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div class="p-6 border-t border-slate-200 flex gap-3">
+            <button onclick="closeCategoryModal()" class="flex-1 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-medium">取消</button>
+            <button onclick="saveCategory()" class="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 资源模态框 -->
+<div id="resourceModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg m-4">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-bold text-slate-900" id="resourceModalTitle">添加资源</h3>
+        </div>
+        <div class="p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">资源分类</label>
+                <select id="resourceCategory" class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="">请选择分类</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">资源名称</label>
+                <input type="text" id="resourceName" placeholder="例如：北京同城群" class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">资源链接</label>
+                <input type="text" id="resourceLink" placeholder="https://t.me/xxx" class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">类型</label>
+                <select id="resourceType" class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="group">群组</option>
+                    <option value="channel">频道</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">人数</label>
+                <input type="number" id="resourceCount" placeholder="10000" class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+        </div>
+        <div class="p-6 border-t border-slate-200 flex gap-3">
+            <button onclick="closeResourceModal()" class="flex-1 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-medium">取消</button>
+            <button onclick="saveResource()" class="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium">保存</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentCategoryId = null;
+let currentResourceId = null;
+
+function showToast(title, message, type = 'success') {
+    const toast = document.getElementById('toast');
+    const icon = document.getElementById('toast-icon');
+    document.getElementById('toast-title').textContent = title;
+    document.getElementById('toast-message').textContent = message;
+    icon.innerHTML = type === 'success' 
+        ? '<div class="h-8 w-8 rounded-full bg-green-50 flex items-center justify-center"><i class="ti ti-check text-green-600"></i></div>'
+        : '<div class="h-8 w-8 rounded-full bg-red-50 flex items-center justify-center"><i class="ti ti-alert-triangle text-red-600"></i></div>';
+    toast.classList.remove('translate-x-full', 'opacity-0');
+    setTimeout(() => toast.classList.add('translate-x-full', 'opacity-0'), 3000);
+}
+
+function switchTab(tab) {
+    document.getElementById('tab-categories').className = tab === 'categories' 
+        ? 'pb-3 px-1 border-b-2 border-indigo-600 text-indigo-600 font-medium text-sm' 
+        : 'pb-3 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-700 font-medium text-sm';
+    document.getElementById('tab-resources').className = tab === 'resources' 
+        ? 'pb-3 px-1 border-b-2 border-indigo-600 text-indigo-600 font-medium text-sm' 
+        : 'pb-3 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-700 font-medium text-sm';
+    document.getElementById('content-categories').style.display = tab === 'categories' ? 'block' : 'none';
+    document.getElementById('content-resources').style.display = tab === 'resources' ? 'block' : 'none';
+    if (tab === 'resources') loadResources();
+}
+
+async function loadCategories() {
+    try {
+        const res = await fetch('/api/resource_categories');
+        const data = await res.json();
+        const tbody = document.getElementById('categoriesList');
+        tbody.innerHTML = !data.categories || data.categories.length === 0 
+            ? '<tr><td colspan="3" class="px-6 py-12 text-center text-slate-400">暂无分类</td></tr>'
+            : data.categories.map(c => `
+                <tr class="hover:bg-slate-50">
+                    <td class="px-6 py-4">${c.id}</td>
+                    <td class="px-6 py-4 font-medium">${c.name}</td>
+                    <td class="px-6 py-4 text-right space-x-2">
+                        <button onclick="editCategory(${c.id})" class="text-blue-600 hover:text-blue-800 font-medium">编辑</button>
+                        <button onclick="deleteCategory(${c.id},'${c.name}')" class="text-red-600 hover:text-red-800 font-medium">删除</button>
+                    </td>
+                </tr>
+            `).join('');
+        
+        // 更新分类选择器
+        const selects = [document.getElementById('filterCategory'), document.getElementById('resourceCategory')];
+        selects.forEach(select => {
+            if (!select) return;
+            const current = select.value;
+            select.innerHTML = select.id === 'filterCategory' ? '<option value="">全部分类</option>' : '<option value="">请选择分类</option>';
+            if (data.categories) {
+                data.categories.forEach(c => select.innerHTML += `<option value="${c.id}">${c.name}</option>`);
+            }
+            select.value = current;
+        });
+    } catch (error) {
+        showToast('加载失败', error.message, 'error');
+    }
+}
+
+async function loadResources() {
+    const filterEl = document.getElementById('filterCategory');
+    const categoryId = filterEl ? filterEl.value : '';
+    try {
+        const res = await fetch(`/api/resources${categoryId ? '?category_id=' + categoryId : ''}`);
+        const data = await res.json();
+        const tbody = document.getElementById('resourcesList');
+        tbody.innerHTML = !data.resources || data.resources.length === 0
+            ? '<tr><td colspan="7" class="px-6 py-12 text-center text-slate-400">暂无资源</td></tr>'
+            : data.resources.map(r => `
+                <tr class="hover:bg-slate-50">
+                    <td class="px-6 py-4">${r.id}</td>
+                    <td class="px-6 py-4">${r.category_name || '-'}</td>
+                    <td class="px-6 py-4 font-medium">${r.name}</td>
+                    <td class="px-6 py-4 text-indigo-600 text-xs">${r.link}</td>
+                    <td class="px-6 py-4"><span class="px-2 py-1 rounded-full text-xs ${r.type === 'group' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}">${r.type === 'group' ? '群组' : '频道'}</span></td>
+                    <td class="px-6 py-4 font-semibold">${(r.member_count / 1000).toFixed(1)}K</td>
+                    <td class="px-6 py-4 text-right space-x-2">
+                        <button onclick="editResource(${r.id})" class="text-blue-600 hover:text-blue-800 font-medium">编辑</button>
+                        <button onclick="deleteResource(${r.id},'${r.name}')" class="text-red-600 hover:text-red-800 font-medium">删除</button>
+                    </td>
+                </tr>
+            `).join('');
+    } catch (error) {
+        showToast('加载失败', error.message, 'error');
+    }
+}
+
+function showAddCategoryModal() {
+    currentCategoryId = null;
+    document.getElementById('categoryModalTitle').textContent = '添加分类';
+    document.getElementById('categoryName').value = '';
+    document.getElementById('categoryModal').classList.add('show');
+}
+
+async function editCategory(id) {
+    try {
+        const res = await fetch(`/api/resource_categories/${id}`);
+        const cat = await res.json();
+        currentCategoryId = id;
+        document.getElementById('categoryModalTitle').textContent = '编辑分类';
+        document.getElementById('categoryName').value = cat.name;
+        document.getElementById('categoryModal').classList.add('show');
+    } catch (error) {
+        showToast('加载失败', error.message, 'error');
+    }
+}
+
+async function saveCategory() {
+    const name = document.getElementById('categoryName').value.trim();
+    if (!name) return showToast('验证失败', '请输入分类名称', 'error');
+    
+    try {
+        const res = await fetch(currentCategoryId ? `/api/resource_categories/${currentCategoryId}` : '/api/resource_categories', {
+            method: currentCategoryId ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, parent_id: 0 })
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast('保存成功', currentCategoryId ? '分类已更新' : '分类已添加');
+            closeCategoryModal();
+            loadCategories();
+        } else {
+            showToast('保存失败', result.message || '未知错误', 'error');
+        }
+    } catch (error) {
+        showToast('保存失败', error.message, 'error');
+    }
+}
+
+async function deleteCategory(id, name) {
+    if (!confirm(`确定删除分类"${name}"吗？`)) return;
+    try {
+        const res = await fetch(`/api/resource_categories/${id}`, { method: 'DELETE' });
+        const result = await res.json();
+        if (result.success) {
+            showToast('删除成功', '分类已删除');
+            loadCategories();
+        } else {
+            showToast('删除失败', result.message || '未知错误', 'error');
+        }
+    } catch (error) {
+        showToast('删除失败', error.message, 'error');
+    }
+}
+
+function closeCategoryModal() {
+    document.getElementById('categoryModal').classList.remove('show');
+}
+
+function showAddResourceModal() {
+    currentResourceId = null;
+    document.getElementById('resourceModalTitle').textContent = '添加资源';
+    document.getElementById('resourceName').value = '';
+    document.getElementById('resourceLink').value = '';
+    document.getElementById('resourceType').value = 'group';
+    document.getElementById('resourceCount').value = '';
+    document.getElementById('resourceCategory').value = '';
+    document.getElementById('resourceModal').classList.add('show');
+}
+
+async function editResource(id) {
+    try {
+        const res = await fetch(`/api/resources/${id}`);
+        const r = await res.json();
+        currentResourceId = id;
+        document.getElementById('resourceModalTitle').textContent = '编辑资源';
+        document.getElementById('resourceCategory').value = r.category_id || '';
+        document.getElementById('resourceName').value = r.name || '';
+        document.getElementById('resourceLink').value = r.link || '';
+        document.getElementById('resourceType').value = r.type || 'group';
+        document.getElementById('resourceCount').value = r.member_count || '';
+        document.getElementById('resourceModal').classList.add('show');
+    } catch (error) {
+        showToast('加载失败', error.message, 'error');
+    }
+}
+
+async function saveResource() {
+    const data = {
+        category_id: parseInt(document.getElementById('resourceCategory').value) || 0,
+        name: document.getElementById('resourceName').value.trim(),
+        link: document.getElementById('resourceLink').value.trim(),
+        type: document.getElementById('resourceType').value,
+        member_count: parseInt(document.getElementById('resourceCount').value) || 0
+    };
+    
+    if (!data.name || !data.link) {
+        return showToast('验证失败', '请填写资源名称和链接', 'error');
+    }
+    
+    try {
+        const res = await fetch(currentResourceId ? `/api/resources/${currentResourceId}` : '/api/resources', {
+            method: currentResourceId ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast('保存成功', currentResourceId ? '资源已更新' : '资源已添加');
+            closeResourceModal();
+            loadResources();
+        } else {
+            showToast('保存失败', result.message || '未知错误', 'error');
+        }
+    } catch (error) {
+        showToast('保存失败', error.message, 'error');
+    }
+}
+
+async function deleteResource(id, name) {
+    if (!confirm(`确定删除资源"${name}"吗？`)) return;
+    try {
+        const res = await fetch(`/api/resources/${id}`, { method: 'DELETE' });
+        const result = await res.json();
+        if (result.success) {
+            showToast('删除成功', '资源已删除');
+            loadResources();
+        } else {
+            showToast('删除失败', result.message || '未知错误', 'error');
+        }
+    } catch (error) {
+        showToast('删除失败', error.message, 'error');
+    }
+}
+
+function closeResourceModal() {
+    document.getElementById('resourceModal').classList.remove('show');
+}
+
+document.addEventListener('DOMContentLoaded', loadCategories);
+</script>
+{% endblock %}

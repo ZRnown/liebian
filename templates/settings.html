@@ -1,0 +1,643 @@
+{% extends "base.html" %}
+
+{% block title %}系统配置中心{% endblock %}
+
+{% block content %}
+<main class="px-6 py-8 fade-in-up">
+        
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+            <div>
+                <h2 class="text-2xl font-bold text-slate-900 tracking-tight">参数设置</h2>
+                <p class="text-slate-500 mt-1">管理机器人裂变规则、财务参数及基础服务信息。</p>
+            </div>
+            <button onclick="loadSettings()" class="group inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-white border border-slate-200 text-sm font-medium rounded-xl text-slate-700 hover:border-brand-500 hover:text-brand-600 hover:shadow-md transition-all active:scale-95 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+                <i class="ti ti-refresh group-hover:rotate-180 transition-transform duration-500"></i> 
+                刷新数据
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
+            
+            <div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-soft hover:shadow-hover transition-all duration-300">
+                <div class="flex justify-between items-start mb-4">
+                    <div class="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                        <i class="ti ti-sitemap text-xl"></i>
+                    </div>
+                    <span class="text-xs font-semibold px-2 py-1 bg-slate-50 text-slate-500 rounded-md">层级</span>
+                </div>
+                <div class="mb-4">
+                    <p class="text-sm text-slate-500 font-medium">推广层数设置</p>
+                    <div class="flex items-baseline gap-1 mt-1">
+                        <h3 id="current-levels" class="text-3xl font-bold text-slate-900">-</h3>
+                        <span class="text-sm text-slate-400">Level</span>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <input type="number" id="input-levels" min="1" max="100" class="w-full bg-slate-50 text-sm border-0 rounded-lg px-3 py-2 ring-1 ring-slate-200 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all outline-none" placeholder="新数值">
+                    <button onclick="updateLevels()" class="px-3 py-2 bg-slate-900 text-white rounded-lg hover:bg-blue-600 transition-colors">
+                        <i class="ti ti-check"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-soft hover:shadow-hover transition-all duration-300">
+                <div class="flex justify-between items-start mb-4">
+                    <div class="p-2 bg-green-50 text-green-600 rounded-lg">
+                        <i class="ti ti-coins text-xl"></i>
+                    </div>
+                    <span class="text-xs font-semibold px-2 py-1 bg-slate-50 text-slate-500 rounded-md">奖励</span>
+                </div>
+                <div class="mb-4">
+                    <p class="text-sm text-slate-500 font-medium">每层返利金额</p>
+                    <div class="flex items-baseline gap-1 mt-1">
+                        <h3 id="current-reward" class="text-3xl font-bold text-slate-900">-</h3>
+                        <span class="text-sm text-slate-400">USDT</span>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <input type="number" id="input-reward" min="0" step="0.1" class="w-full bg-slate-50 text-sm border-0 rounded-lg px-3 py-2 ring-1 ring-slate-200 focus:ring-2 focus:ring-green-500 focus:bg-white transition-all outline-none" placeholder="新数值">
+                    <button onclick="updateReward()" class="px-3 py-2 bg-slate-900 text-white rounded-lg hover:bg-green-600 transition-colors">
+                        <i class="ti ti-check"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-soft hover:shadow-hover transition-all duration-300">
+                <div class="flex justify-between items-start mb-4">
+                    <div class="p-2 bg-amber-50 text-amber-600 rounded-lg">
+                        <i class="ti ti-crown text-xl"></i>
+                    </div>
+                    <span class="text-xs font-semibold px-2 py-1 bg-slate-50 text-slate-500 rounded-md">定价</span>
+                </div>
+                <div class="mb-4">
+                    <p class="text-sm text-slate-500 font-medium">VIP 购买价格</p>
+                    <div class="flex items-baseline gap-1 mt-1">
+                        <h3 id="current-vip-price" class="text-3xl font-bold text-slate-900">-</h3>
+                        <span class="text-sm text-slate-400">USDT</span>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <input type="number" id="input-vip-price" min="0" step="0.1" class="w-full bg-slate-50 text-sm border-0 rounded-lg px-3 py-2 ring-1 ring-slate-200 focus:ring-2 focus:ring-amber-500 focus:bg-white transition-all outline-none" placeholder="新数值">
+                    <button onclick="updateVipPrice()" class="px-3 py-2 bg-slate-900 text-white rounded-lg hover:bg-amber-600 transition-colors">
+                        <i class="ti ti-check"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl p-5 border border-slate-100 shadow-soft hover:shadow-hover transition-all duration-300">
+                <div class="flex justify-between items-start mb-4">
+                    <div class="p-2 bg-purple-50 text-purple-600 rounded-lg">
+                        <i class="ti ti-wallet text-xl"></i>
+                    </div>
+                    <span class="text-xs font-semibold px-2 py-1 bg-slate-50 text-slate-500 rounded-md">风控</span>
+                </div>
+                <div class="mb-4">
+                    <p class="text-sm text-slate-500 font-medium">最低提现门槛</p>
+                    <div class="flex items-baseline gap-1 mt-1">
+                        <h3 id="current-threshold" class="text-3xl font-bold text-slate-900">-</h3>
+                        <span class="text-sm text-slate-400">USDT</span>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <input type="number" id="input-threshold" min="0" step="0.1" class="w-full bg-slate-50 text-sm border-0 rounded-lg px-3 py-2 ring-1 ring-slate-200 focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all outline-none" placeholder="新数值">
+                    <button onclick="updateThreshold()" class="px-3 py-2 bg-slate-900 text-white rounded-lg hover:bg-purple-600 transition-colors">
+                        <i class="ti ti-check"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-100 shadow-soft p-6">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="h-10 w-10 rounded-full bg-brand-50 flex items-center justify-center text-brand-600">
+                        <i class="ti ti-currency-tether text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900">收款钱包配置</h3>
+                        <p class="text-sm text-slate-500">USDT-TRC20 收款地址管理</p>
+                    </div>
+                </div>
+                
+                <div class="bg-slate-50 rounded-xl p-4 border border-slate-100 mb-5 relative group">
+                    <span class="text-xs font-medium text-slate-400 block mb-1">当前生效地址</span>
+                    <p id="current-address" class="font-mono text-sm text-slate-800 break-all pr-12">-</p>
+                    <button onclick="copyAddress()" class="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-brand-600 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100">
+                        <i class="ti ti-copy text-lg"></i>
+                    </button>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-3">
+                    <div class="relative flex-1">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i class="ti ti-link text-slate-400"></i>
+                        </div>
+                        <input type="text" id="input-address" placeholder="T..." 
+                               class="pl-10 w-full bg-white border-slate-200 rounded-xl py-2.5 text-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all outline-none"
+                        >
+                    </div>
+                    <button onclick="updateAddress()" class="inline-flex justify-center items-center gap-2 px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-xl transition-all shadow-lg shadow-brand-500/30 active:scale-95">
+                        <i class="ti ti-device-floppy"></i> 保存地址
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-6 flex flex-col">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="h-10 w-10 rounded-full bg-pink-50 flex items-center justify-center text-pink-600">
+                        <i class="ti ti-message-chatbot text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900">客服文案</h3>
+                        <p class="text-sm text-slate-500">机器人回复的联系方式</p>
+                    </div>
+                </div>
+                
+                <div class="flex-1 min-h-[100px] mb-4">
+                    <textarea id="input-service" rows="4" placeholder="请输入客服联系方式..." 
+                              class="w-full h-full bg-slate-50 border-0 ring-1 ring-slate-200 rounded-xl p-4 text-sm focus:ring-2 focus:ring-pink-500 focus:bg-white transition-all resize-none outline-none"></textarea>
+                </div>
+                
+                <div class="flex justify-between items-center">
+                    <div class="text-xs text-slate-400 truncate max-w-[150px]">
+                        当前: <span id="current-service" class="font-medium text-slate-600">-</span>
+                    </div>
+                    <button onclick="updateService()" class="px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:text-pink-600 hover:border-pink-200 rounded-lg text-sm font-medium transition-all">
+                        更新文案
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-6 flex flex-col">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-600">
+                        <i class="ti ti-lock text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900">安全设置</h3>
+                        <p class="text-sm text-slate-500">修改管理员密码</p>
+                    </div>
+                </div>
+                
+                <div class="space-y-3 flex-1">
+                    <input type="password" id="old-password" placeholder="当前密码" 
+                           class="w-full bg-slate-50 border-0 ring-1 ring-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-slate-500 focus:bg-white transition-all outline-none">
+                    <input type="password" id="new-password" placeholder="新密码" 
+                           class="w-full bg-slate-50 border-0 ring-1 ring-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-slate-500 focus:bg-white transition-all outline-none">
+                </div>
+                
+                <div class="flex justify-end mt-4">
+                    <button onclick="changePassword()" class="px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-sm font-medium transition-all">
+                        确认修改
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 捡漏账号管理 -->
+        <div class="mt-6 bg-white rounded-2xl border border-slate-100 shadow-soft p-6">
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center gap-3">
+                    <div class="h-10 w-10 rounded-full bg-yellow-50 flex items-center justify-center text-yellow-600">
+                        <i class="ti ti-trophy text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900">捡漏账号管理</h3>
+                        <p class="text-sm text-slate-500">管理10个预设捡漏账号</p>
+                    </div>
+                </div>
+                <a href="/fallback-accounts" class="px-4 py-2 bg-slate-100 hover:bg-yellow-100 text-slate-700 hover:text-yellow-700 rounded-lg text-sm font-medium transition-all">
+                    查看详情
+                </a>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-slate-50 text-slate-600">
+                        <tr>
+                            <th class="px-4 py-3 text-left rounded-tl-lg">序号</th>
+                            <th class="px-4 py-3 text-left">账号名</th>
+                            <th class="px-4 py-3 text-left">Telegram ID</th>
+                            <th class="px-4 py-3 text-left">余额</th>
+                            <th class="px-4 py-3 text-left rounded-tr-lg">状态</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fallback-accounts-list" class="divide-y divide-slate-100">
+                        <!-- 动态加载 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+            <div class="flex items-center gap-3 mb-6">
+                <div class="h-10 w-10 rounded-full bg-orange-50 flex items-center justify-center text-orange-600">
+                    <i class="ti ti-speakerphone text-xl"></i>
+                </div>
+                <div>
+                    <h3 class="text-base font-bold text-slate-900">置顶广告设置</h3>
+                    <p class="text-sm text-slate-500">设置群组置顶广告内容</p>
+                </div>
+            </div>
+            <textarea id="pinned-ad-content" rows="4" placeholder="输入置顶广告内容..." 
+                      class="w-full bg-slate-50 border-0 ring-1 ring-slate-200 rounded-xl p-4 text-sm focus:ring-2 focus:ring-orange-500 focus:bg-white transition-all resize-none outline-none mb-4"></textarea>
+            <p class="text-xs text-slate-400 mb-4">💡 点击发布后，机器人会在所有会员群发送广告并尝试置顶（需要机器人是群管理员）</p>
+            <div class="flex justify-end">
+                <button onclick="updatePinnedAd()" class="px-6 py-2.5 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium rounded-xl transition-all flex items-center gap-2">
+                    <i class="ti ti-send"></i> 发布并置顶
+                </button>
+            </div>
+        </div>
+
+        <!-- 群欢迎语设置 -->
+        <div class="mt-6 bg-white rounded-2xl border border-slate-100 shadow-soft p-6">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="h-10 w-10 rounded-full bg-green-50 flex items-center justify-center text-green-600">
+                    <i class="ti ti-message-circle text-xl"></i>
+                </div>
+                <div>
+                    <h3 class="text-base font-bold text-slate-900">群欢迎语设置</h3>
+                    <p class="text-sm text-slate-500">新成员加入群组时的欢迎消息</p>
+                </div>
+            </div>
+            <textarea id="welcome-message-content" rows="5" placeholder="输入欢迎语内容..." 
+                      class="w-full bg-slate-50 border-0 ring-1 ring-slate-200 rounded-xl p-4 text-sm focus:ring-2 focus:ring-green-500 focus:bg-white transition-all resize-none outline-none mb-4"></textarea>
+            <div class="flex justify-end">
+                <button onclick="updateWelcomeMessage()" class="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-xl transition-all">
+                    <i class="ti ti-device-floppy mr-1"></i> 保存欢迎语
+                </button>
+            </div>
+        </div>
+
+        <div class="mt-8 border-t border-slate-200 pt-8">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div class="flex flex-col gap-1">
+                    <span class="text-slate-400 text-xs uppercase tracking-wider font-semibold">Database</span>
+                    <span class="text-slate-700 font-mono flex items-center gap-2"><i class="ti ti-database text-brand-500"></i> SQLite</span>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <span class="text-slate-400 text-xs uppercase tracking-wider font-semibold">Backend</span>
+                    <span class="text-slate-700 font-mono flex items-center gap-2"><i class="ti ti-brand-python text-brand-500"></i> Python Flask</span>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <span class="text-slate-400 text-xs uppercase tracking-wider font-semibold">Core</span>
+                    <span class="text-slate-700 font-mono flex items-center gap-2"><i class="ti ti-robot text-brand-500"></i> Telethon</span>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <span class="text-slate-400 text-xs uppercase tracking-wider font-semibold">Last Synced</span>
+                    <span id="update-time" class="text-slate-700 font-mono">-</span>
+                </div>
+            </div>
+        </div>
+    </main>
+
+
+
+
+
+<script>
+// 显示提示消息 (UI逻辑微调，增加动画类控制)
+        function showToast(title, message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const icon = document.getElementById('toast-icon');
+            const titleEl = document.getElementById('toast-title');
+            const messageEl = document.getElementById('toast-message');
+
+            const icons = {
+                success: '<div class="h-8 w-8 rounded-full bg-green-50 flex items-center justify-center"><i class="ti ti-check text-green-600"></i></div>',
+                error: '<div class="h-8 w-8 rounded-full bg-red-50 flex items-center justify-center"><i class="ti ti-alert-triangle text-red-600"></i></div>',
+                info: '<div class="h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center"><i class="ti ti-info-circle text-blue-600"></i></div>'
+            };
+
+            icon.innerHTML = icons[type] || icons.info;
+            titleEl.textContent = title;
+            messageEl.textContent = message;
+
+            // 动画显示
+            toast.classList.remove('translate-x-full', 'opacity-0');
+            
+            // 自动关闭
+            if (window.toastTimeout) clearTimeout(window.toastTimeout);
+            window.toastTimeout = setTimeout(hideToast, 4000);
+        }
+
+        function hideToast() {
+            const toast = document.getElementById('toast');
+            toast.classList.add('translate-x-full', 'opacity-0');
+        }
+
+        // --- 以下所有业务逻辑函数与原版保持完全一致 ---
+
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/settings');
+                const data = await response.json();
+
+                if (data.success) {
+                    const settings = data.settings;
+                    document.getElementById('current-levels').textContent = settings.levels;
+                    document.getElementById('current-reward').textContent = settings.reward_per_level;
+                    document.getElementById('current-vip-price').textContent = settings.vip_price;
+                    document.getElementById('current-threshold').textContent = settings.withdraw_threshold;
+                    document.getElementById('current-address').textContent = settings.usdt_address || '未设置';
+                    document.getElementById('current-service').textContent = settings.service_text || '未设置';
+                    document.getElementById('update-time').textContent = new Date().toLocaleString('zh-CN');
+                } else {
+                    showToast('加载失败', data.message || '无法加载设置', 'error');
+                }
+            } catch (error) {
+                // 为了演示界面效果，如果在本地打开文件没有API，会报错，这里仅做容错
+                console.error(error);
+                showToast('提示', '正在尝试连接API...', 'info');
+            }
+        }
+
+        async function updateSetting(key, value, successMessage) {
+            try {
+                const response = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key, value })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('操作成功', successMessage, 'success');
+                    loadSettings();
+                } else {
+                    showToast('保存失败', data.message || '未知错误', 'error');
+                }
+            } catch (error) {
+                showToast('保存失败', '网络错误: ' + error.message, 'error');
+            }
+        }
+
+        function updateLevels() {
+            const value = parseInt(document.getElementById('input-levels').value);
+            if (!value || value < 1) {
+                showToast('输入错误', '请输入有效的层数（>=1）', 'error');
+                return;
+            }
+            updateSetting('levels', value, `层数已更新为 ${value} 层`);
+        }
+
+        function updateReward() {
+            const value = parseFloat(document.getElementById('input-reward').value);
+            if (value === undefined || value < 0) {
+                showToast('输入错误', '请输入有效的返利金额（>=0）', 'error');
+                return;
+            }
+            updateSetting('reward_per_level', value, `每层返利已更新为 ${value} U`);
+        }
+
+        function updateVipPrice() {
+            const value = parseFloat(document.getElementById('input-vip-price').value);
+            if (value === undefined || value < 0) {
+                showToast('输入错误', '请输入有效的VIP价格（>=0）', 'error');
+                return;
+            }
+            updateSetting('vip_price', value, `VIP价格已更新为 ${value} U`);
+        }
+
+        function updateThreshold() {
+            const value = parseFloat(document.getElementById('input-threshold').value);
+            if (value === undefined || value < 0) {
+                showToast('输入错误', '请输入有效的提现门槛（>=0）', 'error');
+                return;
+            }
+            updateSetting('withdraw_threshold', value, `提现门槛已更新为 ${value} U`);
+        }
+
+        function updateAddress() {
+            const value = document.getElementById('input-address').value.trim();
+            if (!value) {
+                showToast('输入错误', '请输入有效的USDT地址', 'error');
+                return;
+            }
+            updateSetting('usdt_address', value, 'USDT地址已更新');
+        }
+
+        function updateService() {
+            const value = document.getElementById('input-service').value.trim();
+            if (!value) {
+                showToast('输入错误', '请输入客服信息', 'error');
+                return;
+            }
+            updateSetting('service_text', value, '客服信息已更新');
+        }
+
+        function copyAddress() {
+            const address = document.getElementById('current-address').textContent;
+            if (address && address !== '-' && address !== '未设置') {
+                navigator.clipboard.writeText(address).then(() => {
+                    showToast('复制成功', '地址已复制到剪贴板', 'success');
+                }).catch(() => {
+                    showToast('复制失败', '无法访问剪贴板', 'error');
+                });
+            }
+        }
+
+        // 修改密码
+        async function changePassword() {
+            const oldPassword = document.getElementById('old-password').value;
+            const newPassword = document.getElementById('new-password').value;
+            
+            if (!oldPassword || !newPassword) {
+                showToast('输入错误', '请输入当前密码和新密码', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/change_password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        old_password: oldPassword,
+                        new_password: newPassword
+                    })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('修改成功', '管理员密码已更新', 'success');
+                    document.getElementById('old-password').value = '';
+                    document.getElementById('new-password').value = '';
+                } else {
+                    showToast('修改失败', data.message || '密码验证失败', 'error');
+                }
+            } catch (error) {
+                showToast('修改失败', '网络错误: ' + error.message, 'error');
+            }
+        }
+
+        // 加载捡漏账号列表
+        async function loadFallbackAccounts() {
+            try {
+                const response = await fetch('/api/settings/fallback-accounts');
+                const data = await response.json();
+                
+                if (data.success && data.accounts) {
+                    const tbody = document.getElementById('fallback-accounts-list');
+                    tbody.innerHTML = data.accounts.map((acc, idx) => `
+                        <tr class="hover:bg-slate-50">
+                            <td class="px-4 py-3 text-slate-700">#${idx + 1}</td>
+                            <td class="px-4 py-3 font-medium text-slate-800">@${acc.username || '未设置'}</td>
+                            <td class="px-4 py-3 text-slate-600">${acc.telegram_id || '-'}</td>
+                            <td class="px-4 py-3 font-semibold text-green-600">${acc.balance || 0} U</td>
+                            <td class="px-4 py-3">
+                                <span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">
+                                    ${acc.is_vip ? 'VIP' : '普通'}
+                                </span>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('加载捡漏账号失败:', error);
+            }
+        }
+
+        // 加载Bot Token列表
+        async function loadBotTokens() {
+            try {
+                const response = await fetch('/api/settings/bot-tokens');
+                const data = await response.json();
+                
+                if (data.success && data.tokens) {
+                    const container = document.getElementById('bot-tokens-list');
+                    if (data.tokens.length === 0) {
+                        container.innerHTML = '<p class="text-slate-400 text-sm text-center py-4">暂无Token</p>';
+                    } else {
+                        container.innerHTML = data.tokens.map((token, idx) => `
+                            <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                                <span class="text-sm font-medium text-slate-600">#${idx + 1}</span>
+                                <input type="text" value="${token.substring(0, 20)}..." disabled class="flex-1 bg-white border-0 ring-1 ring-slate-200 rounded-lg px-3 py-2 text-sm">
+                                <button onclick="deleteBotToken(${idx})" class="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg text-sm transition-all">
+                                    <i class="ti ti-trash"></i>
+                                </button>
+                            </div>
+                        `).join('');
+                    }
+                }
+            } catch (error) {
+                console.error('加载Bot Token失败:', error);
+            }
+        }
+
+        // 添加Bot Token
+        async function addBotToken() {
+            const token = document.getElementById('new-bot-token').value.trim();
+            if (!token) {
+                showToast('输入错误', '请输入Bot Token', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/settings/bot-tokens', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('添加成功', 'Bot Token已添加', 'success');
+                    document.getElementById('new-bot-token').value = '';
+                    loadBotTokens();
+                } else {
+                    showToast('添加失败', data.message, 'error');
+                }
+            } catch (error) {
+                showToast('添加失败', '网络错误', 'error');
+            }
+        }
+
+        // 删除Bot Token
+        async function deleteBotToken(index) {
+            if (!confirm('确定要删除这个Token吗？')) return;
+            
+            try {
+                const response = await fetch(`/api/settings/bot-tokens/${index}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('删除成功', 'Token已删除', 'success');
+                    loadBotTokens();
+                } else {
+                    showToast('删除失败', data.message, 'error');
+                }
+            } catch (error) {
+                showToast('删除失败', '网络错误', 'error');
+            }
+        }
+
+        // 发布置顶广告到所有群
+        async function updatePinnedAd() {
+            const content = document.getElementById('pinned-ad-content').value.trim();
+            if (!content) {
+                showToast('输入错误', '请输入广告内容', 'error');
+                return;
+            }
+            
+            if (!confirm('确定要将此广告发布到所有会员群并置顶吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/publish-pinned-ad', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('发布成功', data.message, 'success');
+                } else {
+                    showToast('发布失败', data.message || '未知错误', 'error');
+                }
+            } catch (error) {
+                showToast('发布失败', '网络错误: ' + error.message, 'error');
+            }
+        }
+
+        // 更新群欢迎语
+        async function updateWelcomeMessage() {
+            const content = document.getElementById('welcome-message-content').value.trim();
+            if (!content) {
+                showToast('输入错误', '请输入欢迎语内容', 'error');
+                return;
+            }
+            updateSetting('welcome_message', content, '群欢迎语已更新');
+        }
+
+        window.addEventListener('DOMContentLoaded', function() {
+            loadSettings();
+            loadFallbackAccounts();
+            loadBotTokens();
+            
+            // 加载置顶广告和欢迎语
+            fetch('/api/settings').then(r => r.json()).then(data => {
+                if (data.success && data.settings) {
+                    document.getElementById('pinned-ad-content').value = data.settings.pinned_ad || '';
+                    document.getElementById('welcome-message-content').value = data.settings.welcome_message || '';
+                }
+            }).catch(err => console.error('加载配置失败:', err));
+            
+            // 自动高亮当前页面导航栏
+            const currentPath = window.location.pathname;
+            const navLinks = document.querySelectorAll('aside nav a[href]');
+            navLinks.forEach(link => {
+                const href = link.getAttribute('href');
+                link.classList.remove('bg-indigo-50', 'text-indigo-600', 'border', 'border-indigo-100/50', 'shadow-sm');
+                link.classList.add('hover:bg-slate-50', 'text-slate-500', 'hover:text-slate-900');
+                
+                if ((currentPath === '/' && href === '/') || (currentPath === href && href !== '/')) {
+                    link.classList.remove('hover:bg-slate-50', 'text-slate-500', 'hover:text-slate-900');
+                    link.classList.add('bg-indigo-50', 'text-indigo-600', 'border', 'border-indigo-100/50', 'shadow-sm');
+                }
+            });
+        });
+</script>
+{% endblock %}

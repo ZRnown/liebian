@@ -1,0 +1,655 @@
+{% extends "base.html" %}
+
+{% block title %}系统设置{% endblock %}
+
+{% block content %}
+<main class="px-6 py-8 fade-in-up">
+    <div class="mb-6">
+        <h2 class="text-2xl font-bold text-slate-900 tracking-tight">系统设置</h2>
+        <p class="text-slate-500 mt-1">管理系统各项配置参数</p>
+    </div>
+
+    <!-- Tab导航 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 mb-6">
+        <div class="flex border-b border-slate-200 overflow-x-auto">
+            <button onclick="switchTab('level')" id="tab-level" class="tab-btn px-5 py-3 text-sm font-medium border-b-2 border-indigo-500 text-indigo-600 whitespace-nowrap">
+                <i class="ti ti-hierarchy-2 mr-1"></i>层级设置
+            </button>
+            <button onclick="switchTab('fallback')" id="tab-fallback" class="tab-btn px-5 py-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap">
+                <i class="ti ti-users-group mr-1"></i>捡漏账号
+            </button>
+            <button onclick="switchTab('customer')" id="tab-customer" class="tab-btn px-5 py-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap">
+                <i class="ti ti-headset mr-1"></i>客服设置
+            </button>
+            <button onclick="switchTab('system')" id="tab-system" class="tab-btn px-5 py-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap">
+                <i class="ti ti-settings mr-1"></i>系统配置
+            </button>
+            <button onclick="switchTab('payment')" id="tab-payment" class="tab-btn px-5 py-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap">
+                <i class="ti ti-credit-card mr-1"></i>支付配置
+            </button>
+        </div>
+    </div>
+
+    <!-- ===== 层级设置 ===== -->
+    <div id="content-level" class="tab-content">
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <div class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <label class="block text-sm font-medium text-slate-700 mb-2">层级数量</label>
+                <div class="flex items-center gap-4">
+                    <input type="number" id="levelCount" min="1" max="20" value="10" class="w-24 px-3 py-2 text-center border border-slate-300 rounded-lg">
+                    <span class="text-slate-600">层</span>
+                    <button onclick="updateLevelCount()" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"><i class="ti ti-check mr-1"></i>确认</button>
+                </div>
+            </div>
+            <div class="mb-6 p-4 bg-amber-50 rounded-lg border border-amber-200">
+                <label class="block text-sm font-medium text-slate-700 mb-2">快捷设置</label>
+                <div class="flex items-center gap-4">
+                    <input type="number" id="quickAmount" min="0" step="0.1" value="10" class="w-24 px-3 py-2 text-center border border-slate-300 rounded-lg">
+                    <span class="text-slate-600">U</span>
+                    <button onclick="fillAllLevels()" class="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600"><i class="ti ti-copy mr-1"></i>全部设置</button>
+                </div>
+            </div>
+            <div class="mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-slate-700">每层金额设置</h3>
+                    <div class="text-sm">升级VIP总金额：<span id="totalAmount" class="font-bold text-green-600 text-lg">0</span> U</div>
+                </div>
+                <div id="levelSettings" class="grid grid-cols-2 md:grid-cols-5 gap-3"></div>
+            </div>
+            <div class="flex justify-end pt-4 border-t">
+                <button onclick="saveLevelSettings()" class="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"><i class="ti ti-device-floppy mr-1"></i>保存层级设置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 捡漏账号 ===== -->
+    <div id="content-fallback" class="tab-content hidden">
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-slate-700">捡漏账号列表</h3>
+                <button onclick="addFallbackAccount()" class="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600"><i class="ti ti-plus mr-1"></i>添加账号</button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left">序号</th>
+                            <th class="px-4 py-3 text-left">用户名</th>
+                            <th class="px-4 py-3 text-left">群链接</th>
+                            <th class="px-4 py-3 text-left">收益</th>
+                            <th class="px-4 py-3 text-left">状态</th>
+                            <th class="px-4 py-3 text-left">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fallbackList"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 客服设置 ===== -->
+    <div id="content-customer" class="tab-content hidden">
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-slate-700">客服列表</h3>
+                <button onclick="showAddCustomerModal()" class="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600"><i class="ti ti-plus mr-1"></i>添加客服</button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left">ID</th>
+                            <th class="px-4 py-3 text-left">客服名称</th>
+                            <th class="px-4 py-3 text-left">联系链接</th>
+                            <th class="px-4 py-3 text-left">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="customerList"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 系统配置 ===== -->
+    <div id="content-system" class="tab-content hidden">
+        <!-- 基础设置卡片 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4 mb-6">
+            <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+                <div class="flex items-center gap-2 mb-3">
+                    <div class="p-2 bg-purple-50 text-purple-600 rounded-lg"><i class="ti ti-wallet text-xl"></i></div>
+                    <span class="text-xs font-semibold text-slate-500">风控</span>
+                </div>
+                <p class="text-sm text-slate-500 mb-2">最低提现门槛</p>
+                <div class="flex gap-2">
+                    <input type="number" id="sysMinWithdraw" class="flex-1 px-3 py-2 text-sm border rounded-lg" value="10">
+                    <button onclick="updateSetting('withdraw_threshold', document.getElementById('sysMinWithdraw').value)" class="px-3 py-2 bg-slate-900 text-white rounded-lg"><i class="ti ti-check"></i></button>
+                </div>
+            </div>
+            <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+                <div class="flex items-center gap-2 mb-3">
+                    <div class="p-2 bg-rose-50 text-rose-600 rounded-lg"><i class="ti ti-percentage text-xl"></i></div>
+                    <span class="text-xs font-semibold text-slate-500">手续费</span>
+                </div>
+                <p class="text-sm text-slate-500 mb-2">提现手续费(%)</p>
+                <div class="flex gap-2">
+                    <input type="number" id="sysWithdrawFee" class="flex-1 px-3 py-2 text-sm border rounded-lg" value="5">
+                    <button onclick="updateSetting('withdraw_fee', document.getElementById('sysWithdrawFee').value)" class="px-3 py-2 bg-slate-900 text-white rounded-lg"><i class="ti ti-check"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- USDT收款地址 -->
+            <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="h-10 w-10 rounded-full bg-teal-50 flex items-center justify-center text-teal-600"><i class="ti ti-currency-tether text-xl"></i></div>
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900">收款钱包配置</h3>
+                        <p class="text-sm text-slate-500">USDT-TRC20 收款地址</p>
+                    </div>
+                </div>
+                <div class="bg-slate-50 rounded-lg p-4 mb-4">
+                    <span class="text-xs text-slate-400">当前地址</span>
+                    <p id="currentAddress" class="font-mono text-sm text-slate-800 break-all">-</p>
+                </div>
+                <div class="flex gap-2">
+                    <input type="text" id="sysUsdtAddress" class="flex-1 px-4 py-2 border rounded-lg text-sm" placeholder="T...">
+                    <button onclick="updateSetting('usdt_address', document.getElementById('sysUsdtAddress').value)" class="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"><i class="ti ti-device-floppy mr-1"></i>保存</button>
+                </div>
+            </div>
+
+            <!-- 修改密码 -->
+            <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600"><i class="ti ti-lock text-xl"></i></div>
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900">安全设置</h3>
+                        <p class="text-sm text-slate-500">修改管理员密码</p>
+                    </div>
+                </div>
+                <div class="space-y-3">
+                    <input type="password" id="oldPassword" class="w-full px-4 py-2 border rounded-lg text-sm" placeholder="当前密码">
+                    <input type="password" id="newPassword" class="w-full px-4 py-2 border rounded-lg text-sm" placeholder="新密码">
+                </div>
+                <div class="flex justify-end mt-3">
+                    <button onclick="changePassword()" class="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800">确认修改</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 支付配置 ===== -->
+    <div id="content-payment" class="tab-content hidden">
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <div class="mb-6">
+                <h3 class="text-lg font-semibold text-slate-700 mb-4">支付接口配置</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">支付请求链接</label>
+                        <input type="text" id="paymentUrl" class="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm" placeholder="https://api.example.com/pay">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">支付Token</label>
+                        <input type="text" id="paymentToken" class="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm" placeholder="输入支付Token">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">支付汇率</label>
+                        <input type="number" id="paymentRate" step="0.01" class="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm" placeholder="1.00">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">支付通道</label>
+                        <input type="text" id="paymentChannel" class="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm" placeholder="trc20" value="trc20">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-slate-700 mb-2">用户ID</label>
+                        <input type="text" id="paymentUserId" class="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm" placeholder="输入用户ID">
+                    </div>
+                </div>
+            </div>
+            <div class="flex justify-end pt-4 border-t">
+                <button onclick="savePaymentConfig()" class="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"><i class="ti ti-device-floppy mr-1"></i>保存支付配置</button>
+            </div>
+        </div>
+    </div>
+
+</main>
+
+<!-- Toast -->
+<div id="toast" class="fixed top-4 right-4 z-50 hidden">
+    <div class="bg-white rounded-lg shadow-lg border p-4 flex items-center gap-3">
+        <span id="toastIcon"></span>
+        <div>
+            <div id="toastTitle" class="font-medium"></div>
+            <div id="toastMessage" class="text-sm text-slate-500"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 捡漏账号弹窗 -->
+<div id="fallbackModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+    <div class="bg-white rounded-xl p-6 w-full max-w-md">
+        <h3 id="fallbackModalTitle" class="text-lg font-bold mb-4">添加捡漏账号</h3>
+        <input type="hidden" id="fallbackId">
+        <div class="mb-4">
+            <label class="block text-sm font-medium mb-1">用户名</label>
+            <input type="text" id="fallbackUsername" class="w-full px-3 py-2 border rounded-lg" placeholder="fallback_1">
+        </div>
+        <div class="mb-4">
+            <label class="block text-sm font-medium mb-1">群链接</label>
+            <input type="text" id="fallbackGroupLink" class="w-full px-3 py-2 border rounded-lg" placeholder="https://t.me/...">
+        </div>
+        <div class="flex justify-end gap-2">
+            <button onclick="closeFallbackModal()" class="px-4 py-2 border rounded-lg">取消</button>
+            <button onclick="saveFallbackAccount()" class="px-4 py-2 bg-indigo-500 text-white rounded-lg">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 客服编辑弹窗 -->
+<div id="customerModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+    <div class="bg-white rounded-xl p-6 w-full max-w-md">
+        <h3 id="customerModalTitle" class="text-lg font-bold mb-4">添加客服</h3>
+        <input type="hidden" id="customerId">
+        <div class="mb-4">
+            <label class="block text-sm font-medium mb-1">客服名称</label>
+            <input type="text" id="customerName" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div class="mb-4">
+            <label class="block text-sm font-medium mb-1">联系链接</label>
+            <input type="text" id="customerLink" class="w-full px-3 py-2 border rounded-lg" placeholder="https://t.me/...">
+        </div>
+        <div class="flex justify-end gap-2">
+            <button onclick="closeCustomerModal()" class="px-4 py-2 border rounded-lg">取消</button>
+            <button onclick="saveCustomerService()" class="px-4 py-2 bg-indigo-500 text-white rounded-lg">保存</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let currentLevelCount = 10;
+
+function showToast(title, message, type = 'success') {
+    const toast = document.getElementById('toast');
+    document.getElementById('toastTitle').textContent = title;
+    document.getElementById('toastMessage').textContent = message;
+    document.getElementById('toastIcon').className = type === 'success' ? 'ti ti-check text-green-500 text-xl' : 'ti ti-x text-red-500 text-xl';
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 3000);
+}
+
+function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('border-indigo-500', 'text-indigo-600');
+        btn.classList.add('border-transparent', 'text-slate-500');
+    });
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+    document.getElementById('tab-' + tab).classList.add('border-indigo-500', 'text-indigo-600');
+    document.getElementById('tab-' + tab).classList.remove('border-transparent', 'text-slate-500');
+    document.getElementById('content-' + tab).classList.remove('hidden');
+    
+    if (tab === 'level') loadLevelSettings();
+    else if (tab === 'fallback') loadFallbackAccounts();
+    else if (tab === 'customer') loadCustomerServices();
+    else if (tab === 'system') loadSystemSettings();
+    else if (tab === 'payment') loadPaymentConfig();
+}
+
+// ===== 层级设置 =====
+function updateLevelCount() {
+    const count = parseInt(document.getElementById('levelCount').value) || 10;
+    if (count < 1 || count > 20) { showToast('错误', '层级数量必须在1-20之间', 'error'); return; }
+    currentLevelCount = count;
+    renderLevelInputs();
+    showToast('成功', `已设置为${count}层`);
+}
+
+function renderLevelInputs() {
+    let html = '';
+    for (let i = 1; i <= currentLevelCount; i++) {
+        html += `<div class="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border"><span class="text-sm font-medium w-12">${i}层</span><input type="number" id="level_${i}" min="0" step="0.1" value="0" onchange="calculateTotal()" class="flex-1 px-2 py-1 text-center border rounded text-sm"><span class="text-xs text-slate-500">U</span></div>`;
+    }
+    document.getElementById('levelSettings').innerHTML = html;
+    calculateTotal();
+}
+
+function fillAllLevels() {
+    const amount = parseFloat(document.getElementById('quickAmount').value) || 0;
+    for (let i = 1; i <= currentLevelCount; i++) {
+        const input = document.getElementById(`level_${i}`);
+        if (input) input.value = amount;
+    }
+    calculateTotal();
+    showToast('成功', `已将所有层级设置为 ${amount} U`);
+}
+
+function calculateTotal() {
+    let total = 0;
+    for (let i = 1; i <= currentLevelCount; i++) {
+        const input = document.getElementById(`level_${i}`);
+        if (input) total += parseFloat(input.value) || 0;
+    }
+    document.getElementById('totalAmount').textContent = total.toFixed(1);
+}
+
+async function loadLevelSettings() {
+    try {
+        const res = await fetch('/api/level-settings');
+        const data = await res.json();
+        if (data.success) {
+            currentLevelCount = data.level_count || 10;
+            document.getElementById('levelCount').value = currentLevelCount;
+            renderLevelInputs();
+            if (data.level_amounts) {
+                for (let i = 1; i <= currentLevelCount; i++) {
+                    const input = document.getElementById(`level_${i}`);
+                    if (input && data.level_amounts[i]) input.value = data.level_amounts[i];
+                }
+            }
+            calculateTotal();
+        }
+    } catch (e) { console.error(e); }
+}
+
+async function saveLevelSettings() {
+    const levelAmounts = {};
+    for (let i = 1; i <= currentLevelCount; i++) {
+        levelAmounts[i] = parseFloat(document.getElementById(`level_${i}`)?.value) || 0;
+    }
+    try {
+        const res = await fetch('/api/level-settings', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ level_count: currentLevelCount, level_amounts: levelAmounts })
+        });
+        const data = await res.json();
+        if (data.success) showToast('成功', '层级设置已保存');
+        else showToast('错误', data.message, 'error');
+    } catch (e) { showToast('错误', e.message, 'error'); }
+}
+
+// ===== 捡漏账号 =====
+async function loadFallbackAccounts() {
+    try {
+        const res = await fetch('/api/settings/fallback-accounts');
+        const data = await res.json();
+        let html = '';
+        if (data.success && data.accounts && data.accounts.length > 0) {
+            data.accounts.forEach((acc, i) => {
+                html += `<tr class="border-b">
+                    <td class="px-4 py-3">#${acc.id}</td>
+                    <td class="px-4 py-3 font-medium">${acc.username || '-'}</td>
+                    <td class="px-4 py-3"><a href="${acc.group_link}" target="_blank" class="text-blue-500 text-xs">${acc.group_link || '-'}</a></td>
+                    <td class="px-4 py-3 text-green-600">${acc.total_earned || 0} U</td>
+                    <td class="px-4 py-3"><span class="px-2 py-1 text-xs rounded ${acc.is_active ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600'}">${acc.is_active ? '启用' : '禁用'}</span></td>
+                </tr>`;
+            });
+        }
+        document.getElementById('fallbackList').innerHTML = html || '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">暂无数据</td></tr>';
+    } catch (e) { console.error(e); }
+}
+
+function addFallbackAccount() {
+    document.getElementById('fallbackId').value = '';
+    document.getElementById('fallbackUsername').value = '';
+    document.getElementById('fallbackGroupLink').value = '';
+    document.getElementById('fallbackModalTitle').textContent = '添加捡漏账号';
+    document.getElementById('fallbackModal').classList.remove('hidden');
+}
+
+function editFallback(id, username, groupLink) {
+    document.getElementById('fallbackId').value = id;
+    document.getElementById('fallbackUsername').value = username;
+    document.getElementById('fallbackGroupLink').value = groupLink;
+    document.getElementById('fallbackModalTitle').textContent = '编辑捡漏账号';
+    document.getElementById('fallbackModal').classList.remove('hidden');
+}
+
+function closeFallbackModal() { document.getElementById('fallbackModal').classList.add('hidden'); }
+
+async function saveFallbackAccount() {
+    const id = document.getElementById('fallbackId').value;
+    const username = document.getElementById('fallbackUsername').value;
+    const group_link = document.getElementById('fallbackGroupLink').value;
+    if (!username) { showToast('错误', '请填写用户名', 'error'); return; }
+    try {
+        const url = id ? `/api/fallback-accounts/${id}` : '/api/fallback-accounts';
+        const res = await fetch(url, {
+            method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ username, group_link })
+        });
+        const data = await res.json();
+        if (data.success) { showToast('成功', '保存成功'); closeFallbackModal(); loadFallbackAccounts(); }
+        else showToast('错误', data.message, 'error');
+    } catch (e) { showToast('错误', e.message, 'error'); }
+}
+
+async function deleteFallback(id) {
+    if (!confirm('确定删除？')) return;
+    try {
+        const res = await fetch(`/api/fallback-accounts/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) { showToast('成功', '删除成功'); loadFallbackAccounts(); }
+        else showToast('错误', data.message, 'error');
+    } catch (e) { showToast('错误', e.message, 'error'); }
+}
+
+// ===== 客服设置 =====
+async function loadCustomerServices() {
+    try {
+        const res = await fetch('/api/customer_services');
+        const data = await res.json();
+        let html = '';
+        if (data && data.length > 0) {
+            data.forEach(svc => {
+                html += `<tr class="border-b"><td class="px-4 py-3">${svc.id}</td><td class="px-4 py-3 font-medium">${svc.name}</td><td class="px-4 py-3"><a href="${svc.link}" target="_blank" class="text-blue-500">${svc.link}</a></td><td class="px-4 py-3"><button onclick="editCustomer(${svc.id},'${svc.name}','${svc.link}')" class="text-blue-500 mr-2">编辑</button><button onclick="deleteCustomer(${svc.id},'${svc.name}')" class="text-red-500">删除</button></td></tr>`;
+            });
+        }
+        document.getElementById('customerList').innerHTML = html || '<tr><td colspan="4" class="px-4 py-8 text-center text-slate-400">暂无数据</td></tr>';
+    } catch (e) { console.error(e); }
+}
+
+function showAddCustomerModal() {
+    document.getElementById('customerId').value = '';
+    document.getElementById('customerName').value = '';
+    document.getElementById('customerLink').value = '';
+    document.getElementById('customerModalTitle').textContent = '添加客服';
+    document.getElementById('customerModal').classList.remove('hidden');
+}
+
+function editCustomer(id, name, link) {
+    document.getElementById('customerId').value = id;
+    document.getElementById('customerName').value = name;
+    document.getElementById('customerLink').value = link;
+    document.getElementById('customerModalTitle').textContent = '编辑客服';
+    document.getElementById('customerModal').classList.remove('hidden');
+}
+
+function closeCustomerModal() { document.getElementById('customerModal').classList.add('hidden'); }
+
+async function saveCustomerService() {
+    const id = document.getElementById('customerId').value;
+    const name = document.getElementById('customerName').value;
+    const link = document.getElementById('customerLink').value;
+    if (!name || !link) { showToast('错误', '请填写所有字段', 'error'); return; }
+    try {
+        const url = id ? `/api/customer_services/${id}` : '/api/customer_services';
+        const res = await fetch(url, {
+            method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name, link })
+        });
+        const data = await res.json();
+        if (data.success) { showToast('成功', '保存成功'); closeCustomerModal(); loadCustomerServices(); }
+        else showToast('错误', data.message, 'error');
+    } catch (e) { showToast('错误', e.message, 'error'); }
+}
+
+async function deleteCustomer(id, name) {
+    if (!confirm(`确定删除客服"${name}"吗？`)) return;
+    try {
+        const res = await fetch(`/api/customer_services/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) { showToast('成功', '删除成功'); loadCustomerServices(); }
+        else showToast('错误', data.message, 'error');
+    } catch (e) { showToast('错误', e.message, 'error'); }
+}
+
+// ===== 系统配置 =====
+async function loadSystemSettings() {
+    try {
+        const res = await fetch('/api/settings');
+        const data = await res.json();
+        if (data.success && data.settings) {
+            const s = data.settings;
+            // 只设置存在的元素
+            const minWithdrawEl = document.getElementById('sysMinWithdraw');
+            if (minWithdrawEl) minWithdrawEl.value = s.withdraw_threshold || 10;
+            
+            const withdrawFeeEl = document.getElementById('sysWithdrawFee');
+            if (withdrawFeeEl) withdrawFeeEl.value = s.withdraw_fee || 5;
+            
+            const usdtAddressEl = document.getElementById('sysUsdtAddress');
+            if (usdtAddressEl) usdtAddressEl.value = s.usdt_address || '';
+            
+            const currentAddressEl = document.getElementById('currentAddress');
+            if (currentAddressEl) currentAddressEl.textContent = s.usdt_address || '-';
+            
+            const pinnedAdEl = document.getElementById('pinnedAdContent');
+            if (pinnedAdEl) pinnedAdEl.value = s.pinned_ad || '';
+            
+            const welcomeMsgEl = document.getElementById('welcomeMessage');
+            if (welcomeMsgEl) welcomeMsgEl.value = s.welcome_message || '';
+        }
+        loadBotTokens();
+    } catch (e) { console.error('加载系统设置失败:', e); }
+}
+
+async function updateSetting(key, value) {
+    try {
+        const res = await fetch('/api/settings', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ key: key, value: value })
+        });
+        const data = await res.json();
+        if (data.success) { showToast('成功', '设置已更新'); if (key === 'usdt_address') document.getElementById('currentAddress').textContent = value; }
+        else showToast('错误', data.message, 'error');
+    } catch (e) { showToast('错误', e.message, 'error'); }
+}
+
+async function changePassword() {
+    const oldPwd = document.getElementById('oldPassword').value;
+    const newPwd = document.getElementById('newPassword').value;
+    if (!oldPwd || !newPwd) { showToast('错误', '请填写密码', 'error'); return; }
+    try {
+        const res = await fetch('/api/change-password', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
+        });
+        const data = await res.json();
+        if (data.success) { showToast('成功', '密码已修改'); document.getElementById('oldPassword').value = ''; document.getElementById('newPassword').value = ''; }
+        else showToast('错误', data.message, 'error');
+    } catch (e) { showToast('错误', e.message, 'error'); }
+}
+
+async function loadBotTokens() {
+    try {
+        const res = await fetch('/api/settings/bot-tokens');
+        const data = await res.json();
+        let html = '';
+        if (data.success && data.tokens && data.tokens.length > 0) {
+            data.tokens.forEach((token, i) => {
+                html += `<div class="flex items-center gap-3 p-3 bg-slate-50 rounded-lg"><span class="text-sm font-medium">#${i + 1}</span><input type="text" value="${token.substring(0, 20)}..." disabled class="flex-1 bg-white border rounded-lg px-3 py-2 text-sm"><button onclick="deleteBotToken(${i})" class="px-3 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200"><i class="ti ti-trash"></i></button></div>`;
+            });
+        } else {
+            html = '<p class="text-slate-400 text-sm text-center py-4">暂无Token</p>';
+        }
+        const botTokensListEl = document.getElementById('botTokensList');
+        if (botTokensListEl) {
+            botTokensListEl.innerHTML = html;
+        }
+    } catch (e) { console.error('加载Bot Tokens失败:', e); }
+}
+
+async function addBotToken() {
+    const token = document.getElementById('newBotToken').value.trim();
+    if (!token) { showToast('错误', '请输入Token', 'error'); return; }
+    try {
+        const res = await fetch('/api/settings/bot-tokens', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ token })
+        });
+        const data = await res.json();
+        if (data.success) { showToast('成功', 'Token已添加'); document.getElementById('newBotToken').value = ''; loadBotTokens(); }
+        else showToast('错误', data.message, 'error');
+    } catch (e) { showToast('错误', e.message, 'error'); }
+}
+
+async function deleteBotToken(index) {
+    if (!confirm('确定删除此Token?')) return;
+    try {
+        const res = await fetch(`/api/settings/bot-tokens/${index}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) { showToast('成功', 'Token已删除'); loadBotTokens(); }
+        else showToast('错误', data.message, 'error');
+    } catch (e) { showToast('错误', e.message, 'error'); }
+}
+
+async function publishPinnedAd() {
+    const content = document.getElementById('pinnedAdContent').value.trim();
+    if (!content) { showToast('错误', '请输入广告内容', 'error'); return; }
+    if (!confirm('确定将此广告发布到所有会员群并置顶吗？')) return;
+    try {
+        const res = await fetch('/api/publish-pinned-ad', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ content })
+        });
+        const data = await res.json();
+        if (data.success) showToast('成功', data.message);
+        else showToast('错误', data.message, 'error');
+    } catch (e) { showToast('错误', e.message, 'error'); }
+}
+
+// ===== 支付配置 =====
+async function loadPaymentConfig() {
+    try {
+        const res = await fetch('/api/payment-config');
+        const data = await res.json();
+        if (data.success && data.config) {
+            document.getElementById('paymentUrl').value = data.config.payment_url || '';
+            document.getElementById('paymentToken').value = data.config.payment_token || '';
+            document.getElementById('paymentRate').value = data.config.payment_rate || 1.00;
+            document.getElementById('paymentChannel').value = data.config.payment_channel || 'trc20';
+            document.getElementById('paymentUserId').value = data.config.payment_user_id || '';
+        }
+    } catch (e) { console.error('加载支付配置失败:', e); }
+}
+
+async function savePaymentConfig() {
+    const config = {
+        payment_url: document.getElementById('paymentUrl').value.trim(),
+        payment_token: document.getElementById('paymentToken').value.trim(),
+        payment_rate: parseFloat(document.getElementById('paymentRate').value) || 1.00,
+        payment_channel: document.getElementById('paymentChannel').value.trim() || 'trc20',
+        payment_user_id: document.getElementById('paymentUserId').value.trim()
+    };
+    
+    if (!config.payment_url || !config.payment_token) {
+        showToast('错误', '请填写支付请求链接和Token', 'error');
+        return;
+    }
+    
+    try {
+        const res = await fetch('/api/payment-config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(config)
+        });
+        const data = await res.json();
+        if (data.success) showToast('成功', '支付配置已保存');
+        else showToast('错误', data.message, 'error');
+    } catch (e) { showToast('错误', e.message, 'error'); }
+}
+
+document.addEventListener('DOMContentLoaded', () => loadLevelSettings());
+</script>
+{% endblock %}

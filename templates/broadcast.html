@@ -1,0 +1,627 @@
+{% extends "base.html" %}
+
+{% block title %}群发管理{% endblock %}
+
+{% block content %}
+<main class="px-4 py-6">
+    <div class="mb-6 flex justify-between items-center">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">群发管理</h1>
+            <p class="text-slate-500 text-sm mt-1">管理群发内容，支持定时发送和按钮设置</p>
+        </div>
+        <button onclick="showAddModal()" class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium">
+            <i class="ti ti-plus"></i> 添加群发内容
+        </button>
+    </div>
+
+    <!-- 定时群发设置 -->
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 p-4">
+        <div class="flex flex-wrap items-center gap-4">
+            <div class="flex items-center gap-3">
+                <span class="text-sm font-medium text-slate-700">开启定时群发</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="broadcastSwitch" onchange="toggleBroadcast()" class="sr-only peer">
+                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+                </label>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-sm text-slate-600">设置时间 分</span>
+                <input type="number" id="broadcastInterval" value="120" min="1" class="w-20 px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-center">
+                <span class="text-sm text-slate-600">分钟</span>
+                <button onclick="saveInterval()" class="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 群发内容列表 -->
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-100 text-slate-600 font-semibold">
+                    <tr>
+                        <th class="px-4 py-3 text-left">ID</th>
+                        
+                        <th class="px-4 py-3 text-left">内容预览</th>
+                        <th class="px-4 py-3 text-center">媒体</th>
+                        <th class="px-4 py-3 text-center">按钮数</th>
+                        <th class="px-4 py-3 text-center">状态</th>
+                        <th class="px-4 py-3 text-left">创建时间</th>
+                        <th class="px-4 py-3 text-center">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="messagesList" class="divide-y divide-slate-100">
+                    <tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<!-- Toast -->
+<div id="toast" class="fixed top-4 right-4 z-[70] transform transition-all duration-300 translate-x-full opacity-0">
+    <div class="bg-white rounded-lg shadow-xl border p-3 flex items-center gap-3 min-w-[280px]">
+        <div id="toast-icon"></div>
+        <div class="flex-1">
+            <h4 id="toast-title" class="text-sm font-semibold"></h4>
+            <p id="toast-message" class="text-xs text-slate-500 mt-0.5"></p>
+        </div>
+    </div>
+</div>
+
+<!-- 添加/编辑群发内容模态框 -->
+<div id="messageModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm hidden">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl m-4 max-h-[90vh] overflow-y-auto">
+        <div class="p-4 border-b border-slate-200 flex justify-between items-center">
+            <h3 id="modalTitle" class="text-base font-bold text-slate-900">添加群发内容</h3>
+            <button onclick="closeModal('messageModal')" class="text-slate-400 hover:text-slate-600"><i class="ti ti-x text-xl"></i></button>
+        </div>
+        <div class="p-4">
+            <input type="hidden" id="editingId">
+            
+            <div class="mb-4">
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-sm font-medium text-slate-700">文本内容</label>
+                    <div class="flex gap-2">
+                        <button onclick="insertEmoji()" class="px-2 py-1 text-xs bg-yellow-100 hover:bg-yellow-200 text-yellow-700 rounded">😀 表情</button>
+                        <button onclick="copyContent()" class="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded"><i class="ti ti-copy"></i> 复制</button>
+                    </div>
+                </div>
+                <textarea id="messageContent" rows="5" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="输入群发文本内容..."></textarea>
+            </div>
+            
+            <!-- 媒体设置 -->
+            <div class="mb-4 grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">添加图片</label>
+                    <div class="flex gap-2">
+                        <input type="file" id="imageFile" accept="image/*" class="hidden" onchange="uploadFile('image')">
+                        <input type="text" id="imageUrl" class="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="图片URL或点击上传" readonly>
+                        <button type="button" onclick="document.getElementById('imageFile').click()" class="px-3 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600">上传</button>
+                        <button type="button" onclick="clearFile('image')" class="px-3 py-2 text-sm bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300">清除</button>
+                    </div>
+                    <div id="imagePreview" class="mt-2 hidden"><img class="max-h-32 rounded"></div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">添加视频</label>
+                    <div class="flex gap-2">
+                        <input type="file" id="videoFile" accept="video/*" class="hidden" onchange="uploadFile('video')">
+                        <input type="text" id="videoUrl" class="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="视频URL或点击上传" readonly>
+                        <button type="button" onclick="document.getElementById('videoFile').click()" class="px-3 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600">上传</button>
+                        <button type="button" onclick="clearFile('video')" class="px-3 py-2 text-sm bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300">清除</button>
+                    </div>
+                    <div id="videoPreview" class="mt-2 hidden"><video controls class="max-h-32 rounded"></video></div>
+                </div>
+            </div>
+            
+            <!-- 按钮设置 -->
+            <div class="mb-4 border-t pt-4">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="text-sm font-medium text-slate-700">按钮内容</label>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-500">每行列数:</span>
+                        <select id="buttonsPerRow" class="px-2 py-1 text-xs border border-slate-200 rounded">
+                            <option value="1">1列</option>
+                            <option value="2" selected>2列</option>
+                            <option value="3">3列</option>
+                            <option value="4">4列</option>
+                        </select>
+                        <button onclick="addButton()" class="px-2 py-1 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded">添加按钮</button>
+                    </div>
+                </div>
+                <p class="text-xs text-slate-500 mb-2">不添加为纯文本，点添加就多一行按钮设置，按钮可选择表情</p>
+                <div class="text-xs p-2 bg-amber-50 border border-amber-200 rounded mb-2">
+                    <div class="font-medium text-amber-700 mb-1">⚠️ Telegram按钮限制：</div>
+                    <div class="text-amber-600">• 每行最多8个按钮，每条消息最多100个按钮</div>
+                    <div class="text-amber-600">• 按钮文字最多64字符</div>
+                    <div class="text-amber-600">• URL必须以 http:// 或 https:// 开头，最多2048字符</div>
+                </div>
+                <div id="buttonsList" class="space-y-2">
+                    <!-- 动态添加的按钮行 -->
+                </div>
+            </div>
+            
+            <!-- 定时设置 -->
+            <div class="mb-4 border-t pt-4">
+                <div class="flex items-center gap-4">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="enableSchedule" class="w-4 h-4 rounded">
+                        <span class="text-sm font-medium text-slate-700">定时发送</span>
+                    </label>
+                    <input type="datetime-local" id="scheduleTime" class="px-3 py-2 text-sm border border-slate-200 rounded-lg" disabled>
+                </div>
+            </div>
+            
+            <div class="flex gap-3 pt-2">
+                <button onclick="closeModal('messageModal')" class="flex-1 px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">取消</button>
+                <button onclick="previewMessage()" class="px-4 py-2 text-sm bg-purple-500 hover:bg-purple-600 text-white rounded-lg">预览</button>
+                <button onclick="saveMessage()" class="flex-1 px-4 py-2 text-sm bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 预览模态框 -->
+<div id="previewModal" class="modal fixed inset-0 bg-slate-900/50 z-[70] items-center justify-center backdrop-blur-sm hidden">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-md m-4">
+        <div class="p-4 border-b border-slate-200 flex justify-between items-center">
+            <h3 class="text-base font-bold text-slate-900">消息预览</h3>
+            <button onclick="closeModal('previewModal')" class="text-slate-400 hover:text-slate-600"><i class="ti ti-x text-xl"></i></button>
+        </div>
+        <div id="previewContent" class="p-4 bg-slate-50">
+            <!-- 预览内容 -->
+        </div>
+    </div>
+</div>
+
+<!-- 表情选择器 -->
+<div id="emojiPicker" class="fixed z-[80] bg-white rounded-lg shadow-xl border p-2 hidden" style="width: 280px;">
+    <div class="grid grid-cols-8 gap-1 max-h-48 overflow-y-auto text-lg">
+    </div>
+</div>
+
+<style>
+.modal.show { display: flex !important; }
+</style>
+
+<script>
+let editingId = null;
+// 文件上传函数
+async function uploadFile(type) {
+    const fileInput = document.getElementById(type + 'File');
+    const file = fileInput.files[0];
+    if (!file) return;
+    
+    if (file.size > 50 * 1024 * 1024) {
+        showToast('错误', '文件大小不能超过50MB', 'error');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', type);
+    
+    try {
+        showToast('上传中', '正在上传文件...');
+        const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.json();
+        
+        if (result.success) {
+            document.getElementById(type + 'Url').value = result.url;
+            const preview = document.getElementById(type + 'Preview');
+            preview.classList.remove('hidden');
+            if (type === 'image') {
+                preview.querySelector('img').src = result.url;
+                disableMediaType('video');
+            } else {
+                preview.querySelector('video').src = result.url;
+                disableMediaType('image');
+            }
+            showToast('成功', '文件上传成功');
+        } else {
+            showToast('错误', result.message || '上传失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', error.message, 'error');
+    }
+}
+
+function clearFile(type) {
+    document.getElementById(type + 'File').value = '';
+    document.getElementById(type + 'Url').value = '';
+    document.getElementById(type + 'Preview').classList.add('hidden');
+    // 清除后恢复另一个媒体类型
+    const otherType = type === 'image' ? 'video' : 'image';
+    enableMediaType(otherType);
+}
+
+// 禁用媒体类型并显示提示
+function disableMediaType(type) {
+    const uploadBtn = document.querySelector(`#${type}File`).parentElement.querySelector('button');
+    uploadBtn.disabled = true;
+    uploadBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    uploadBtn.classList.remove('hover:bg-blue-600');
+    
+    // 显示提示
+    showMediaTip();
+}
+
+// 启用媒体类型
+function enableMediaType(type) {
+    const uploadBtn = document.querySelector(`#${type}File`).parentElement.querySelector('button');
+    uploadBtn.disabled = false;
+    uploadBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    uploadBtn.classList.add('hover:bg-blue-600');
+}
+
+// 显示媒体提示（5秒后消失）
+function showMediaTip() {
+    let tip = document.getElementById('mediaTip');
+    if (!tip) {
+        tip = document.createElement('div');
+        tip.id = 'mediaTip';
+        tip.className = 'text-xs p-2 bg-blue-50 border border-blue-200 rounded text-blue-700 mt-2';
+        tip.innerHTML = '💡 TG不支持在一条消息中同时发送图片和视频，单条消息只能包含一种媒体';
+        document.getElementById('videoPreview').parentElement.after(tip);
+    }
+    tip.style.display = 'block';
+    setTimeout(() => {
+        if (tip) tip.style.display = 'none';
+    }, 5000);
+}
+
+let buttonCount = 0;
+const emojis = ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','😊','😇','🥰','😍','🤩','😘','😗','😚','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','😎','🤓','🧐','😕','😟','🙁','☹️','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️','💩','🤡','👹','👺','👻','👽','👾','🤖','😺','😸','😹','😻','😼','😽','🙀','😿','😾','🙈','🙉','🙊','💋','💌','💘','💝','💖','💗','💓','💞','💕','💟','❣️','💔','❤️','🧡','💛','💚','💙','💜','🤎','🖤','🤍','💯','💢','💥','💫','💦','💨','🕳️','💣','💬','👁️‍🗨️','🗨️','🗯️','💭','💤','👋','🤚','🖐️','✋','🖖','👌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🦾','🦿','🦵','🦶','👂','🦻','👃','🧠','🦷','🦴','👀','👁️','👅','👄','👶','🧒','👦','👧','🧑','👱','👨','🧔','👩','🧓','👴','👵','🙍','🙎','🙅','🙆','💁','🙋','🧏','🙇','🤦','🤷','👮','🕵️','💂','👷','🤴','👸','👳','👲','🧕','🤵','👰','🤰','🤱','👼','🎅','🤶','🦸','🦹','🧙','🧚','🧛','🧜','🧝','🧞','🧟','💆','💇','🚶','🧍','🧎','🏃','💃','🕺','🕴️','👯','🧖','🧗','🤸','🏌️','🏇','⛷️','🏂','🏋️','🤼','🤽','🤾','🤺','⛹️','🏊','🚣','🧘','🛀','🛌','👭','👫','👬','💏','💑','👪','👨‍👩‍👦','👨‍👩‍👧','👨‍👩‍👧‍👦','👨‍👩‍👦‍👦','👨‍👩‍👧‍👧','👨‍👦','👨‍👦‍👦','👨‍👧','👨‍👧‍👦','👨‍👧‍👧','👩‍👦','👩‍👦‍👦','👩‍👧','👩‍👧‍👦','👩‍👧‍👧','🗣️','👤','👥','👣','🐵','🐒','🦍','🦧','🐶','🐕','🦮','🐕‍🦺','🐩','🐺','🦊','🦝','🐱','🐈','🦁','🐯','🐅','🐆','🐴','🐎','🦄','🦓','🦌','🐮','🐂','🐃','🐄','🐷','🐖','🐗','🐽','🐏','🐑','🐐','🐪','🐫','🦙','🦒','🐘','🦏','🦛','🐭','🐁','🐀','🐹','🐰','🐇','🐿️','🦔','🦇','🐻','🐨','🐼','🦥','🦦','🦨','🦘','🦡','🐾','🦃','🐔','🐓','🐣','🐤','🐥','🐦','🐧','🕊️','🦅','🦆','🦢','🦉','🦩','🦚','🦜','🐸','🐊','🐢','🦎','🐍','🐲','🐉','🦕','🦖','🐳','🐋','🐬','🐟','🐠','🐡','🦈','🐙','🐚','🐌','🦋','🐛','🐜','🐝','🐞','🦗','🦟','🦠','💐','🌸','💮','🏵️','🌹','🥀','🌺','🌻','🌼','🌷','🌱','🌲','🌳','🌴','🌵','🌾','🌿','☘️','🍀','🍁','🍂','🍃','🍇','🍈','🍉','🍊','🍋','🍌','🍍','🥭','🍎','🍏','🍐','🍑','🍒','🍓','🥝','🍅','🥥','🥑','🍆','🥔','🥕','🌽','🌶️','🥒','🥬','🥦','🧄','🧅','🍄','🥜','🌰','🍞','🥐','🥖','🥨','🥯','🥞','🧇','🧀','🍖','🍗','🥩','🥓','🍔','🍟','🍕','🌭','🥪','🌮','🌯','🥙','🧆','🥚','🍳','🥘','🍲','🥣','🥗','🍿','🧈','🧂','🥫','🍱','🍘','🍙','🍚','🍛','🍜','🍝','🍠','🍢','🍣','🍤','🍥','🥮','🍡','🥟','🥠','🥡','🦀','🦞','🦐','🦑','🦪','🍦','🍧','🍨','🍩','🍪','🎂','🍰','🧁','🥧','🍫','🍬','🍭','🍮','🍯','🍼','🥛','☕','🍵','🍶','🍾','🍷','🍸','🍹','🍺','🍻','🥂','🥃','🥤','🧃','🧉','🧊','🥢','🍽️','🍴','🥄','🔪','🏺','🌍','🌎','🌏','🌐','🗺️','🧭','🏔️','⛰️','🌋','🗻','🏕️','🏖️','🏜️','🏝️','🏞️','🏟️','🏛️','🏗️','🧱','🏘️','🏚️','🏠','🏡','🏢','🏣','🏤','🏥','🏦','🏨','🏩','🏪','🏫','🏬','🏭','🏯','🏰','💒','🗼','🗽','⛪','🕌','🛕','🕍','⛩️','🕋','⛲','⛺','🌁','🌃','🏙️','🌄','🌅','🌆','🌇','🌉','♨️','🎠','🎡','🎢','💈','🎪','🚂','🚃','🚄','🚅','🚆','🚇','🚈','🚉','🚊','🚝','🚞','🚋','🚌','🚍','🚎','🚐','🚑','🚒','🚓','🚔','🚕','🚖','🚗','🚘','🚙','🚚','🚛','🚜','🏎️','🏍️','🛵','🦽','🦼','🛺','🚲','🛴','🛹','🚏','🛣️','🛤️','🛢️','⛽','🚨','🚥','🚦','🛑','🚧','⚓','⛵','🛶','🚤','🛳️','⛴️','🛥️','🚢','✈️','🛩️','🛫','🛬','🪂','💺','🚁','🚟','🚠','🚡','🛰️','🚀','🛸','🛎️','🧳','⌛','⏳','⌚','⏰','⏱️','⏲️','🕰️','🕛','🕧','🕐','🕜','🕑','🕝','🕒','🕞','🕓','🕟','🕔','🕠','🕕','🕡','🕖','🕢','🕗','🕣','🕘','🕤','🕙','🕥','🕚','🕦','🌑','🌒','🌓','🌔','🌕','🌖','🌗','🌘','🌙','🌚','🌛','🌜','🌡️','☀️','🌝','🌞','🪐','⭐','🌟','🌠','🌌','☁️','⛅','⛈️','🌤️','🌥️','🌦️','🌧️','🌨️','🌩️','🌪️','🌫️','🌬️','🌀','🌈','🌂','☂️','☔','⛱️','⚡','❄️','☃️','⛄','☄️','🔥','💧','🌊','🎃','🎄','🎆','🎇','🧨','✨','🎈','🎉','🎊','🎋','🎍','🎎','🎏','🎐','🎑','🧧','🎀','🎁','🎗️','🎟️','🎫','🎖️','🏆','🏅','🥇','🥈','🥉','⚽','⚾','🥎','🏀','🏐','🏈','🏉','🎾','🥏','🎳','🏏','🏑','🏒','🥍','🏓','🏸','🥊','🥋','🥅','⛳','⛸️','🎣','🤿','🎽','🎿','🛷','🥌','🎯','🪀','🪁','🎱','🔮','🧿','🎮','🕹️','🎰','🎲','🧩','🧸','♠️','♥️','♦️','♣️','♟️','🃏','🀄','🎴','🎭','🖼️','🎨','🧵','🧶','👓','🕶️','🥽','🥼','🦺','👔','👕','👖','🧣','🧤','🧥','🧦','👗','👘','🥻','🩱','🩲','🩳','👙','👚','👛','👜','👝','🛍️','🎒','👞','👟','🥾','🥿','👠','👡','🩰','👢','👑','👒','🎩','🎓','🧢','⛑️','📿','💄','💍','💎','🔇','🔈','🔉','🔊','📢','📣','📯','🔔','🔕','🎼','🎵','🎶','🎙️','🎚️','🎛️','🎤','🎧','📻','🎷','🎸','🎹','🎺','🎻','🪕','🥁','📱','📲','☎️','📞','📟','📠','🔋','🔌','💻','🖥️','🖨️','⌨️','🖱️','🖲️','💽','💾','💿','📀','🧮','🎥','🎞️','📽️','🎬','📺','📷','📸','📹','📼','🔍','🔎','🕯️','💡','🔦','🏮','🪔','📔','📕','📖','📗','📘','📙','📚','📓','📒','📃','📜','📄','📰','🗞️','📑','🔖','🏷️','💰','💴','💵','💶','💷','💸','💳','🧾','💹','✉️','📧','📨','📩','📤','📥','📦','📫','📪','📬','📭','📮','🗳️','✏️','✒️','🖋️','🖊️','🖌️','🖍️','📝','💼','📁','📂','🗂️','📅','📆','🗒️','🗓️','📇','📈','📉','📊','📋','📌','📍','📎','🖇️','📏','📐','✂️','🗃️','🗄️','🗑️','🔒','🔓','🔏','🔐','🔑','🗝️','🔨','🪓','⛏️','⚒️','🛠️','🗡️','⚔️','🔫','🏹','🛡️','🔧','🔩','⚙️','🗜️','⚖️','🦯','🔗','⛓️','🧰','🧲','⚗️','🧪','🧫','🧬','🔬','🔭','📡','💉','🩸','💊','🩹','🩺','🚪','🛏️','🛋️','🪑','🚽','🚿','🛁','🪒','🧴','🧷','🧹','🧺','🧻','🧼','🧽','🧯','🛒','🚬','⚰️','⚱️','🗿','🏧','🚮','🚰','♿','🚹','🚺','🚻','🚼','🚾','🛂','🛃','🛄','🛅','⚠️','🚸','⛔','🚫','🚳','🚭','🚯','🚱','🚷','📵','🔞','☢️','☣️','⬆️','↗️','➡️','↘️','⬇️','↙️','⬅️','↖️','↕️','↔️','↩️','↪️','⤴️','⤵️','🔃','🔄','🔙','🔚','🔛','🔜','🔝','🛐','⚛️','🕉️','✡️','☸️','☯️','✝️','☦️','☪️','☮️','🕎','🔯','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','⛎','🔀','🔁','🔂','▶️','⏩','⏭️','⏯️','◀️','⏪','⏮️','🔼','⏫','🔽','⏬','⏸️','⏹️','⏺️','⏏️','🎦','🔅','🔆','📶','📳','📴','♀️','♂️','⚧','✖️','➕','➖','➗','♾️','‼️','⁉️','❓','❔','❕','❗','〰️','💱','💲','⚕️','♻️','⚜️','🔱','📛','🔰','⭕','✅','☑️','✔️','❌','❎','➰','➿','〽️','✳️','✴️','❇️','©️','®️','™️','#️⃣','*️⃣','0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟','🔠','🔡','🔢','🔣','🔤','🅰️','🆎','🅱️','🆑','🆒','🆓','ℹ️','🆔','Ⓜ️','🆕','🆖','🅾️','🆗','🅿️','🆘','🆙','🆚','🈁','🈂️','🈷️','🈶','🈯','🉐','🈹','🈚','🈲','🉑','🈸','🈴','🈳','㊗️','㊙️','🈺','🈵','🔴','🟠','🟡','🟢','🔵','🟣','🟤','⚫','⚪','🟥','🟧','🟨','🟩','🟦','🟪','🟫','⬛','⬜','◼️','◻️','◾','◽','▪️','▫️','🔶','🔷','🔸','🔹','🔺','🔻','💠','🔘','🔳','🔲','🏁','🚩','🎌','🏴','🏳️','🏳️‍🌈','🏴‍☠️','🇦🇨','🇦🇩','🇦🇪','🇦🇫','🇦🇬','🇦🇮','🇦🇱','🇦🇲','🇦🇴','🇦🇶','🇦🇷','🇦🇸','🇦🇹','🇦🇺','🇦🇼','🇦🇽','🇦🇿','🇧🇦','🇧🇧','🇧🇩','🇧🇪','🇧🇫','🇧🇬','🇧🇭','🇧🇮','🇧🇯','🇧🇱','🇧🇲','🇧🇳','🇧🇴','🇧🇶','🇧🇷','🇧🇸','🇧🇹','🇧🇻','🇧🇼','🇧🇾','🇧🇿','🇨🇦','🇨🇨','🇨🇩','🇨🇫','🇨🇬','🇨🇭','🇨🇮','🇨🇰','🇨🇱','🇨🇲','🇨🇳'];
+
+function showToast(title, message, type = 'success') {
+    const toast = document.getElementById('toast');
+    document.getElementById('toast-title').textContent = title;
+    document.getElementById('toast-message').textContent = message;
+    document.getElementById('toast-icon').innerHTML = type === 'success'
+        ? '<div class="h-7 w-7 rounded-full bg-green-50 flex items-center justify-center"><i class="ti ti-check text-green-600"></i></div>'
+        : '<div class="h-7 w-7 rounded-full bg-red-50 flex items-center justify-center"><i class="ti ti-alert-triangle text-red-600"></i></div>';
+    toast.classList.remove('translate-x-full', 'opacity-0');
+    setTimeout(() => toast.classList.add('translate-x-full', 'opacity-0'), 3000);
+}
+
+async function loadMessages() {
+    try {
+        const response = await fetch('/api/broadcast/messages');
+        const data = await response.json();
+        displayMessages(data.messages || []);
+    } catch (error) {
+        document.getElementById('messagesList').innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-red-500">加载失败</td></tr>';
+    }
+}
+
+function displayMessages(messages) {
+    if (!messages || messages.length === 0) {
+        document.getElementById('messagesList').innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">暂无群发内容，点击"添加群发内容"创建</td></tr>';
+        return;
+    }
+
+    const html = messages.map(m => {
+        const buttons = m.buttons ? JSON.parse(m.buttons || '[]') : [];
+        const hasMedia = m.image_url || m.video_url;
+        return `
+        <tr class="hover:bg-slate-50">
+            <td class="px-4 py-3">${m.id}</td>
+            
+            <td class="px-4 py-3 text-slate-600 max-w-xs truncate">${(m.content || '').substring(0, 40)}...</td>
+            <td class="px-4 py-3 text-center">
+                ${hasMedia ? '<span class="text-green-600"><i class="ti ti-photo"></i></span>' : '<span class="text-slate-300">-</span>'}
+            </td>
+            <td class="px-4 py-3 text-center">${buttons.length}</td>
+            <td class="px-4 py-3 text-center">${m.is_active ? '<span class="text-green-600">启用</span>' : '<span class="text-slate-400">停用</span>'}</td>
+            <td class="px-4 py-3 text-slate-500">${m.create_time ? m.create_time.split(' ')[0] : '-'}</td>
+            <td class="px-4 py-3">
+                <div class="flex items-center justify-center gap-1">
+                    <button onclick="selectMessage(${m.id})" class="px-2 py-1 text-xs rounded bg-green-500 hover:bg-green-600 text-white font-medium">选用</button>
+                    <button onclick="copyMessage(${m.id})" class="px-2 py-1 text-xs rounded bg-slate-500 hover:bg-slate-600 text-white font-medium">复制</button>
+                    <button onclick="editMessage(${m.id})" class="px-2 py-1 text-xs rounded bg-blue-500 hover:bg-blue-600 text-white font-medium">编辑</button>
+                    <button onclick="deleteMessage(${m.id})" class="px-2 py-1 text-xs rounded bg-red-500 hover:bg-red-600 text-white font-medium">删除</button>
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+    document.getElementById('messagesList').innerHTML = html;
+}
+
+function showAddModal() {
+    editingId = null;
+    buttonCount = 0;
+    document.getElementById('modalTitle').textContent = '添加群发内容';
+    document.getElementById('editingId').value = '';
+
+    document.getElementById('messageContent').value = '';
+    document.getElementById('imageUrl').value = '';
+    document.getElementById('videoUrl').value = '';
+    document.getElementById('imagePreview').classList.add('hidden');
+    document.getElementById('videoPreview').classList.add('hidden');
+    document.getElementById('buttonsPerRow').value = '2';
+    document.getElementById('buttonsList').innerHTML = '';
+    document.getElementById('enableSchedule').checked = false;
+    document.getElementById('scheduleTime').disabled = true;
+    document.getElementById('scheduleTime').value = '';
+    showModal('messageModal');
+}
+
+function addButton() {
+    buttonCount++;
+    const div = document.createElement('div');
+    div.className = 'flex items-center gap-2 p-2 bg-slate-50 rounded-lg';
+    div.id = `button-row-${buttonCount}`;
+    div.innerHTML = `
+        <button type="button" onclick="showEmojiPickerFor('btn-name-${buttonCount}')" class="px-2 py-1 text-xs bg-yellow-100 hover:bg-yellow-200 rounded">😀</button>
+        <input type="text" id="btn-name-${buttonCount}" placeholder="按钮名称" class="flex-1 px-2 py-1.5 text-sm border border-slate-200 rounded">
+        <input type="text" id="btn-url-${buttonCount}" placeholder="URL链接" class="flex-1 px-2 py-1.5 text-sm border border-slate-200 rounded">
+        <button type="button" onclick="removeButton(${buttonCount})" class="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-600 rounded">删除</button>
+    `;
+    document.getElementById('buttonsList').appendChild(div);
+}
+
+function removeButton(id) {
+    const row = document.getElementById(`button-row-${id}`);
+    if (row) row.remove();
+}
+
+function getButtons() {
+    const buttons = [];
+    document.querySelectorAll('#buttonsList > div').forEach(row => {
+        const nameInput = row.querySelector('input[id^="btn-name-"]');
+        const urlInput = row.querySelector('input[id^="btn-url-"]');
+        if (nameInput && urlInput && nameInput.value.trim()) {
+            let url = urlInput.value.trim();
+            // 验证URL格式
+            if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'https://' + url;
+            }
+            if (url) {
+                buttons.push({ name: nameInput.value.trim(), url: url });
+            }
+        }
+    });
+    return buttons;
+}
+
+function insertEmoji() {
+    showEmojiPickerFor('messageContent');
+}
+
+let currentEmojiTarget = null;
+function showEmojiPickerFor(targetId) {
+    currentEmojiTarget = targetId;
+    const picker = document.getElementById('emojiPicker');
+    const target = document.getElementById(targetId);
+    const rect = target.getBoundingClientRect();
+    
+    picker.style.left = rect.left + 'px';
+    picker.style.top = (rect.bottom + 5) + 'px';
+    
+    picker.querySelector('.grid').innerHTML = emojis.slice(0, 200).map(e => 
+        `<button type="button" onclick="insertEmojiChar('${e}')" class="p-1 hover:bg-slate-100 rounded">${e}</button>`
+    ).join('');
+    
+    picker.classList.remove('hidden');
+    
+    setTimeout(() => {
+        document.addEventListener('click', hideEmojiPicker);
+    }, 100);
+}
+
+function hideEmojiPicker(e) {
+    if (!e.target.closest('#emojiPicker')) {
+        document.getElementById('emojiPicker').classList.add('hidden');
+        document.removeEventListener('click', hideEmojiPicker);
+    }
+}
+
+function insertEmojiChar(emoji) {
+    const target = document.getElementById(currentEmojiTarget);
+    if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+        const start = target.selectionStart;
+        const end = target.selectionEnd;
+        target.value = target.value.substring(0, start) + emoji + target.value.substring(end);
+        target.selectionStart = target.selectionEnd = start + emoji.length;
+        target.focus();
+    }
+    document.getElementById('emojiPicker').classList.add('hidden');
+}
+
+function copyContent() {
+    const content = document.getElementById('messageContent').value;
+    navigator.clipboard.writeText(content);
+    showToast('已复制', '内容已复制到剪贴板');
+}
+
+function previewMessage() {
+    const content = document.getElementById('messageContent').value;
+    const imageUrl = document.getElementById('imageUrl').value;
+    const buttons = getButtons();
+    const perRow = parseInt(document.getElementById('buttonsPerRow').value);
+    
+    let html = '<div class="bg-white rounded-lg border p-4">';
+    if (imageUrl) {
+        html += `<img src="${imageUrl}" class="w-full rounded-lg mb-3" onerror="this.style.display='none'">`;
+    }
+    html += `<p class="text-sm whitespace-pre-wrap">${content}</p>`;
+    
+    if (buttons.length > 0) {
+        html += `<div class="grid grid-cols-${perRow} gap-2 mt-3">`;
+        buttons.forEach(btn => {
+            html += `<a href="${btn.url}" target="_blank" class="px-3 py-2 bg-blue-500 text-white text-center text-sm rounded hover:bg-blue-600">${btn.name}</a>`;
+        });
+        html += '</div>';
+    }
+    html += '</div>';
+    
+    document.getElementById('previewContent').innerHTML = html;
+    showModal('previewModal');
+}
+
+document.getElementById('enableSchedule').addEventListener('change', function() {
+    document.getElementById('scheduleTime').disabled = !this.checked;
+});
+
+async function saveMessage() {
+    const data = {
+        title: document.getElementById('messageContent').value.substring(0, 20) || '群发消息',
+        content: document.getElementById('messageContent').value,
+        image_url: document.getElementById('imageUrl').value,
+        video_url: document.getElementById('videoUrl').value,
+        buttons: JSON.stringify(getButtons()),
+        buttons_per_row: parseInt(document.getElementById('buttonsPerRow').value),
+        schedule_enabled: document.getElementById('enableSchedule').checked ? 1 : 0,
+        schedule_time: document.getElementById('scheduleTime').value
+    };
+    
+    try {
+        const editId = document.getElementById('editingId').value;
+        const url = editId ? `/api/broadcast/message/${editId}` : '/api/broadcast/message';
+        const method = editId ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const result = await response.json();
+        if (result.success) {
+            showToast('成功', editId ? '已更新' : '已添加');
+            closeModal('messageModal');
+            loadMessages();
+        } else {
+            showToast('失败', result.message || '操作失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', error.message, 'error');
+    }
+}
+
+async function editMessage(id) {
+    try {
+        const response = await fetch(`/api/broadcast/message/${id}`);
+        const data = await response.json();
+        if (!data.success) {
+            showToast('加载失败', data.message || '获取消息失败', 'error');
+            return;
+        }
+        const m = data.message;
+        
+        document.getElementById('modalTitle').textContent = '编辑群发内容';
+        document.getElementById('editingId').value = m.id;
+
+        document.getElementById('messageContent').value = m.content || '';
+        document.getElementById('imageUrl').value = m.image_url || '';
+        document.getElementById('videoUrl').value = m.video_url || '';
+        // 显示预览
+        if (m.image_url) {
+            const imgPreview = document.getElementById('imagePreview');
+            imgPreview.classList.remove('hidden');
+            imgPreview.querySelector('img').src = m.image_url;
+        }
+        if (m.video_url) {
+            const vidPreview = document.getElementById('videoPreview');
+            vidPreview.classList.remove('hidden');
+            vidPreview.querySelector('video').src = m.video_url;
+        }
+        document.getElementById('buttonsPerRow').value = m.buttons_per_row || 2;
+        document.getElementById('enableSchedule').checked = m.schedule_enabled;
+        document.getElementById('scheduleTime').disabled = !m.schedule_enabled;
+        document.getElementById('scheduleTime').value = m.schedule_time || '';
+        
+        // 加载按钮
+        document.getElementById('buttonsList').innerHTML = '';
+        buttonCount = 0;
+        const buttons = m.buttons ? JSON.parse(m.buttons) : [];
+        buttons.forEach(btn => {
+            addButton();
+            document.getElementById(`btn-name-${buttonCount}`).value = btn.name;
+            document.getElementById(`btn-url-${buttonCount}`).value = btn.url;
+        });
+        
+        showModal('messageModal');
+    } catch (error) {
+        showToast('加载失败', error.message, 'error');
+    }
+}
+
+async function deleteMessage(id) {
+    if (!confirm('确定要删除这条群发内容吗？')) return;
+    try {
+        const response = await fetch(`/api/broadcast/message/${id}`, {method: 'DELETE'});
+        const result = await response.json();
+        if (result.success) {
+            showToast('成功', '已删除');
+            loadMessages();
+        }
+    } catch (error) {
+        showToast('删除失败', error.message, 'error');
+    }
+}
+
+function selectMessage(id) {
+    // 存储选中的消息ID，供其他页面使用
+    localStorage.setItem('selectedBroadcastId', id);
+    showToast('已选用', '群发内容已选中，可在会员管理或群管理中使用');
+}
+
+function copyMessage(id) {
+    // 复制消息内容
+    const row = document.querySelector(`tr button[onclick="selectMessage(${id})"]`).closest('tr');
+    const content = row.querySelector('td:nth-child(3)').textContent;
+    navigator.clipboard.writeText(content);
+    showToast('已复制', '内容已复制');
+}
+
+async function toggleBroadcast() {
+    const enabled = document.getElementById('broadcastSwitch').checked ? '1' : '0';
+    try {
+        await fetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({key: 'broadcast_enabled', value: enabled})
+        });
+        showToast('成功', enabled === '1' ? '已开启定时群发' : '已关闭定时群发');
+    } catch (error) {
+        showToast('失败', '更新失败', 'error');
+    }
+}
+
+async function saveInterval() {
+    const interval = document.getElementById('broadcastInterval').value;
+    try {
+        await fetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({key: 'broadcast_interval', value: interval})
+        });
+        showToast('成功', `定时间隔已设为 ${interval} 分钟`);
+    } catch (error) {
+        showToast('失败', '保存失败', 'error');
+    }
+}
+
+async function loadBroadcastStatus() {
+    try {
+        const response = await fetch('/api/settings');
+        const data = await response.json();
+        const settings = data.settings || data;
+        document.getElementById('broadcastSwitch').checked = settings.broadcast_enabled === '1' || settings.broadcast_enabled === 1;
+        document.getElementById('broadcastInterval').value = settings.broadcast_interval || 120;
+    } catch (error) {
+        console.error('加载状态失败:', error);
+    }
+}
+
+function showModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadMessages();
+    loadBroadcastStatus();
+});
+</script>
+{% endblock %}

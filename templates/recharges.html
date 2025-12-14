@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}充值管理{% endblock %}
+
+{% block content %}
+<div>
+    <nav class="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200">
+        <div class="px-6 py-4">
+            <div class="flex items-center gap-4">
+                <div class="bg-green-50 p-2 rounded-xl text-green-600">
+                    <i class="ti ti-cash text-2xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-slate-900 leading-tight">充值管理</h1>
+                    <p class="text-xs text-slate-400 font-medium tracking-wide">RECHARGE MANAGEMENT</p>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="px-6 py-8">
+        <div class="flex items-center gap-4 mb-6">
+            <div class="flex gap-2 flex-1 max-w-md">
+                <input type="text" id="search-input" placeholder="搜索用户名或ID..." 
+                    class="flex-1 pl-4 pr-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none text-sm">
+                <button id="search-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">搜索</button>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-slate-500 font-medium">
+                    <tr>
+                        <th class="px-6 py-4 text-left">ID</th>
+                        <th class="px-6 py-4 text-left">用户</th>
+                        <th class="px-6 py-4 text-left">金额</th>
+                        <th class="px-6 py-4 text-left">订单号</th>
+                        <th class="px-6 py-4 text-left">创建时间</th>
+                        <th class="px-6 py-4 text-left">状态</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body" class="divide-y divide-slate-100"></tbody>
+            </table>
+            <div id="empty" class="hidden py-16 text-center text-slate-400">暂无数据</div>
+            <div class="px-6 py-4 border-t border-slate-100 flex justify-between">
+                <span class="text-sm text-slate-500">共 <b id="total">0</b> 条</span>
+                <div class="flex gap-2">
+                    <button id="prev-btn" class="px-3 py-1 rounded border border-slate-200 text-slate-500 disabled:opacity-30">←</button>
+                    <span id="page-num" class="px-3 py-1 text-slate-600">1</span>
+                    <button id="next-btn" class="px-3 py-1 rounded border border-slate-200 text-slate-500 disabled:opacity-30">→</button>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+(function() {
+    let page = 1, search = '', pages = 1;
+    
+    async function load() {
+        let url = `/api/recharges?page=${page}`;
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            console.log('API response:', data);
+            
+            const tbody = document.getElementById('table-body');
+            const empty = document.getElementById('empty');
+            
+            // API返回的是records字段
+            const records = data.records || [];
+            
+            if (records.length === 0) {
+                tbody.innerHTML = '';
+                empty.classList.remove('hidden');
+            } else {
+                empty.classList.add('hidden');
+                tbody.innerHTML = records.map(item => {
+                    let statusHtml = '';
+                    if (item.status === 'pending') {
+                        statusHtml = '<span class="px-2 py-1 rounded-full text-xs bg-amber-50 text-amber-700">待支付</span>';
+                    } else if (item.status === 'completed' || item.status === 'success') {
+                        statusHtml = '<span class="px-2 py-1 rounded-full text-xs bg-emerald-50 text-emerald-700">已完成</span>';
+                    } else {
+                        statusHtml = '<span class="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-600">' + (item.status || '未知') + '</span>';
+                    }
+                    return `<tr class="hover:bg-slate-50">
+                        <td class="px-6 py-4 text-slate-500">#${item.id}</td>
+                        <td class="px-6 py-4"><div class="font-medium text-slate-900">@${item.username || 'N/A'}</div><div class="text-xs text-slate-500">ID: ${item.telegram_id}</div></td>
+                        <td class="px-6 py-4 font-bold text-slate-700">${item.amount} U</td>
+                        <td class="px-6 py-4 text-slate-500 text-xs">${item.order_number || '-'}</td>
+                        <td class="px-6 py-4 text-slate-500 text-xs">${item.create_time || '-'}</td>
+                        <td class="px-6 py-4">${statusHtml}</td>
+                    </tr>`;
+                }).join('');
+            }
+            
+            document.getElementById('total').textContent = data.total || 0;
+            document.getElementById('page-num').textContent = data.page || 1;
+            const perPage = data.per_page || 20;
+            pages = Math.ceil((data.total || 0) / perPage) || 1;
+            document.getElementById('prev-btn').disabled = page <= 1;
+            document.getElementById('next-btn').disabled = page >= pages;
+        } catch (e) {
+            console.error('Load error:', e);
+        }
+    }
+    
+    document.getElementById('search-btn').addEventListener('click', () => {
+        search = document.getElementById('search-input').value.trim();
+        page = 1;
+        load();
+    });
+    
+    document.getElementById('search-input').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            search = document.getElementById('search-input').value.trim();
+            page = 1;
+            load();
+        }
+    });
+    
+    document.getElementById('prev-btn').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.getElementById('next-btn').addEventListener('click', () => { if (page < pages) { page++; load(); } });
+    
+    load();
+})();
+</script>
+{% endblock %}

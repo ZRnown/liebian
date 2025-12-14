@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block title %}团队图谱{% endblock %}
+
+{% block content %}
+<main class="px-6 py-8">
+    <div class="mb-6">
+        <h1 class="text-3xl font-bold text-slate-900">团队图谱</h1>
+        <p class="text-slate-500 mt-2">查看所有会员的层级关系</p>
+    </div>
+    
+    <!-- 统计卡片 -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl p-4 border border-slate-200">
+            <p class="text-sm text-slate-500">总会员</p>
+            <p class="text-2xl font-bold text-slate-900" id="stat-total">-</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 border border-slate-200">
+            <p class="text-sm text-slate-500">顶级会员</p>
+            <p class="text-2xl font-bold text-indigo-600" id="stat-top">-</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 border border-slate-200">
+            <p class="text-sm text-slate-500">最大深度</p>
+            <p class="text-2xl font-bold text-purple-600" id="stat-depth">-</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 border border-slate-200">
+            <p class="text-sm text-slate-500">VIP会员</p>
+            <p class="text-2xl font-bold text-amber-600" id="stat-vip">-</p>
+        </div>
+    </div>
+    
+    <!-- 搜索框 -->
+    <div class="bg-white rounded-xl p-4 border border-slate-200 mb-6">
+        <div class="flex gap-4">
+            <input type="text" id="searchInput" placeholder="搜索用户名或ID..." 
+                   class="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <button onclick="searchMember()" class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+                <i class="ti ti-search"></i> 搜索
+            </button>
+            <button onclick="expandAll()" class="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50">
+                <i class="ti ti-arrows-maximize"></i> 展开全部
+            </button>
+            <button onclick="collapseAll()" class="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50">
+                <i class="ti ti-arrows-minimize"></i> 收起全部
+            </button>
+        </div>
+    </div>
+    
+    <!-- 树形图谱 -->
+    <div class="bg-white rounded-xl p-6 border border-slate-200">
+        <div id="treeContainer" class="min-h-[400px]">
+            <p class="text-slate-400 text-center py-8">加载中...</p>
+        </div>
+    </div>
+</main>
+
+<style>
+.tree-node {
+    margin-left: 24px;
+    border-left: 2px solid #e2e8f0;
+    padding-left: 16px;
+}
+.tree-node:last-child {
+    border-left-color: transparent;
+}
+.tree-node::before {
+    content: '';
+    position: absolute;
+    left: -18px;
+    top: 12px;
+    width: 16px;
+    height: 2px;
+    background: #e2e8f0;
+}
+.tree-item {
+    position: relative;
+    padding: 8px 0;
+}
+.tree-toggle {
+    cursor: pointer;
+    user-select: none;
+}
+.tree-toggle:hover {
+    background: #f1f5f9;
+}
+.tree-children {
+    display: none;
+}
+.tree-children.expanded {
+    display: block;
+}
+.vip-badge {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 10px;
+    font-weight: 600;
+}
+.member-card {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+.member-card:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+.member-card.highlighted {
+    background: #fef3c7;
+    border-color: #f59e0b;
+}
+.top-level {
+    background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+    border-color: #a5b4fc;
+}
+</style>
+
+<script>
+let allMembers = [];
+let memberMap = {};
+
+async function loadTree() {
+    try {
+        const res = await fetch('/api/team-graph-all');
+        const data = await res.json();
+        
+        if (!data.success) {
+            document.getElementById('treeContainer').innerHTML = 
+                '<p class="text-red-500 text-center py-8">加载失败: ' + (data.message || '未知错误') + '</p>';
+            return;
+        }
+        
+        allMembers = data.members;
+        
+        // 更新统计
+        document.getElementById('stat-total').textContent = data.stats.total;
+        document.getElementById('stat-top').textContent = data.stats.top_level;
+        document.getElementById('stat-depth').textContent = data.stats.max_depth + '层';
+        document.getElementById('stat-vip').textContent = data.stats.vip_count;
+        
+        // 构建成员映射
+        memberMap = {};
+        allMembers.forEach(m => memberMap[m.telegram_id] = m);
+        
+        // 找出顶级会员（没有上级或上级不在系统中）
+        const topMembers = allMembers.filter(m => !m.referrer_id || !memberMap[m.referrer_id]);
+        
+        // 渲染树
+        const html = topMembers.map(m => renderNode(m, 0)).join('');
+        document.getElementById('treeContainer').innerHTML = html || 
+            '<p class="text-slate-400 text-center py-8">暂无会员数据</p>';
+            
+    } catch (error) {
+        document.getElementById('treeContainer').innerHTML = 
+            '<p class="text-red-500 text-center py-8">加载失败: ' + error.message + '</p>';
+    }
+}
+
+function renderNode(member, depth) {
+    const children = allMembers.filter(m => m.referrer_id === member.telegram_id);
+    const hasChildren = children.length > 0;
+    const isTopLevel = depth === 0;
+    
+    let html = `
+        <div class="tree-item" data-id="${member.telegram_id}">
+            <div class="tree-toggle flex items-center gap-2 py-1 px-2 rounded-lg ${hasChildren ? '' : 'pl-6'}">
+                ${hasChildren ? `
+                    <span class="toggle-icon text-slate-400 w-4 text-center" onclick="toggleNode(${member.telegram_id})">
+                        <i class="ti ti-chevron-right text-sm"></i>
+                    </span>
+                ` : ''}
+                <div class="member-card ${isTopLevel ? 'top-level' : ''}">
+                    <span class="text-lg">${member.is_vip ? '👑' : '👤'}</span>
+                    <div>
+                        <span class="px-2 py-0.5 text-xs rounded bg-green-100 text-green-700 font-bold mr-2">第${depth + 1}层</span>
+                        <span class="font-medium text-slate-900">@${member.username}</span>
+                        <span class="text-xs text-slate-400 ml-2">${member.telegram_id}</span>
+                    </div>
+                    ${member.is_vip ? '<span class="vip-badge">VIP</span>' : ''}
+                    <span class="text-xs text-slate-500">
+                        直推: ${member.direct_count || 0}
+                    </span>
+                    <a href="/team-graph/${member.telegram_id}" class="text-xs text-indigo-600 hover:text-indigo-800 ml-2">
+                        <i class="ti ti-external-link"></i>
+                    </a>
+                </div>
+            </div>
+            ${hasChildren ? `
+                <div class="tree-children tree-node" id="children-${member.telegram_id}">
+                    ${children.map(c => renderNode(c, depth + 1)).join('')}
+                </div>
+            ` : ''}
+        </div>
+    `;
+    return html;
+}
+
+function toggleNode(id) {
+    const children = document.getElementById('children-' + id);
+    const icon = document.querySelector(`[data-id="${id}"] .toggle-icon i`);
+    
+    if (children) {
+        children.classList.toggle('expanded');
+        if (icon) {
+            icon.classList.toggle('ti-chevron-right');
+            icon.classList.toggle('ti-chevron-down');
+        }
+    }
+}
+
+function expandAll() {
+    document.querySelectorAll('.tree-children').forEach(el => {
+        el.classList.add('expanded');
+    });
+    document.querySelectorAll('.toggle-icon i').forEach(el => {
+        el.classList.remove('ti-chevron-right');
+        el.classList.add('ti-chevron-down');
+    });
+}
+
+function collapseAll() {
+    document.querySelectorAll('.tree-children').forEach(el => {
+        el.classList.remove('expanded');
+    });
+    document.querySelectorAll('.toggle-icon i').forEach(el => {
+        el.classList.add('ti-chevron-right');
+        el.classList.remove('ti-chevron-down');
+    });
+}
+
+function searchMember() {
+    const query = document.getElementById('searchInput').value.toLowerCase().trim();
+    
+    // 移除所有高亮
+    document.querySelectorAll('.member-card').forEach(el => {
+        el.classList.remove('highlighted');
+    });
+    
+    if (!query) return;
+    
+    // 搜索匹配
+    allMembers.forEach(m => {
+        if (m.username.toLowerCase().includes(query) || 
+            m.telegram_id.toString().includes(query)) {
+            // 高亮并展开到该节点
+            const item = document.querySelector(`[data-id="${m.telegram_id}"]`);
+            if (item) {
+                item.querySelector('.member-card').classList.add('highlighted');
+                
+                // 展开父级
+                let parent = item.parentElement;
+                while (parent) {
+                    if (parent.classList.contains('tree-children')) {
+                        parent.classList.add('expanded');
+                        const icon = parent.previousElementSibling?.querySelector('.toggle-icon i');
+                        if (icon) {
+                            icon.classList.remove('ti-chevron-right');
+                            icon.classList.add('ti-chevron-down');
+                        }
+                    }
+                    parent = parent.parentElement;
+                }
+                
+                // 滚动到视图
+                item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+    });
+}
+
+document.getElementById('searchInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') searchMember();
+});
+
+document.addEventListener('DOMContentLoaded', loadTree);
+</script>
+{% endblock %}
