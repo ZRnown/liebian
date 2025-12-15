@@ -1165,8 +1165,7 @@ async def start_handler(event):
     # 如果是备用号，这里的 telegram_id 就会变成主账号ID
     telegram_id = get_main_account_id(original_id, original_username)
     
-    # 3. 强制修改 event 对象，防止后续逻辑出错
-    event.sender_id = telegram_id
+    # 不再直接修改 event.sender_id，后续统一使用 telegram_id 变量
     # ================= 核心修复结束 =================
 
     username = event.sender.username or f'user_{original_id}'  # 显示用户名保持原始来访账号
