@@ -630,8 +630,8 @@ async def verify_group_link(link):
 
 # 查询USDT TRC20交易
 
-def get_main_account_id(telegram_id):
-    """获取账号对应的主账号ID（支持备用号登录）"""
+def get_main_account_id(telegram_id, username=None):
+    """获取账号对应的主账号ID（支持备用号登录，兼容未注册但有用户名的备用号）"""
     try:
         tid_str = str(telegram_id)
         conn = DB.get_conn()
@@ -651,6 +651,16 @@ def get_main_account_id(telegram_id):
         if result:
             conn.close()
             return result[0]
+        
+        # 方式3: 使用备用号用户名匹配（备用号尚未注册时）
+        if username:
+            uname = username.lstrip('@')
+            c.execute('SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ? LIMIT 1',
+                      (uname, f'@{uname}'))
+            result = c.fetchone()
+            if result:
+                conn.close()
+                return result[0]
         
         conn.close()
         return telegram_id
@@ -1094,7 +1104,7 @@ async def start_handler(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     telegram_id = event.sender_id
     username = event.sender.username or f'user_{telegram_id}'
@@ -1158,7 +1168,7 @@ async def profile_handler(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     member = DB.get_member(event.sender_id)
     if not member:
@@ -1191,7 +1201,7 @@ async def view_fission_handler(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     config = get_system_config()
     member = DB.get_member(event.sender_id)
@@ -1427,7 +1437,7 @@ async def back_to_fission_callback(event):
 @bot.on(events.NewMessage(pattern=BTN_FISSION))
 async def fission_handler(event):
     """群裂变加入"""
-    telegram_id = get_main_account_id(event.sender_id)
+    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -1562,7 +1572,7 @@ async def promote_handler(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     config = get_system_config()
     member = DB.get_member(event.sender_id)
@@ -1608,7 +1618,7 @@ async def resources_handler(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     await show_resource_categories(event, page=1, is_new=True)
 
@@ -1774,7 +1784,7 @@ async def support_handler(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     # 获取客服列表
     services = DB.get_customer_services()
@@ -1808,7 +1818,7 @@ async def vip_handler(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     member = DB.get_member(event.sender_id)
     if not member:
@@ -1860,7 +1870,7 @@ async def my_promote_handler(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     config = get_system_config()
     member = DB.get_member(event.sender_id)
@@ -1899,7 +1909,7 @@ async def back_handler(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     member = DB.get_member(event.sender_id)
     if not member:
@@ -1926,7 +1936,7 @@ async def admin_handler(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     if event.sender_id not in ADMIN_IDS:
         return
@@ -2181,7 +2191,7 @@ async def set_backup_callback(event):
 @bot.on(events.CallbackQuery(pattern=b'open_vip'))
 async def open_vip_callback(event):
     """开通VIP"""
-    telegram_id = get_main_account_id(event.sender_id)
+    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -2227,7 +2237,7 @@ VIP价格: {vip_price} U
 @bot.on(events.CallbackQuery(data=b'open_vip_balance'))
 async def open_vip_balance_callback(event):
     """使用余额开通VIP"""
-    telegram_id = get_main_account_id(event.sender_id)
+    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -2308,7 +2318,7 @@ async def open_vip_balance_callback(event):
 @bot.on(events.CallbackQuery(data=b'recharge_balance'))
 async def recharge_balance_callback(event):
     """充值余额"""
-    telegram_id = get_main_account_id(event.sender_id)
+    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -2346,7 +2356,7 @@ async def recharge_balance_callback(event):
 @bot.on(events.CallbackQuery(data=b'recharge_for_vip'))
 async def recharge_for_vip_callback(event):
     """充值开通VIP - 调用充值输入金额功能"""
-    telegram_id = get_main_account_id(event.sender_id)
+    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -2376,7 +2386,7 @@ async def recharge_for_vip_callback(event):
 @bot.on(events.CallbackQuery(pattern=rb'verify_groups_.*'))
 async def verify_groups_callback(event):
     """验证用户是否加入所有上级群（最多10个）"""
-    telegram_id = get_main_account_id(event.sender_id)
+    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -2641,7 +2651,7 @@ async def confirm_vip_callback(event):
 @bot.on(events.CallbackQuery(pattern=b'earnings_history'))
 async def earnings_history_callback(event):
     """查看个人收益记录"""
-    telegram_id = get_main_account_id(event.sender_id)
+    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -2692,7 +2702,7 @@ async def earnings_history_callback(event):
 @bot.on(events.CallbackQuery(pattern=b'back_to_profile'))
 async def back_to_profile_callback(event):
     """返回个人中心"""
-    telegram_id = get_main_account_id(event.sender_id)
+    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
     member = DB.get_member(telegram_id)
     if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
@@ -2871,7 +2881,7 @@ async def message_handler(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     # 忽略命令和按钮文字
     if not event.message.text:
@@ -5466,7 +5476,7 @@ def main():
         # 账号关联处理
         try:
             original_sender_id = event.sender_id
-            event.sender_id = get_main_account_id(original_sender_id)
+            event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
         except: pass
         await handle_bind_group(event, bot, DB)
     
@@ -5475,7 +5485,7 @@ def main():
         # 账号关联处理
         try:
             original_sender_id = event.sender_id
-            event.sender_id = get_main_account_id(original_sender_id)
+            event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
         except: pass
         await handle_join_upline(event, bot, DB, get_system_config)
     
@@ -5484,7 +5494,7 @@ def main():
         # 账号关联处理
         try:
             original_sender_id = event.sender_id
-            event.sender_id = get_main_account_id(original_sender_id)
+            event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
         except: pass
         await handle_check_status(event, bot, DB)
     
@@ -5493,7 +5503,7 @@ def main():
         # 账号关联处理
         try:
             original_sender_id = event.sender_id
-            event.sender_id = get_main_account_id(original_sender_id)
+            event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
         except: pass
         await handle_my_team(event, bot, DB)
     
@@ -5503,7 +5513,7 @@ def main():
         # 账号关联处理
         try:
             original_sender_id = event.sender_id
-            event.sender_id = get_main_account_id(original_sender_id)
+            event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
         except: pass
         text = event.message.text.strip()
         # 检测是否是群链接
@@ -5908,10 +5918,10 @@ async def myid_cmd(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     try:
-        main_id = get_main_account_id(event.sender_id)
+        main_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
         status = "主账号" if main_id == event.sender_id else "备用账号"
         await event.respond(f"👤 账号信息\n├ 当前ID: `{event.sender_id}`\n├ 主账号ID: `{main_id}`\n└ 状态: {status}", parse_mode='Markdown')
     except Exception as e:
@@ -5922,7 +5932,7 @@ async def link_account_cmd(event):
     # 账号关联处理
     try:
         original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id)
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except: pass
     try:
         main_id = event.sender_id
