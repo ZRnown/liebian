@@ -2157,6 +2157,8 @@ async def set_group_callback(event):
         await event.answer('请先发送 /start 注册')
         return
     
+    # 切换到群链接输入时，清理备用号等待状态
+    waiting_for_backup.pop(event.sender_id, None)
     waiting_for_group_link[event.sender_id] = True
     await event.respond(
         '🔗 设置群链接\n\n'
@@ -2173,6 +2175,8 @@ async def set_backup_callback(event):
         await event.answer('请先发送 /start 注册')
         return
     
+    # 切换到备用号输入时，清理群链接等待状态
+    waiting_for_group_link.pop(event.sender_id, None)
     waiting_for_backup[event.sender_id] = True
     await event.respond(
         '✏️ 设置备用号\n\n'
@@ -3276,6 +3280,34 @@ async def message_handler(event):
             await event.respond('❌ 请输入有效的数字')
         return
     
+    # 设置备用号（优先处理，避免与群链接等待状态冲突）
+    if sender_id in waiting_for_backup and waiting_for_backup[sender_id]:
+        backup_raw = text.strip().lstrip('@')
+        backup_id = None
+        backup_username = backup_raw
+        
+        # 尝试解析数字ID
+        if backup_raw.isdigit():
+            backup_id = int(backup_raw)
+        else:
+            # 尝试通过用户名解析为账号ID
+            try:
+                entity = await bot.get_entity(backup_raw)
+                if getattr(entity, 'id', None):
+                    backup_id = entity.id
+                    backup_username = getattr(entity, 'username', backup_raw) or backup_raw
+            except Exception as e:
+                print(f"[备用号解析失败] {e}")
+        
+        if not backup_id:
+            await event.respond('❌ 未找到该备用号，请发送正确的用户名或ID')
+            return
+        
+        success, message = link_account(sender_id, backup_id, backup_username)
+        del waiting_for_backup[sender_id]
+        await event.respond(message)
+        return
+    
     # 设置群链接
     if sender_id in waiting_for_group_link and waiting_for_group_link[sender_id]:
         link = text
@@ -3303,34 +3335,6 @@ async def message_handler(event):
                 )
         else:
             await event.respond('❌ 链接格式不正确，请发送正确的Telegram群链接\n例如: https://t.me/xxx')
-        return
-    
-    # 设置备用号
-    if sender_id in waiting_for_backup and waiting_for_backup[sender_id]:
-        backup_raw = text.strip().lstrip('@')
-        backup_id = None
-        backup_username = backup_raw
-        
-        # 尝试解析数字ID
-        if backup_raw.isdigit():
-            backup_id = int(backup_raw)
-        else:
-            # 尝试通过用户名解析为账号ID
-            try:
-                entity = await bot.get_entity(backup_raw)
-                if getattr(entity, 'id', None):
-                    backup_id = entity.id
-                    backup_username = getattr(entity, 'username', backup_raw) or backup_raw
-            except Exception as e:
-                print(f"[备用号解析失败] {e}")
-        
-        if not backup_id:
-            await event.respond('❌ 未找到该备用号，请发送正确的用户名或ID')
-            return
-        
-        success, message = link_account(sender_id, backup_id, backup_username)
-        del waiting_for_backup[sender_id]
-        await event.respond(message)
         return
 
 
