@@ -47,21 +47,12 @@ async def handle_group_link_message(event, bot, DB):
     if not member or not member['is_vip']:
         return
     
-    await event.respond('🔍 正在检测...')
-    
     # 检测机器人是否在群内且为管理员
     bot_id = (await bot.get_me()).id
     is_admin = await check_bot_is_admin(bot, bot_id, group_link)
     
     if not is_admin:
-        await event.respond(
-            '❌ 检测失败\n\n'
-            '可能的原因：\n'
-            '1. 机器人未被拉入该群\n'
-            '2. 机器人未被设置为管理员\n'
-            '3. 群链接不正确\n\n'
-            '请完成以上设置后重新发送群链接'
-        )
+        await event.respond('❌ 检测失败，请确认机器人在群且为管理员后再发送链接')
         return
     
     # 更新数据库
