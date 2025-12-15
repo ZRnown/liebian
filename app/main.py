@@ -665,15 +665,6 @@ def link_account(main_id, backup_id, backup_username):
         # 更新members表的backup_account字段
         c.execute('UPDATE members SET backup_account = ? WHERE telegram_id = ?', (str(backup_id), main_id))
         
-        # 在fallback_accounts表中也记录关联关系
-        c.execute('SELECT id FROM fallback_accounts WHERE telegram_id = ?', (backup_id,))
-        if c.fetchone():
-            c.execute('UPDATE fallback_accounts SET main_account_id = ?, username = ? WHERE telegram_id = ?', 
-                     (main_id, backup_username, backup_id))
-        else:
-            c.execute('INSERT INTO fallback_accounts (telegram_id, username, main_account_id, is_active) VALUES (?, ?, ?, 1)', 
-                     (backup_id, backup_username, main_id))
-        
         conn.commit()
         return True, "备用账号关联成功"
     except Exception as e:
