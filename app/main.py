@@ -634,6 +634,7 @@ def get_main_account_id(telegram_id, username=None):
     """获取账号对应的主账号ID（支持备用号登录，兼容未注册但有用户名的备用号）"""
     try:
         tid_str = str(telegram_id)
+        uname = (username or '').lstrip('@')
         conn = DB.get_conn()
         c = conn.cursor()
         
@@ -645,8 +646,14 @@ def get_main_account_id(telegram_id, username=None):
             return result[0]
         
         # 方式2: 从members表的backup_account字段查找（主账号的备用号）
-        c.execute('SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account LIKE ? LIMIT 1', 
-                 (tid_str, f'%{tid_str}%'))
+        params = [tid_str, f'%{tid_str}%']
+        query = 'SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account LIKE ?'
+        # 兼容用用户名存储的备用号
+        if uname:
+            query += ' OR backup_account = ? OR backup_account = ?'
+            params.extend([uname, f'@{uname}'])
+        query += ' LIMIT 1'
+        c.execute(query, params)
         result = c.fetchone()
         if result:
             conn.close()
