@@ -630,45 +630,94 @@ async def verify_group_link(link):
 
 # 查询USDT TRC20交易
 
+def link_account(main_id, backup_id, backup_username):
+    """
+    关联备用号到主账号（修复版：自动去除多余的 @ 符号）
+    """
+    # 1. 清理用户名，确保没有 @ 符号
+    clean_username = (backup_username or '').strip().lstrip('@')
+    
+    # 2. 准备存储的值
+    # 优先存 ID，如果没有 ID 则存 @用户名
+    if backup_id:
+        value_to_store = str(backup_id)
+    elif clean_username:
+        value_to_store = f"@{clean_username}"
+    else:
+        return False, "❌ 无效的备用账号信息"
+        
+    # 防止自己绑定自己
+    if str(main_id) == str(backup_id) or value_to_store == str(main_id):
+        return False, "❌ 不能将自己设置为备用号"
+
+    conn = DB.get_conn()
+    c = conn.cursor()
+    try:
+        # 3. 检查是否已经被其他人绑定
+        # 检查 ID 匹配
+        c.execute('SELECT telegram_id FROM members WHERE backup_account = ?', (str(backup_id),))
+        existing_by_id = c.fetchone()
+        
+        # 检查用户名匹配 (同时检查 @username 和 username)
+        c.execute('SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?', 
+                  (clean_username, f"@{clean_username}"))
+        existing_by_name = c.fetchone()
+        
+        existing = existing_by_id or existing_by_name
+        
+        if existing and str(existing[0]) != str(main_id):
+            conn.close()
+            return False, "❌ 该账号已经是其他人的备用号了，无法重复绑定"
+
+        # 4. 执行更新
+        c.execute('UPDATE members SET backup_account = ? WHERE telegram_id = ?', (value_to_store, main_id))
+        conn.commit()
+        conn.close()
+        return True, f"✅ 备用账号关联成功！\n绑定值: {value_to_store}\n\n请使用备用号发送 /start 测试。"
+        
+    except Exception as e:
+        try:
+            conn.close()
+        except:
+            pass
+        return False, f"关联失败: {str(e)}"
+
+
 def get_main_account_id(telegram_id, username=None):
     """
-    核心功能：获取账号对应的主账号ID
-    如果当前登录的是备用号，则返回它绑定的主账号ID，从而实现数据同步。
+    获取主账号ID（增强匹配版）
     """
     try:
-        # 1. 预处理数据
         tid_str = str(telegram_id)
-        # 去掉@符号，转为纯用户名
-        uname = (username or '').lstrip('@').strip()
+        # 清理用户名
+        clean_username = (username or '').strip().lstrip('@')
         
         conn = DB.get_conn()
         c = conn.cursor()
         
-        # 2. 从 members 表查找主账号
-        # 逻辑：查找是否有哪个会员(telegram_id) 的 backup_account 字段等于当前用户的 ID 或 用户名
-        # 注意：这里我们查询的是 telegram_id (主键)，条件是 backup_account (备用号字段)
+        # 构造查询：查找是否有人的 backup_account 等于当前用户的 ID 或 用户名
+        # 增加了对 @@ 的容错匹配，以防数据库已有脏数据
+        query = """
+            SELECT telegram_id FROM members 
+            WHERE backup_account = ? 
+               OR backup_account = ? 
+               OR backup_account = ?
+               OR backup_account = ?
+            LIMIT 1
+        """
+        params = [
+            tid_str,                 # 匹配 ID (例如 "7141784616")
+            clean_username,          # 匹配纯用户名 (例如 "Thy1cc")
+            f"@{clean_username}",    # 匹配带@用户名 (例如 "@Thy1cc")
+            f"@@{clean_username}"    # 匹配双@错误数据 (例如 "@@Thy1cc")
+        ]
         
-        sql = "SELECT telegram_id FROM members WHERE backup_account = ?"
-        params = [tid_str]
-        
-        # 如果当前用户有用户名，也尝试匹配用户名格式
-        if uname:
-            sql += " OR backup_account = ? OR backup_account = ?"
-            params.append(uname)
-            params.append(f'@{uname}')
-            
-        sql += " LIMIT 1"
-        
-        c.execute(sql, params)
+        c.execute(query, params)
         result = c.fetchone()
         
-        # 3. 捡漏账号逻辑 (保留原有逻辑)
+        # 捡漏账号逻辑保持不变
         if not result:
-            c.execute(
-                'SELECT main_account_id FROM fallback_accounts '
-                'WHERE telegram_id = ? AND main_account_id IS NOT NULL LIMIT 1',
-                (telegram_id,)
-            )
+            c.execute('SELECT main_account_id FROM fallback_accounts WHERE telegram_id = ? AND main_account_id IS NOT NULL LIMIT 1', (telegram_id,))
             fallback_result = c.fetchone()
             if fallback_result and fallback_result[0]:
                 conn.close()
@@ -676,71 +725,16 @@ def get_main_account_id(telegram_id, username=None):
 
         conn.close()
         
-        # 4. 返回结果
         if result:
-            # 找到了主账号，返回主账号ID
-            print(f"[账号映射] 备用号 {telegram_id} ({username}) -> 主账号 {result[0]}")
+            # 找到了主账号
             return result[0]
         
-        # 没找到关联，返回自己的ID
+        # 没找到，返回自己
         return telegram_id
 
     except Exception as e:
-        print(f"[账号关联] 错误: {e}")
+        print(f"[账号映射错误] {e}")
         return telegram_id
-
-
-def link_account(main_id, backup_id, backup_username):
-    """
-    关联备用号到主账号
-    策略：优先存储纯数字ID，如果获取不到ID则存储用户名
-    """
-    # 1. 防止自己绑定自己
-    if str(main_id) == str(backup_id):
-        return False, "❌ 不能将自己设置为备用号"
-
-    # 2. 准备存储的值
-    # 优先存 ID (backup_id)，因为 ID 永远不会变。
-    # 如果 backup_id 为空或者为 0 (极端情况)，才存用户名
-    if backup_id:
-        value_to_store = str(backup_id)
-    elif backup_username:
-        value_to_store = f"@{backup_username.lstrip('@')}"
-    else:
-        return False, "❌ 无效的备用账号信息"
-
-    max_retries = 3
-    for retry in range(max_retries):
-        conn = DB.get_conn()
-        c = conn.cursor()
-        try:
-            # 3. 检查该备用号是否已经被其他人绑定了
-            # 一个备用号只能属于一个主账号，避免数据冲突
-            c.execute(
-                'SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?',
-                (str(backup_id), f"@{backup_username}")
-            )
-            existing = c.fetchone()
-            if existing and str(existing[0]) != str(main_id):
-                conn.close()
-                return False, "❌ 该账号已经是其他人的备用号了"
-
-            # 4. 执行绑定更新
-            c.execute('UPDATE members SET backup_account = ? WHERE telegram_id = ?', (value_to_store, main_id))
-            conn.commit()
-            conn.close()
-            return True, f"✅ 备用账号关联成功！\n绑定值: {value_to_store}\n\n现在使用该备用号登录，将直接进入本账号。"
-            
-        except Exception as e:
-            if 'locked' in str(e).lower() and retry < max_retries - 1:
-                import time
-                time.sleep(0.3)
-                continue
-            try:
-                conn.close()
-            except:
-                pass
-            return False, f"关联失败: {str(e)}"
 
 def check_usdt_transaction(usdt_address):
     """查询USDT TRC20地址的交易记录"""
