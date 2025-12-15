@@ -1154,98 +1154,115 @@ async def group_welcome_handler(event):
     except Exception as e:
         print(f'群事件处理失败: {e}')
 
-# /start 命令处理
 @bot.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
-    # 账号关联处理
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except: pass
-    telegram_id = event.sender_id
-    username = event.sender.username or f'user_{telegram_id}'
+    # ================= 核心修复开始 =================
+    # 1. 获取原始信息
+    original_id = event.sender_id
+    original_username = getattr(event.sender, 'username', None)
     
-    # 调试：打印用户ID
-    print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
+    # 2. 强制进行身份劫持 (获取主账号ID)
+    # 如果是备用号，这里的 telegram_id 就会变成主账号ID
+    telegram_id = get_main_account_id(original_id, original_username)
     
-    # 解析推荐人ID
+    # 3. 强制修改 event 对象，防止后续逻辑出错
+    event.sender_id = telegram_id
+    # ================= 核心修复结束 =================
+
+    username = event.sender.username or f'user_{original_id}'  # 显示用户名保持原始来访账号
+
+    # 调试打印，确保后台能看到切换
+    if original_id != telegram_id:
+        print(f"⚠️ [Start命令] 检测到备用号登录: {original_id} -> 切换至主账号 {telegram_id}")
+    else:
+        print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
+
+    # 解析推荐人ID (保持原有逻辑)
     referrer_id = None
     if event.message.text and len(event.message.text.split()) > 1:
         try:
             referrer_id = int(event.message.text.split()[1])
         except:
             pass
-    
-    # 创建或获取会员
+
+    # 【关键】这里必须用转换后的 telegram_id 去查数据库
     member = DB.get_member(telegram_id)
+
     if not member:
+        # 如果主账号不存在，才创建
         DB.create_member(telegram_id, username, referrer_id)
         member = DB.get_member(telegram_id)
-        
+
         # 通知推荐人
         if referrer_id:
             referrer = DB.get_member(referrer_id)
             if referrer:
                 try:
-                    # 获取用户完整昵称
-                    user_full_name = event.sender.first_name or ''
-                    if event.sender.last_name:
-                        user_full_name += f' {event.sender.last_name}'
-                    user_full_name = user_full_name.strip() or f'user_{telegram_id}'
-                    
-                    await bot.send_message(referrer_id, 
+                    user_full_name = event.sender.first_name or f'user_{telegram_id}'
+                    await bot.send_message(
+                        referrer_id,
                         f'🎉 新成员加入!\n用户: [{user_full_name}](tg://user?id={telegram_id})\n通过您的推广链接加入了机器人',
-                        parse_mode='markdown')
+                        parse_mode='markdown'
+                    )
                 except:
                     pass
-    
+
     # 获取系统配置
     sys_config = get_system_config()
     pinned_ad = sys_config.get('pinned_ad', '')
-    
+
+    # 显示欢迎信息（数据来自主账号）
     welcome_text = (
         f'👋 欢迎使用裂变推广机器人!\n\n'
-        f'👤 用户: @{username}\n'
+        f'👤 当前显示身份ID: `{telegram_id}`\n'
         f'💎 VIP状态: {"✅ 已开通" if member["is_vip"] else "❌ 未开通"}\n'
         f'💰 余额: {member["balance"]} U\n\n'
         f'请选择功能:'
     )
-    
+
     # 如果有置顶广告，附加在消息末尾
     if pinned_ad:
         welcome_text += f'\n\n━━━━━━━━━━━━━━━\n📢 {pinned_ad}'
-    
+
     await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
 
 
-# 个人中心
 @bot.on(events.NewMessage(pattern=BTN_PROFILE))
 async def profile_handler(event):
-    # 账号关联处理
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except: pass
-    member = DB.get_member(event.sender_id)
-    if not member:
-        await event.respond('请先发送 /start 注册')
-        return
+    # ================= 核心修复开始 =================
+    original_id = event.sender_id
+    original_username = getattr(event.sender, 'username', None)
     
+    # 1. 强制获取主账号ID
+    target_id = get_main_account_id(original_id, original_username)
+    
+    # 2. 只有当确实发生了切换时，才打印日志
+    if str(target_id) != str(original_id):
+        print(f"🔄 [个人中心] 身份切换: {original_id} -> {target_id}")
+    # ================= 核心修复结束 =================
+
+    # 3. 使用主账号ID查询数据库
+    member = DB.get_member(target_id)
+
+    if not member:
+        await event.respond('❌ 未找到账号信息，请先发送 /start')
+        return
+
     buttons = [
         [Button.inline('🔗 设置群链接', b'set_group'), Button.inline('✏️ 设置备用号', b'set_backup')],
         [Button.inline('💳 提现', b'withdraw'), Button.inline('💰 充值', b'do_recharge'), Button.inline('💎 开通VIP', b'open_vip')],
         [Button.inline('📊 收益记录', b'earnings_history')],
     ]
-    
+
     await event.respond(
-        f'👤 个人中心\n\n'
-        f'🆔 ID: {member["telegram_id"]}\n'
-        f'👤 用户名: @{member["username"]}\n'
+        f'👤 个人中心 (已同步主账号)\n\n'
+        f'🆔 主账号ID: `{member["telegram_id"]}`\n'
+        f'👤 主账号名: @{member["username"]}\n'
         f'💎 VIP状态: {"✅ 已开通" if member["is_vip"] else "❌ 未开通"}\n'
         f'💰 余额: {member["balance"]} U\n'
         f'📉 错过余额: {member["missed_balance"]} U\n'
         f'🔗 群链接: {member["group_link"] or "未设置"}\n'
-        f'📱 备用号: {member["backup_account"] or "未设置"}\n'
+        f'📱 绑定备用号: {member["backup_account"] or "未设置"}\n'
         f'📅 注册时间: {member["register_time"][:10] if member["register_time"] else "未知"}',
         buttons=buttons
     )
