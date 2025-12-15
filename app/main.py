@@ -632,106 +632,115 @@ async def verify_group_link(link):
 
 def get_main_account_id(telegram_id, username=None):
     """
-    获取账号对应的主账号ID（增强版：修复 @@ 符号问题）
+    核心功能：获取账号对应的主账号ID
+    如果当前登录的是备用号，则返回它绑定的主账号ID，从而实现数据同步。
     """
     try:
+        # 1. 预处理数据
         tid_str = str(telegram_id)
-        # 彻底去除所有的 @ 符号，只保留纯用户名
-        clean_username = (username or '').lstrip('@')
+        # 去掉@符号，转为纯用户名
+        uname = (username or '').lstrip('@').strip()
         
         conn = DB.get_conn()
         c = conn.cursor()
         
-        # 方式1: 从fallback_accounts表查找
-        c.execute(
-            'SELECT main_account_id FROM fallback_accounts '
-            'WHERE telegram_id = ? AND main_account_id IS NOT NULL LIMIT 1',
-            (telegram_id,)
-        )
+        # 2. 从 members 表查找主账号
+        # 逻辑：查找是否有哪个会员(telegram_id) 的 backup_account 字段等于当前用户的 ID 或 用户名
+        # 注意：这里我们查询的是 telegram_id (主键)，条件是 backup_account (备用号字段)
+        
+        sql = "SELECT telegram_id FROM members WHERE backup_account = ?"
+        params = [tid_str]
+        
+        # 如果当前用户有用户名，也尝试匹配用户名格式
+        if uname:
+            sql += " OR backup_account = ? OR backup_account = ?"
+            params.append(uname)
+            params.append(f'@{uname}')
+            
+        sql += " LIMIT 1"
+        
+        c.execute(sql, params)
         result = c.fetchone()
-        if result and result[0]:
-            conn.close()
-            return result[0]
         
-        # 方式2: 从members表查找 (增加了 @@ 的匹配情况)
-        # 构建 5 种可能的匹配情况：
-        # 1. 存的是 ID
-        # 2. 存的是 纯用户名 (Thy1cc)
-        # 3. 存的是 标准格式 (@Thy1cc)
-        # 4. 存的是 错误格式 (@@Thy1cc)
-        # 5. 存的是 原始传入值
-        query = '''
-            SELECT telegram_id FROM members 
-            WHERE backup_account = ? 
-               OR backup_account = ? 
-               OR backup_account = ? 
-               OR backup_account = ?
-               OR backup_account = ?
-            LIMIT 1
-        '''
-        
-        params = [
-            tid_str,                # 1. ID
-            clean_username,         # 2. Thy1cc
-            f"@{clean_username}",   # 3. @Thy1cc
-            f"@@{clean_username}",  # 4. @@Thy1cc
-            username                # 5. 原始值
-        ]
-        
-        c.execute(query, params)
-        result = c.fetchone()
+        # 3. 捡漏账号逻辑 (保留原有逻辑)
+        if not result:
+            c.execute(
+                'SELECT main_account_id FROM fallback_accounts '
+                'WHERE telegram_id = ? AND main_account_id IS NOT NULL LIMIT 1',
+                (telegram_id,)
+            )
+            fallback_result = c.fetchone()
+            if fallback_result and fallback_result[0]:
+                conn.close()
+                return fallback_result[0]
+
         conn.close()
         
+        # 4. 返回结果
         if result:
-            print(f"[账号关联] 成功将 {username} 映射为主号 {result[0]}")
+            # 找到了主账号，返回主账号ID
+            print(f"[账号映射] 备用号 {telegram_id} ({username}) -> 主账号 {result[0]}")
             return result[0]
-            
-        return telegram_id
         
+        # 没找到关联，返回自己的ID
+        return telegram_id
+
     except Exception as e:
         print(f"[账号关联] 错误: {e}")
         return telegram_id
 
+
 def link_account(main_id, backup_id, backup_username):
-    """关联备用号（强制格式化修复）"""
-    # 强制去除所有的 @，然后再加一个 @，确保格式统一
-    normalized_username = (backup_username or '').lstrip('@')
-    
-    # 优先存 @用户名，没有用户名才存 ID
-    value_to_store = f'@{normalized_username}' if normalized_username else str(backup_id)
-    
-    # 禁止套娃
-    if str(main_id) == str(backup_id) or value_to_store == str(main_id):
+    """
+    关联备用号到主账号
+    策略：优先存储纯数字ID，如果获取不到ID则存储用户名
+    """
+    # 1. 防止自己绑定自己
+    if str(main_id) == str(backup_id):
         return False, "❌ 不能将自己设置为备用号"
-    
+
+    # 2. 准备存储的值
+    # 优先存 ID (backup_id)，因为 ID 永远不会变。
+    # 如果 backup_id 为空或者为 0 (极端情况)，才存用户名
+    if backup_id:
+        value_to_store = str(backup_id)
+    elif backup_username:
+        value_to_store = f"@{backup_username.lstrip('@')}"
+    else:
+        return False, "❌ 无效的备用账号信息"
+
     max_retries = 3
     for retry in range(max_retries):
         conn = DB.get_conn()
         c = conn.cursor()
         try:
-            # 先检查这个备用号是否已经被别人绑定了
+            # 3. 检查该备用号是否已经被其他人绑定了
+            # 一个备用号只能属于一个主账号，避免数据冲突
             c.execute(
-                "SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?", 
-                (value_to_store, normalized_username)
+                'SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?',
+                (str(backup_id), f"@{backup_username}")
             )
             existing = c.fetchone()
-            if existing and existing[0] != main_id:
-                 return False, f"❌ 该账号已被绑定给 ID: {existing[0]}"
+            if existing and str(existing[0]) != str(main_id):
+                conn.close()
+                return False, "❌ 该账号已经是其他人的备用号了"
 
+            # 4. 执行绑定更新
             c.execute('UPDATE members SET backup_account = ? WHERE telegram_id = ?', (value_to_store, main_id))
             conn.commit()
-            return True, f"✅ 备用账号关联成功：{value_to_store}"
+            conn.close()
+            return True, f"✅ 备用账号关联成功！\n绑定值: {value_to_store}\n\n现在使用该备用号登录，将直接进入本账号。"
+            
         except Exception as e:
-            conn.rollback()
             if 'locked' in str(e).lower() and retry < max_retries - 1:
+                import time
                 time.sleep(0.3)
                 continue
-            return False, f"关联失败: {str(e)}"
-        finally:
             try:
                 conn.close()
             except:
                 pass
+            return False, f"关联失败: {str(e)}"
 
 def check_usdt_transaction(usdt_address):
     """查询USDT TRC20地址的交易记录"""
@@ -1322,6 +1331,12 @@ async def view_fission_handler(event):
 # 查看某层成员列表
 @bot.on(events.CallbackQuery(pattern=b'flv_(\\d+)_(\\d+)'))
 async def view_level_members(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     import re
     match = re.match(b'flv_(\\d+)_(\\d+)', event.data)
     if not match:
@@ -1404,12 +1419,24 @@ async def view_level_members(event):
 # 返回裂变主菜单
 @bot.on(events.CallbackQuery(pattern=b'fission_main_menu'))
 async def fission_main_menu(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     await event.delete()
     await event.answer()
 
 # 查看层级详情回调
 @bot.on(events.CallbackQuery(pattern=b'view_level_(\d+)'))
 async def view_level_detail_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     level = int(event.data.decode().split('_')[-1])
     config = get_system_config()
     member = DB.get_member(event.sender_id)
@@ -2022,6 +2049,12 @@ async def admin_handler(event):
 # 设置层数
 @bot.on(events.CallbackQuery(pattern=b'admin_set_level'))
 async def admin_set_level_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     if event.sender_id not in ADMIN_IDS:
         await event.answer('无权限')
         return
@@ -2039,6 +2072,12 @@ async def admin_set_level_callback(event):
 # 设置返利
 @bot.on(events.CallbackQuery(pattern=b'admin_set_reward'))
 async def admin_set_reward_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     if event.sender_id not in ADMIN_IDS:
         await event.answer('无权限')
         return
@@ -2056,6 +2095,12 @@ async def admin_set_reward_callback(event):
 # 设置VIP价格
 @bot.on(events.CallbackQuery(pattern=b'admin_set_vip_price'))
 async def admin_set_vip_price_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     if event.sender_id not in ADMIN_IDS:
         await event.answer('无权限')
         return
@@ -2073,6 +2118,12 @@ async def admin_set_vip_price_callback(event):
 # 设置提现门槛
 @bot.on(events.CallbackQuery(pattern=b'admin_set_withdraw'))
 async def admin_set_withdraw_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     if event.sender_id not in ADMIN_IDS:
         await event.answer('无权限')
         return
@@ -2090,6 +2141,12 @@ async def admin_set_withdraw_callback(event):
 # 设置USDT地址
 @bot.on(events.CallbackQuery(pattern=b'admin_set_usdt'))
 async def admin_set_usdt_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     if event.sender_id not in ADMIN_IDS:
         await event.answer('无权限')
         return
@@ -2108,6 +2165,12 @@ async def admin_set_usdt_callback(event):
 # 设置客服文本
 @bot.on(events.CallbackQuery(pattern=b'admin_set_support'))
 async def admin_set_support_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     if event.sender_id not in ADMIN_IDS:
         await event.answer('无权限')
         return
@@ -2125,6 +2188,12 @@ async def admin_set_support_callback(event):
 # 查看会员统计
 @bot.on(events.CallbackQuery(pattern=b'admin_stats'))
 async def admin_stats_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     if event.sender_id not in ADMIN_IDS:
         await event.answer('无权限')
         return
@@ -2154,6 +2223,12 @@ async def admin_stats_callback(event):
 # 手动充值VIP
 @bot.on(events.CallbackQuery(pattern=b'admin_manual_vip'))
 async def admin_manual_vip_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     if event.sender_id not in ADMIN_IDS:
         await event.answer('无权限')
         return
@@ -2173,6 +2248,12 @@ async def admin_manual_vip_callback(event):
 # 用户广播
 @bot.on(events.CallbackQuery(pattern=b'admin_broadcast'))
 async def admin_broadcast_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     if event.sender_id not in ADMIN_IDS:
         await event.answer('无权限')
         return
@@ -2203,6 +2284,12 @@ async def admin_broadcast_callback(event):
 # 设置群链接
 @bot.on(events.CallbackQuery(pattern=b'set_group'))
 async def set_group_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     member = DB.get_member(event.sender_id)
     if not member:
         await event.answer('请先发送 /start 注册')
@@ -2221,6 +2308,12 @@ async def set_group_callback(event):
 # 设置备用号
 @bot.on(events.CallbackQuery(pattern=b'set_backup'))
 async def set_backup_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     member = DB.get_member(event.sender_id)
     if not member:
         await event.answer('请先发送 /start 注册')
@@ -2240,7 +2333,13 @@ async def set_backup_callback(event):
 @bot.on(events.CallbackQuery(pattern=b'open_vip'))
 async def open_vip_callback(event):
     """开通VIP"""
-    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    telegram_id = event.sender_id
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -2286,7 +2385,13 @@ VIP价格: {vip_price} U
 @bot.on(events.CallbackQuery(data=b'open_vip_balance'))
 async def open_vip_balance_callback(event):
     """使用余额开通VIP"""
-    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    telegram_id = event.sender_id
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -2367,7 +2472,13 @@ async def open_vip_balance_callback(event):
 @bot.on(events.CallbackQuery(data=b'recharge_balance'))
 async def recharge_balance_callback(event):
     """充值余额"""
-    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    telegram_id = event.sender_id
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -2405,7 +2516,13 @@ async def recharge_balance_callback(event):
 @bot.on(events.CallbackQuery(data=b'recharge_for_vip'))
 async def recharge_for_vip_callback(event):
     """充值开通VIP - 调用充值输入金额功能"""
-    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    telegram_id = event.sender_id
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -2435,7 +2552,13 @@ async def recharge_for_vip_callback(event):
 @bot.on(events.CallbackQuery(pattern=rb'verify_groups_.*'))
 async def verify_groups_callback(event):
     """验证用户是否加入所有上级群（最多10个）"""
-    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    telegram_id = event.sender_id
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -2566,6 +2689,12 @@ async def verify_groups_callback(event):
 
 @bot.on(events.CallbackQuery(pattern=b'recharge_vip'))
 async def recharge_vip_callback(event):
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     member = DB.get_member(event.sender_id)
     if not member:
         await event.answer('请先发送 /start 注册')
@@ -2585,6 +2714,12 @@ async def recharge_vip_callback(event):
 @bot.on(events.CallbackQuery(pattern=b'confirm_vip'))
 async def confirm_vip_callback(event):
     config = get_system_config()
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
     member = DB.get_member(event.sender_id)
     if not member:
         await event.answer('请先发送 /start 注册')
@@ -2700,8 +2835,13 @@ async def confirm_vip_callback(event):
 @bot.on(events.CallbackQuery(pattern=b'earnings_history'))
 async def earnings_history_callback(event):
     """查看个人收益记录"""
-    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
-    member = DB.get_member(telegram_id)
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    member = DB.get_member(event.sender_id)
     
     if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
@@ -2715,7 +2855,7 @@ async def earnings_history_callback(event):
         WHERE member_id = ?
         ORDER BY create_time DESC
         LIMIT 50
-    ''', (telegram_id,))
+    ''', (member["telegram_id"],))
     records = c.fetchall()
     conn.close()
     
@@ -2751,8 +2891,13 @@ async def earnings_history_callback(event):
 @bot.on(events.CallbackQuery(pattern=b'back_to_profile'))
 async def back_to_profile_callback(event):
     """返回个人中心"""
-    telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
-    member = DB.get_member(telegram_id)
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    member = DB.get_member(event.sender_id)
     if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
         return
@@ -5472,27 +5617,6 @@ def start_web_server():
     """在后台线程启动Web服务器"""
     app.run(debug=False, host='0.0.0.0', port=5051, use_reloader=False)
 
-def fix_double_at_symbol():
-    """修复数据库中 backup_account 存在的双 @@ 符号"""
-    try:
-        conn = get_db_conn()
-        c = conn.cursor()
-        # 查找所有以 @@ 开头的备用号
-        c.execute("SELECT telegram_id, backup_account FROM members WHERE backup_account LIKE '@@%'")
-        rows = c.fetchall()
-        for tg_id, bad_account in rows:
-            # 修正为单 @
-            fixed_account = '@' + str(bad_account).lstrip('@')
-            c.execute(
-                "UPDATE members SET backup_account = ? WHERE telegram_id = ?",
-                (fixed_account, tg_id)
-            )
-            print(f"🔧 自动修复脏数据: 用户 {tg_id} 的备用号 {bad_account} -> {fixed_account}")
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"修复数据失败: {e}")
-
 # 主函数
 def main():
     print('=' * 60)
@@ -5501,8 +5625,6 @@ def main():
     print()
     print('📊 初始化数据库...')
     init_db()
-    # 修复历史数据中可能存在的 @@ 备用号
-    fix_double_at_symbol()
     print('✅ 数据库初始化完成')
     print()
     
