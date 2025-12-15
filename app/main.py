@@ -633,6 +633,7 @@ async def verify_group_link(link):
 def get_main_account_id(telegram_id):
     """获取账号对应的主账号ID（支持备用号登录）"""
     try:
+        tid_str = str(telegram_id)
         conn = DB.get_conn()
         c = conn.cursor()
         
@@ -645,7 +646,7 @@ def get_main_account_id(telegram_id):
         
         # 方式2: 从members表的backup_account字段查找（主账号的备用号）
         c.execute('SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account LIKE ? LIMIT 1', 
-                 (str(telegram_id), f'%{telegram_id}%'))
+                 (tid_str, f'%{tid_str}%'))
         result = c.fetchone()
         if result:
             conn.close()
