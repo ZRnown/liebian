@@ -77,6 +77,7 @@ BTN_BACK = '🔙 返回主菜单'
 BTN_ADMIN = '⚙️ 管理后台'
 BTN_VIP = '💎 开通会员'
 BTN_MY_PROMOTE = '💫 我的推广'
+BTN_EARNINGS = '📊 收益记录'
 
 # 主菜单键盘
 def get_fallback_resource(resource_type='group'):
@@ -107,7 +108,7 @@ def get_main_keyboard(user_id=None):
     keyboard = [
         [Button.text(BTN_VIP, resize=True), Button.text(BTN_VIEW_FISSION, resize=True), Button.text(BTN_MY_PROMOTE, resize=True)],
         [Button.text(BTN_RESOURCES, resize=True), Button.text(BTN_FISSION, resize=True), Button.text(BTN_PROFILE, resize=True)],
-        [Button.text(BTN_SUPPORT, resize=True)]
+        [Button.text(BTN_EARNINGS, resize=True), Button.text(BTN_SUPPORT, resize=True)]
     ]
     # 管理员显示管理后台按钮
     if user_id and user_id in ADMIN_IDS:
