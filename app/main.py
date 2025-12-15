@@ -631,48 +631,58 @@ async def verify_group_link(link):
 # 查询USDT TRC20交易
 
 def get_main_account_id(telegram_id, username=None):
-    """获取账号对应的主账号ID（支持备用号登录，兼容未注册但有用户名的备用号）"""
+    """
+    核心逻辑：
+    检查当前用户(telegram_id 或 username)是否被设置为其他人的备用号(backup_account)。
+    如果是，返回主号的ID；如果不是，返回自己的ID。
+    """
     try:
-        tid_str = str(telegram_id)
-        uname = (username or '').lstrip('@')
         conn = DB.get_conn()
         c = conn.cursor()
         
-        # 方式1: 从fallback_accounts表查找（备用号关联主账号）
-        c.execute('SELECT main_account_id FROM fallback_accounts WHERE telegram_id = ? AND main_account_id IS NOT NULL LIMIT 1', (telegram_id,))
-        result = c.fetchone()
-        if result and result[0]:
-            conn.close()
-            return result[0]
+        # 准备查询参数
+        tid_str = str(telegram_id)
+        # 去掉 @ 符号的用户名
+        clean_username = username.lstrip('@') if username else ""
         
-        # 方式2: 从members表的backup_account字段查找（主账号的备用号）
-        params = [tid_str, f'%{tid_str}%']
-        query = 'SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account LIKE ?'
-        # 兼容用用户名存储的备用号
-        if uname:
-            query += ' OR backup_account = ? OR backup_account = ?'
-            params.extend([uname, f'@{uname}'])
-        query += ' LIMIT 1'
-        c.execute(query, params)
-        result = c.fetchone()
-        if result:
-            conn.close()
-            return result[0]
+        # 构建查询条件：
+        # 1. 备用号填的是 ID
+        # 2. 备用号填的是 用户名 (不带@)
+        # 3. 备用号填的是 @用户名
+        sql = '''
+            SELECT telegram_id 
+            FROM members 
+            WHERE 
+                backup_account = ? 
+                OR backup_account = ? 
+                OR backup_account = ?
+                OR backup_account = ?
+            LIMIT 1
+        '''
         
-        # 方式3: 使用备用号用户名匹配（备用号尚未注册时）
-        if username:
-            uname = username.lstrip('@')
-            c.execute('SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ? LIMIT 1',
-                      (uname, f'@{uname}'))
-            result = c.fetchone()
-            if result:
-                conn.close()
-                return result[0]
+        params = [
+            tid_str,                # 匹配 ID
+            clean_username,         # 匹配 Thy1cc
+            f"@{clean_username}",   # 匹配 @Thy1cc
+            username                # 匹配 原始username
+        ]
+        
+        c.execute(sql, params)
+        result = c.fetchone()
         
         conn.close()
+        
+        if result:
+            # 找到了！当前用户是 result[0] 的备用号
+            main_id = result[0]
+            print(f"[账号映射] 检测到备用号登录: {username}({telegram_id}) -> 映射为主号: {main_id}")
+            return main_id
+            
+        # 没找到，说明不是备用号，或者是主号自己
         return telegram_id
+        
     except Exception as e:
-        print(f"[账号关联] 错误: {e}")
+        print(f"[账号映射] 错误: {e}")
         return telegram_id
 
 def link_account(main_id, backup_id, backup_username):
