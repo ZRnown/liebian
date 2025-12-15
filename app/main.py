@@ -676,20 +676,36 @@ def get_main_account_id(telegram_id, username=None):
         return telegram_id
 
 def link_account(main_id, backup_id, backup_username):
-    """关联备用号到主账号"""
-    conn = DB.get_conn()
-    c = conn.cursor()
-    try:
-        # 更新members表的backup_account字段
-        c.execute('UPDATE members SET backup_account = ? WHERE telegram_id = ?', (str(backup_id), main_id))
-        
-        conn.commit()
-        return True, "备用账号关联成功"
-    except Exception as e:
-        conn.rollback()
-        return False, f"关联失败: {str(e)}"
-    finally:
-        conn.close()
+    """关联备用号到主账号（支持用户名存储，避免自绑，并增加锁重试）"""
+    normalized_username = (backup_username or '').lstrip('@')
+    # 优先存用户名，便于后台展示；没有用户名则存ID
+    value_to_store = f'@{normalized_username}' if normalized_username else str(backup_id)
+    
+    # 禁止将自己设置为备用号
+    if str(main_id) == str(backup_id) or value_to_store == str(main_id):
+        return False, "❌ 不能将自己设置为备用号，请换一个账号"
+    
+    max_retries = 3
+    for retry in range(max_retries):
+        conn = DB.get_conn()
+        c = conn.cursor()
+        try:
+            # 更新members表的backup_account字段
+            c.execute('UPDATE members SET backup_account = ? WHERE telegram_id = ?', (value_to_store, main_id))
+            conn.commit()
+            return True, f"✅ 备用账号关联成功：{value_to_store}"
+        except Exception as e:
+            conn.rollback()
+            # 针对数据库锁重试
+            if 'locked' in str(e).lower() and retry < max_retries - 1:
+                time.sleep(0.3)
+                continue
+            return False, f"关联失败: {str(e)}"
+        finally:
+            try:
+                conn.close()
+            except:
+                pass
 
 def check_usdt_transaction(usdt_address):
     """查询USDT TRC20地址的交易记录"""

@@ -47,32 +47,36 @@ async def handle_group_link_message(event, bot, DB):
     if not member or not member['is_vip']:
         return
     
-    # 检测机器人是否在群内且为管理员
+    # 检测机器人是否在群内且为管理员（结果仅作提示，不阻断操作）
     bot_id = (await bot.get_me()).id
     is_admin = await check_bot_is_admin(bot, bot_id, group_link)
-    
-    if not is_admin:
-        await event.respond('❌ 检测失败，请确认机器人在群且为管理员后再发送链接')
-        return
     
     # 更新数据库
     conn = DB.get_conn()
     c = conn.cursor()
     c.execute('''
         UPDATE members 
-        SET group_link = ?, is_group_bound = 1, is_bot_admin = 1
+        SET group_link = ?, is_group_bound = 1, is_bot_admin = ?
         WHERE telegram_id = ?
-    ''', (group_link, telegram_id))
+    ''', (group_link, 1 if is_admin else 0, telegram_id))
     conn.commit()
     conn.close()
     
-    await event.respond(
-        '✅ 群组绑定成功！\n\n'
-        f'您的群链接：{group_link}\n\n'
-        '🎉 恭喜！您已完成群组绑定和管理员设置\n\n'
-        '下一步：加入上层群组\n'
-        '发送 /join_upline 查看需要加入的群'
-    )
+    if is_admin:
+        await event.respond(
+            '✅ 群组绑定成功！\n\n'
+            f'您的群链接：{group_link}\n\n'
+            '🎉 恭喜！您已完成群组绑定和管理员设置\n\n'
+            '下一步：加入上层群组\n'
+            '发送 /join_upline 查看需要加入的群'
+        )
+    else:
+        await event.respond(
+            '✅ 群组链接已记录\n\n'
+            f'链接: {group_link}\n\n'
+            'ℹ️ 未能自动检测管理员权限，请确保机器人已在群且为管理员，'
+            '否则某些验证功能可能不可用。'
+        )
 
 
 async def handle_join_upline(event, bot, DB, get_system_config):
