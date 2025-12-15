@@ -2342,7 +2342,7 @@ async def set_backup_callback(event):
     waiting_for_backup[event.sender_id] = True
     await event.respond(
         '✏️ 设置备用号\n\n'
-        '请发送您的备用飞机号 (用户名或ID)\n\n'
+        '请发送您的备用飞机号 (不带@的用户名或ID)\n\n'
         '发送 /cancel 取消操作'
     )
     await event.answer()
