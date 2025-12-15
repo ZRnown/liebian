@@ -321,7 +321,7 @@ function displayMembers(members) {
         <td class="py-1 font-mono text-slate-700" style="padding-left:4px;padding-right:4px;">${m.telegram_id}</td>
         <td class="py-1" style="padding-left:4px;padding-right:0px;">
             <span class="${m.is_fallback ? 'text-orange-600 font-bold' : 'text-indigo-600 font-medium'}">@${m.username || 'N/A'}</span>
-            ${m.backup_account ? '<br><span class="text-slate-400">备:@' + m.backup_account + '</span>' : ''}
+            ${m.backup_username ? '<br><span class="text-slate-400">备:@' + m.backup_username + '</span>' : ''}
         </td>
         <td class="py-1 text-slate-500" style="padding-left:2px;padding-right:4px;">${m.referrer_name ? '@' + m.referrer_name : '-'}</td>
         <td class="py-1 text-right font-semibold text-emerald-600" style="padding-left:4px;padding-right:4px;">${m.balance}U</td>
