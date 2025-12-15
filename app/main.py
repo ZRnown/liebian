@@ -632,55 +632,64 @@ async def verify_group_link(link):
 
 def get_main_account_id(telegram_id, username=None):
     """
-    获取主账号ID (增强版 - 修复 @@ 符号问题)
+    获取账号对应的主账号ID（增强版：修复 @@ 符号问题）
     """
     try:
+        tid_str = str(telegram_id)
+        # 彻底去除所有的 @ 符号，只保留纯用户名
+        clean_username = (username or '').lstrip('@')
+        
         conn = DB.get_conn()
         c = conn.cursor()
         
-        tid_str = str(telegram_id)
-        # 彻底去除 @ 符号，只保留纯用户名
-        clean_username = (username or '').lstrip('@')
+        # 方式1: 从fallback_accounts表查找
+        c.execute(
+            'SELECT main_account_id FROM fallback_accounts '
+            'WHERE telegram_id = ? AND main_account_id IS NOT NULL LIMIT 1',
+            (telegram_id,)
+        )
+        result = c.fetchone()
+        if result and result[0]:
+            conn.close()
+            return result[0]
         
-        if not clean_username:
-            # 如果没有用户名，只通过ID查
-            sql = 'SELECT telegram_id FROM members WHERE backup_account = ? LIMIT 1'
-            c.execute(sql, (tid_str,))
-        else:
-            # 暴力匹配所有可能的情况：
-            # 1. 存的是ID
-            # 2. 存的是纯用户名 (Thy1cc)
-            # 3. 存的是标准格式 (@Thy1cc)
-            # 4. 存的是错误格式 (@@Thy1cc) - 专门修复你的问题
-            sql = '''
-                SELECT telegram_id 
-                FROM members 
-                WHERE 
-                    backup_account = ? 
-                    OR backup_account = ? 
-                    OR backup_account = ?
-                    OR backup_account = ?
-                LIMIT 1
-            '''
-            params = [
-                tid_str,                # ID
-                clean_username,         # Thy1cc
-                f"@{clean_username}",   # @Thy1cc
-                f"@@{clean_username}"   # @@Thy1cc (错误数据兼容)
-            ]
-            c.execute(sql, params)
-
+        # 方式2: 从members表查找 (增加了 @@ 的匹配情况)
+        # 构建 5 种可能的匹配情况：
+        # 1. 存的是 ID
+        # 2. 存的是 纯用户名 (Thy1cc)
+        # 3. 存的是 标准格式 (@Thy1cc)
+        # 4. 存的是 错误格式 (@@Thy1cc)
+        # 5. 存的是 原始传入值
+        query = '''
+            SELECT telegram_id FROM members 
+            WHERE backup_account = ? 
+               OR backup_account = ? 
+               OR backup_account = ? 
+               OR backup_account = ?
+               OR backup_account = ?
+            LIMIT 1
+        '''
+        
+        params = [
+            tid_str,                # 1. ID
+            clean_username,         # 2. Thy1cc
+            f"@{clean_username}",   # 3. @Thy1cc
+            f"@@{clean_username}",  # 4. @@Thy1cc
+            username                # 5. 原始值
+        ]
+        
+        c.execute(query, params)
         result = c.fetchone()
         conn.close()
         
         if result:
-            # 找到了主账号
+            print(f"[账号关联] 成功将 {username} 映射为主号 {result[0]}")
             return result[0]
             
         return telegram_id
         
     except Exception as e:
-        print(f"[账号关联错误] {e}")
+        print(f"[账号关联] 错误: {e}")
         return telegram_id
 
 def link_account(main_id, backup_id, backup_username):
@@ -5463,6 +5472,27 @@ def start_web_server():
     """在后台线程启动Web服务器"""
     app.run(debug=False, host='0.0.0.0', port=5051, use_reloader=False)
 
+def fix_double_at_symbol():
+    """修复数据库中 backup_account 存在的双 @@ 符号"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        # 查找所有以 @@ 开头的备用号
+        c.execute("SELECT telegram_id, backup_account FROM members WHERE backup_account LIKE '@@%'")
+        rows = c.fetchall()
+        for tg_id, bad_account in rows:
+            # 修正为单 @
+            fixed_account = '@' + str(bad_account).lstrip('@')
+            c.execute(
+                "UPDATE members SET backup_account = ? WHERE telegram_id = ?",
+                (fixed_account, tg_id)
+            )
+            print(f"🔧 自动修复脏数据: 用户 {tg_id} 的备用号 {bad_account} -> {fixed_account}")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"修复数据失败: {e}")
+
 # 主函数
 def main():
     print('=' * 60)
@@ -5471,6 +5501,8 @@ def main():
     print()
     print('📊 初始化数据库...')
     init_db()
+    # 修复历史数据中可能存在的 @@ 备用号
+    fix_double_at_symbol()
     print('✅ 数据库初始化完成')
     print()
     
