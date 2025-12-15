@@ -632,81 +632,88 @@ async def verify_group_link(link):
 
 def get_main_account_id(telegram_id, username=None):
     """
-    核心逻辑：
-    检查当前用户(telegram_id 或 username)是否被设置为其他人的备用号(backup_account)。
-    如果是，返回主号的ID；如果不是，返回自己的ID。
+    获取主账号ID (增强版 - 修复 @@ 符号问题)
     """
     try:
         conn = DB.get_conn()
         c = conn.cursor()
         
-        # 准备查询参数
         tid_str = str(telegram_id)
-        # 去掉 @ 符号的用户名
-        clean_username = username.lstrip('@') if username else ""
+        # 彻底去除 @ 符号，只保留纯用户名
+        clean_username = (username or '').lstrip('@')
         
-        # 构建查询条件：
-        # 1. 备用号填的是 ID
-        # 2. 备用号填的是 用户名 (不带@)
-        # 3. 备用号填的是 @用户名
-        sql = '''
-            SELECT telegram_id 
-            FROM members 
-            WHERE 
-                backup_account = ? 
-                OR backup_account = ? 
-                OR backup_account = ?
-                OR backup_account = ?
-            LIMIT 1
-        '''
-        
-        params = [
-            tid_str,                # 匹配 ID
-            clean_username,         # 匹配 Thy1cc
-            f"@{clean_username}",   # 匹配 @Thy1cc
-            username                # 匹配 原始username
-        ]
-        
-        c.execute(sql, params)
+        if not clean_username:
+            # 如果没有用户名，只通过ID查
+            sql = 'SELECT telegram_id FROM members WHERE backup_account = ? LIMIT 1'
+            c.execute(sql, (tid_str,))
+        else:
+            # 暴力匹配所有可能的情况：
+            # 1. 存的是ID
+            # 2. 存的是纯用户名 (Thy1cc)
+            # 3. 存的是标准格式 (@Thy1cc)
+            # 4. 存的是错误格式 (@@Thy1cc) - 专门修复你的问题
+            sql = '''
+                SELECT telegram_id 
+                FROM members 
+                WHERE 
+                    backup_account = ? 
+                    OR backup_account = ? 
+                    OR backup_account = ?
+                    OR backup_account = ?
+                LIMIT 1
+            '''
+            params = [
+                tid_str,                # ID
+                clean_username,         # Thy1cc
+                f"@{clean_username}",   # @Thy1cc
+                f"@@{clean_username}"   # @@Thy1cc (错误数据兼容)
+            ]
+            c.execute(sql, params)
+
         result = c.fetchone()
-        
         conn.close()
         
         if result:
-            # 找到了！当前用户是 result[0] 的备用号
-            main_id = result[0]
-            print(f"[账号映射] 检测到备用号登录: {username}({telegram_id}) -> 映射为主号: {main_id}")
-            return main_id
+            # 找到了主账号
+            return result[0]
             
-        # 没找到，说明不是备用号，或者是主号自己
         return telegram_id
         
     except Exception as e:
-        print(f"[账号映射] 错误: {e}")
+        print(f"[账号关联错误] {e}")
         return telegram_id
 
 def link_account(main_id, backup_id, backup_username):
-    """关联备用号到主账号（支持用户名存储，避免自绑，并增加锁重试）"""
+    """关联备用号（强制格式化修复）"""
+    # 强制去除所有的 @，然后再加一个 @，确保格式统一
     normalized_username = (backup_username or '').lstrip('@')
-    # 优先存用户名，便于后台展示；没有用户名则存ID
+    
+    # 优先存 @用户名，没有用户名才存 ID
     value_to_store = f'@{normalized_username}' if normalized_username else str(backup_id)
     
-    # 禁止将自己设置为备用号
+    # 禁止套娃
     if str(main_id) == str(backup_id) or value_to_store == str(main_id):
-        return False, "❌ 不能将自己设置为备用号，请换一个账号"
+        return False, "❌ 不能将自己设置为备用号"
     
     max_retries = 3
     for retry in range(max_retries):
         conn = DB.get_conn()
         c = conn.cursor()
         try:
-            # 更新members表的backup_account字段
+            # 先检查这个备用号是否已经被别人绑定了
+            c.execute(
+                "SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?", 
+                (value_to_store, normalized_username)
+            )
+            existing = c.fetchone()
+            if existing and existing[0] != main_id:
+                 return False, f"❌ 该账号已被绑定给 ID: {existing[0]}"
+
             c.execute('UPDATE members SET backup_account = ? WHERE telegram_id = ?', (value_to_store, main_id))
             conn.commit()
             return True, f"✅ 备用账号关联成功：{value_to_store}"
         except Exception as e:
             conn.rollback()
-            # 针对数据库锁重试
             if 'locked' in str(e).lower() and retry < max_retries - 1:
                 time.sleep(0.3)
                 continue
