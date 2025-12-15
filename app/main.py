@@ -662,6 +662,11 @@ def link_account(main_id, backup_id, backup_username):
     conn = DB.get_conn()
     c = conn.cursor()
     try:
+        # 如果目标备用号已经注册为主账号的成员，则拒绝绑定（避免绑定已作为主号使用的账号）
+        c.execute('SELECT telegram_id FROM members WHERE telegram_id = ?', (backup_id,))
+        if c.fetchone():
+            return False, "❌ 该账号已注册为主账号，不能设为备用号，请换一个账号"
+
         # 更新members表的backup_account字段
         c.execute('UPDATE members SET backup_account = ? WHERE telegram_id = ?', (str(backup_id), main_id))
         
