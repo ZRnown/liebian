@@ -220,15 +220,6 @@ def init_db():
         main_account_id INTEGER
     )''')
 
-    # 机器人配置表（用于在后台管理多个机器人Token）
-    c.execute('''CREATE TABLE IF NOT EXISTS bot_configs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        bot_token TEXT NOT NULL,
-        bot_username TEXT,
-        is_active INTEGER DEFAULT 1,
-        create_time TEXT
-    )''')
-
     # 群发队列表
     c.execute('''CREATE TABLE IF NOT EXISTS broadcast_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -541,26 +532,7 @@ class DB:
         }
 
 
-def get_active_bot_token():
-    """从数据库获取当前启用的机器人Token，没有则回退到配置中的BOT_TOKEN"""
-    token = BOT_TOKEN
-    try:
-        conn = get_db_conn()
-        c = conn.cursor()
-        c.execute('SELECT bot_token FROM bot_configs WHERE is_active = 1 ORDER BY id ASC LIMIT 1')
-        row = c.fetchone()
-        conn.close()
-        if row and row[0]:
-            token = row[0]
-    except Exception as e:
-        print(f"[BotConfig] 读取机器人Token失败，使用配置文件中的BOT_TOKEN: {e}")
-    return token
-
-
-# Telegram客户端初始化 - 优先使用后台配置的Token
-ACTIVE_BOT_TOKEN = get_active_bot_token()
-
-# 代理配置 - 从配置文件或环境变量读取
+# 代理配置 - 从配置文件读取
 if USE_PROXY:
     if PROXY_TYPE.lower() == 'socks5':
         proxy = (socks.SOCKS5, PROXY_HOST, PROXY_PORT)
@@ -570,9 +542,9 @@ if USE_PROXY:
         proxy = (socks.HTTP, PROXY_HOST, PROXY_PORT)
     else:
         proxy = (socks.SOCKS5, PROXY_HOST, PROXY_PORT)
-    bot = TelegramClient('bot', API_ID, API_HASH, proxy=proxy).start(bot_token=ACTIVE_BOT_TOKEN)
+    bot = TelegramClient('bot', API_ID, API_HASH, proxy=proxy).start(bot_token=BOT_TOKEN)
 else:
-    bot = TelegramClient(MemorySession(), API_ID, API_HASH).start(bot_token=ACTIVE_BOT_TOKEN)
+    bot = TelegramClient(MemorySession(), API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 # 全局变量
 pending_broadcasts = []  # 待发送的群发任务队列
@@ -5137,85 +5109,6 @@ def api_get_earnings():
             'pages': (total + per_page - 1) // per_page if total > 0 else 1,
             'per_page': per_page
         })
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-# ============ 机器人配置 & 广告 & 欢迎语 API ============
-
-@app.route('/bot-settings')
-@login_required
-def bot_settings_page():
-    """机器人与广告等设置页面"""
-    return render_template('bot_settings.html', active_page='bot_settings')
-
-
-@app.route('/api/bot-configs')
-@login_required
-def api_get_bot_configs():
-    """获取机器人配置列表"""
-    try:
-        conn = DB.get_conn()
-        c = conn.cursor()
-        c.execute('SELECT id, bot_token, bot_username, is_active, create_time FROM bot_configs ORDER BY id ASC')
-        rows = c.fetchall()
-        conn.close()
-
-        configs = []
-        for r in rows:
-            configs.append({
-                'id': r[0],
-                'bot_token': r[1],
-                'bot_username': r[2],
-                'is_active': bool(r[3]),
-                'create_time': r[4] or ''
-            })
-
-        return jsonify({'success': True, 'configs': configs})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/bot-config', methods=['POST'])
-@login_required
-def api_create_bot_config():
-    """新增机器人配置"""
-    try:
-        data = request.get_json() or {}
-        bot_token = (data.get('bot_token') or '').strip()
-        bot_username = (data.get('bot_username') or '').strip()
-
-        if not bot_token:
-            return jsonify({'success': False, 'message': 'Bot Token 不能为空'}), 400
-
-        conn = DB.get_conn()
-        c = conn.cursor()
-        c.execute('INSERT INTO bot_configs (bot_token, bot_username, is_active, create_time) VALUES (?, ?, 1, ?)',
-                  (bot_token, bot_username, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-        conn.commit()
-        conn.close()
-
-        return jsonify({'success': True, 'message': '保存成功'})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/bot-config/<int:config_id>', methods=['DELETE'])
-@login_required
-def api_delete_bot_config(config_id):
-    """删除机器人配置"""
-    try:
-        conn = DB.get_conn()
-        c = conn.cursor()
-        c.execute('DELETE FROM bot_configs WHERE id = ?', (config_id,))
-        conn.commit()
-        affected = c.rowcount
-        conn.close()
-
-        if affected == 0:
-            return jsonify({'success': False, 'message': '记录不存在'}), 404
-
-        return jsonify({'success': True, 'message': '删除成功'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
