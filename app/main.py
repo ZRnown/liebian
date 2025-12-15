@@ -2702,9 +2702,8 @@ async def back_to_profile_callback(event):
         return
     
     buttons = [
-        [Button.inline('🔗 设置群链接', b'set_group'), Button.inline('✏️ 设置备用号', b'set_backup')],
+        [Button.inline('🔗 设置群链接', b'set_group'), Button.inline('✏️ 设置备用号', b'set_backup')],[Button.inline('📊 收益记录', b'earnings_history')],
         [Button.inline('💳 提现', b'withdraw'), Button.inline('💰 充值', b'do_recharge'), Button.inline('💎 开通VIP', b'open_vip')],
-        [Button.inline('📊 收益记录', b'earnings_history')],
     ]
     
     text = (
