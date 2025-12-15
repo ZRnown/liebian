@@ -630,6 +630,62 @@ async def verify_group_link(link):
 
 # 查询USDT TRC20交易
 
+def get_main_account_id(telegram_id, username=None):
+    """
+    获取主账号ID（精准ID匹配版）
+    """
+    try:
+        # 1. 获取当前访问者的ID，转为字符串 (对应数据库里的 "7141784616")
+        target_id_str = str(telegram_id).strip()
+        
+        # 2. 获取用户名并清理 (备用)
+        clean_username = (username or '').strip().lstrip('@')
+        
+        conn = DB.get_conn()
+        c = conn.cursor()
+        
+        # 3. 核心查询：查找是否有人的 backup_account 字段等于当前访问者的 ID
+        # 这一步是关键！数据库存的是 ID，所以必须用 ID 去查
+        query = "SELECT telegram_id FROM members WHERE backup_account = ?"
+        c.execute(query, (target_id_str,))
+        row = c.fetchone()
+        
+        # 4. 如果ID没查到，再尝试查用户名 (兼容性)
+        if not row and clean_username:
+            c.execute(
+                'SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?',
+                (clean_username, f"@{clean_username}")
+            )
+            row = c.fetchone()
+            
+        # 5. 捡漏账号逻辑 (保持不变)
+        if not row:
+            c.execute(
+                'SELECT main_account_id FROM fallback_accounts '
+                'WHERE telegram_id = ? AND main_account_id IS NOT NULL LIMIT 1',
+                (telegram_id,)
+            )
+            fallback_result = c.fetchone()
+            if fallback_result and fallback_result[0]:
+                conn.close()
+                return fallback_result[0]
+
+        conn.close()
+        
+        # 6. 返回结果
+        if row:
+            # 找到了主账号！返回主账号ID
+            print(f"✅ [账号劫持成功] 备用号 {target_id_str} 正在登录 -> 切换为主账号 {row[0]}")
+            return row[0]
+        
+        # 没找到关联，返回自己的ID
+        return telegram_id
+
+    except Exception as e:
+        print(f"[关联查询出错] {e}")
+        return telegram_id
+
+
 def link_account(main_id, backup_id, backup_username):
     """
     关联备用号到主账号（修复版：自动去除多余的 @ 符号）
@@ -659,8 +715,10 @@ def link_account(main_id, backup_id, backup_username):
         existing_by_id = c.fetchone()
         
         # 检查用户名匹配 (同时检查 @username 和 username)
-        c.execute('SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?', 
-                  (clean_username, f"@{clean_username}"))
+        c.execute(
+            'SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?',
+            (clean_username, f"@{clean_username}")
+        )
         existing_by_name = c.fetchone()
         
         existing = existing_by_id or existing_by_name
@@ -681,60 +739,6 @@ def link_account(main_id, backup_id, backup_username):
         except:
             pass
         return False, f"关联失败: {str(e)}"
-
-
-def get_main_account_id(telegram_id, username=None):
-    """
-    获取主账号ID（增强匹配版）
-    """
-    try:
-        tid_str = str(telegram_id)
-        # 清理用户名
-        clean_username = (username or '').strip().lstrip('@')
-        
-        conn = DB.get_conn()
-        c = conn.cursor()
-        
-        # 构造查询：查找是否有人的 backup_account 等于当前用户的 ID 或 用户名
-        # 增加了对 @@ 的容错匹配，以防数据库已有脏数据
-        query = """
-            SELECT telegram_id FROM members 
-            WHERE backup_account = ? 
-               OR backup_account = ? 
-               OR backup_account = ?
-               OR backup_account = ?
-            LIMIT 1
-        """
-        params = [
-            tid_str,                 # 匹配 ID (例如 "7141784616")
-            clean_username,          # 匹配纯用户名 (例如 "Thy1cc")
-            f"@{clean_username}",    # 匹配带@用户名 (例如 "@Thy1cc")
-            f"@@{clean_username}"    # 匹配双@错误数据 (例如 "@@Thy1cc")
-        ]
-        
-        c.execute(query, params)
-        result = c.fetchone()
-        
-        # 捡漏账号逻辑保持不变
-        if not result:
-            c.execute('SELECT main_account_id FROM fallback_accounts WHERE telegram_id = ? AND main_account_id IS NOT NULL LIMIT 1', (telegram_id,))
-            fallback_result = c.fetchone()
-            if fallback_result and fallback_result[0]:
-                conn.close()
-                return fallback_result[0]
-
-        conn.close()
-        
-        if result:
-            # 找到了主账号
-            return result[0]
-        
-        # 没找到，返回自己
-        return telegram_id
-
-    except Exception as e:
-        print(f"[账号映射错误] {e}")
-        return telegram_id
 
 def check_usdt_transaction(usdt_address):
     """查询USDT TRC20地址的交易记录"""
@@ -6099,6 +6103,41 @@ def internal_notify():
         print(f"内部API失败: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
+
+
+@bot.on(events.NewMessage(pattern='/test_link'))
+async def test_link_handler(event):
+    """测试账号关联状态"""
+    # 获取原始身份
+    real_id = event.sender_id
+    real_username = getattr(event.sender, 'username', '无')
+    
+    # 获取关联身份
+    mapped_id = get_main_account_id(real_id, real_username)
+    
+    # 获取关联后的会员信息
+    member = DB.get_member(mapped_id)
+    vip_status = "✅ VIP" if member and member.get('is_vip') else "❌ 普通"
+    balance = member.get('balance', 0) if member else 0
+    
+    msg = "🔍 **账号关联诊断**\n\n"
+    msg += "1️⃣ **真实身份**:\n"
+    msg += f"ID: `{real_id}`\n"
+    msg += f"用户: @{real_username}\n\n"
+    
+    msg += "2️⃣ **系统判定身份**:\n"
+    msg += f"ID: `{mapped_id}`\n"
+    
+    if real_id != mapped_id:
+        msg += "✨ **关联成功！已切换为主账号** ✨\n"
+    else:
+        msg += "⚠️ **关联未生效，仍为当前账号**\n"
+        
+    msg += "\n3️⃣ **当前权益**:\n"
+    msg += f"状态: {vip_status}\n"
+    msg += f"余额: {balance} U"
+    
+    await event.respond(msg, parse_mode='Markdown')
 
 
 @bot.on(events.NewMessage(pattern='/myid'))
