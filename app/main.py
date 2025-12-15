@@ -1241,12 +1241,16 @@ async def profile_handler(event):
         print(f"🔄 [个人中心] 身份切换: {original_id} -> {target_id}")
     # ================= 核心修复结束 =================
 
-    # 3. 使用主账号ID查询数据库
+    # 3. 使用主账号ID查询数据库；若不存在则自动创建，避免反复提示 /start
     member = DB.get_member(target_id)
-
     if not member:
-        await event.respond('❌ 未找到账号信息，请先发送 /start')
-        return
+        # 尝试自动注册主账号
+        username = original_username or f'user_{target_id}'
+        DB.create_member(target_id, username, referrer_id=None)
+        member = DB.get_member(target_id)
+        if not member:
+            await event.respond('❌ 未找到账号信息，请稍后再试')
+            return
 
     buttons = [
         [Button.inline('🔗 设置群链接', b'set_group'), Button.inline('✏️ 设置备用号', b'set_backup')],
