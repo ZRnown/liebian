@@ -2432,6 +2432,10 @@ async def verify_groups_callback(event):
         await event.respond("❌ 没有可验证的群组")
         return
     
+    # 重新编号，避免出现缺号或重复号（例如出现两个10缺少9的情况）
+    for idx, g in enumerate(groups_to_check, 1):
+        g['display_index'] = idx
+    
     # 检测用户是否在群组中
     not_joined = []
     joined = []
@@ -2489,14 +2493,16 @@ async def verify_groups_callback(event):
             text += "✅ 已加入的群组:\n"
             for g in joined:
                 group_name = g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link']
-                text += f"  {g['level']}. {group_name}\n"
+                idx = g.get('display_index', g.get('level', '?'))
+                text += f"  {idx}. {group_name}\n"
             text += "\n"
         
         if not_joined:
             text += "❌ 未加入的群组（请点击加入）:\n"
             for g in not_joined:
                 group_name = g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link']
-                text += f"  {g['level']}. [{group_name}]({g['link']})\n"
+                idx = g.get('display_index', g.get('level', '?'))
+                text += f"  {idx}. [{group_name}]({g['link']})\n"
             text += "\n⚠️ 请加入以上未加入的群组，才能获得分红！"
     
     await event.respond(text, parse_mode='markdown')
@@ -3300,10 +3306,30 @@ async def message_handler(event):
     
     # 设置备用号
     if sender_id in waiting_for_backup and waiting_for_backup[sender_id]:
-        backup = text
-        DB.update_member(sender_id, backup_account=backup)
+        backup_raw = text.strip().lstrip('@')
+        backup_id = None
+        backup_username = backup_raw
+        
+        # 尝试解析数字ID
+        if backup_raw.isdigit():
+            backup_id = int(backup_raw)
+        else:
+            # 尝试通过用户名解析为账号ID
+            try:
+                entity = await bot.get_entity(backup_raw)
+                if getattr(entity, 'id', None):
+                    backup_id = entity.id
+                    backup_username = getattr(entity, 'username', backup_raw) or backup_raw
+            except Exception as e:
+                print(f"[备用号解析失败] {e}")
+        
+        if not backup_id:
+            await event.respond('❌ 未找到该备用号，请发送正确的用户名或ID')
+            return
+        
+        success, message = link_account(sender_id, backup_id, backup_username)
         del waiting_for_backup[sender_id]
-        await event.respond(f'✅ 备用号设置成功!\n\n备用号: {backup}')
+        await event.respond(message)
         return
 
 
