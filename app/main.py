@@ -3816,6 +3816,13 @@ class WebDB:
         # 获取总数
         c.execute(f'SELECT COUNT(*) FROM members {search_condition}', params)
         total = c.fetchone()[0]
+
+        # 读取配置中的层级深度
+        try:
+            config = get_system_config()
+            level_count_cfg = int(config.get('level_count', 10))
+        except Exception:
+            level_count_cfg = 10
         
         # 获取会员列表（包含所有新字段）
         query = f'''
@@ -3842,17 +3849,12 @@ class WebDB:
                 ref = c.fetchone()
                 if ref:
                     referrer_name = ref[0]
-            
-            # 获取下级总数（如果direct_count为0，实时计算）
-            direct_count = row[14] if row[14] else 0
-            if direct_count == 0:
-                c.execute('SELECT COUNT(*) FROM members WHERE referrer_id = ?', (row[1],))
-                direct_count = c.fetchone()[0]
 
-            # 实时计算团队总人数
             tg_id = row[1]
-            c.execute("SELECT COUNT(*) FROM members WHERE level_path LIKE ? AND telegram_id != ?", (f'%/{tg_id}/%', tg_id))
-            team_count = c.fetchone()[0]
+            # 实时计算直推与团队（避免 team_count 全为 0）
+            downline_counts = DB.get_downline_count(tg_id, level_count_cfg)
+            direct_count = downline_counts[0]['total'] if downline_counts else 0
+            team_count = sum(item.get('total', 0) for item in downline_counts) if downline_counts else 0
             
             # 检查是否是捡漏账号
             c.execute('SELECT id FROM fallback_accounts WHERE telegram_id = ?', (row[1],))
