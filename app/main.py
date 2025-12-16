@@ -743,7 +743,7 @@ def link_account(main_id, backup_id, backup_username):
         
     except Exception as e:
         try:
-        conn.close()
+            conn.close()
         except:
             pass
         return False, f"关联失败: {str(e)}"
