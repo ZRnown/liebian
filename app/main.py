@@ -410,29 +410,36 @@ class DB:
     
     @staticmethod
     def create_member(telegram_id, username, referrer_id=None):
-        conn = DB.get_conn()
-        c = conn.cursor()
-        try:
-            c.execute('''INSERT INTO members (telegram_id, username, referrer_id, register_time)
-                        VALUES (?, ?, ?, ?)''',
-                     (telegram_id, username, referrer_id, datetime.now().isoformat()))
-            conn.commit()
-        except sqlite3.IntegrityError:
-            pass
-        except sqlite3.OperationalError as e:
-            # 如果数据库被锁定，等待后重试
-            if 'locked' in str(e).lower():
-                import time
-                time.sleep(0.1)
-                try:
-                    c.execute('''INSERT INTO members (telegram_id, username, referrer_id, register_time)
-                                VALUES (?, ?, ?, ?)''',
-                             (telegram_id, username, referrer_id, datetime.now().isoformat()))
-                    conn.commit()
-                except:
-                    pass
-        finally:
-            conn.close()
+        """
+        创建会员记录，带重试，返回是否成功
+        """
+        max_retries = 5
+        for retry in range(max_retries):
+            conn = DB.get_conn()
+            c = conn.cursor()
+            try:
+                c.execute(
+                    '''INSERT INTO members (telegram_id, username, referrer_id, register_time)
+                       VALUES (?, ?, ?, ?)''',
+                    (telegram_id, username, referrer_id, datetime.now().isoformat())
+                )
+                conn.commit()
+                conn.close()
+                return True
+            except sqlite3.IntegrityError:
+                conn.close()
+                return True
+            except sqlite3.OperationalError as e:
+                conn.close()
+                if 'locked' in str(e).lower() and retry < max_retries - 1:
+                    import time
+                    time.sleep(0.2)
+                    continue
+                return False
+            except Exception:
+                conn.close()
+                return False
+        return False
     
     @staticmethod
     def update_member(telegram_id, **kwargs):
@@ -1188,9 +1195,12 @@ async def start_handler(event):
     member = DB.get_member(telegram_id)
 
     if not member:
-        # 如果主账号不存在，才创建
-        DB.create_member(telegram_id, username, referrer_id)
+        # 如果主账号不存在，尝试创建；失败时提示
+        created = DB.create_member(telegram_id, username, referrer_id)
         member = DB.get_member(telegram_id)
+        if not created and not member:
+            await event.respond('❌ 账号信息创建失败，请稍后再试')
+            return
 
         # 通知推荐人
         if referrer_id:
@@ -1245,10 +1255,10 @@ async def profile_handler(event):
     if not member:
         # 尝试自动注册主账号
         username = original_username or f'user_{target_id}'
-        DB.create_member(target_id, username, referrer_id=None)
+        created = DB.create_member(target_id, username, referrer_id=None)
         member = DB.get_member(target_id)
-        if not member:
-            await event.respond('❌ 未找到账号信息，请稍后再试')
+        if (not created) and (not member):
+            await event.respond('❌ 账号信息创建失败，请稍后再试')
             return
 
     buttons = [
