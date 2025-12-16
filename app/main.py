@@ -4965,7 +4965,7 @@ def update_payment_config():
         for key in config_keys:
             if key in data:
                 value = str(data[key])
-                c.execute("SELECT key FROM system_config WHERE key = ?", (key,))
+                c.execute("SELECT id FROM system_config WHERE key = ?", (key,))
                 existing = c.fetchone()
                 if existing:
                     c.execute("UPDATE system_config SET value = ? WHERE key = ?", (value, key))
