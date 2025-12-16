@@ -27,7 +27,8 @@
             </div>
         </div>
 
-        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div id="recharge-tip" class="hidden px-4 py-2 mb-3 rounded-lg text-sm"></div>
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <table class="w-full text-sm">
                 <thead class="bg-slate-50 text-slate-500 font-medium">
                     <tr>
@@ -151,16 +152,30 @@ async function markRechargePaid(id) {
         });
         const data = await res.json();
         if (data.success) {
-            alert(data.message || '已更新为已支付');
-            // 重新加载当前页
+            showRechargeTip(data.message || '已更新为已支付', 'success');
             const evt = new Event('click');
             document.getElementById('search-btn').dispatchEvent(evt);
         } else {
-            alert(data.message || '操作失败');
+            showRechargeTip(data.message || '操作失败', 'error');
         }
     } catch (e) {
-        alert('请求失败：' + e.message);
+        showRechargeTip('请求失败：' + e.message, 'error');
     }
+}
+
+function showRechargeTip(msg, type='info') {
+    const el = document.getElementById('recharge-tip');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    el.classList.remove('bg-emerald-50','text-emerald-700','bg-red-50','text-red-700','bg-slate-100','text-slate-700');
+    if (type === 'success') {
+        el.classList.add('bg-emerald-50','text-emerald-700');
+    } else if (type === 'error') {
+        el.classList.add('bg-red-50','text-red-700');
+    } else {
+        el.classList.add('bg-slate-100','text-slate-700');
+    }
+    setTimeout(() => { el.classList.add('hidden'); }, 2500);
 }
 </script>
 {% endblock %}

@@ -364,7 +364,10 @@ function displayMembers(members) {
             <div class="text-xs text-rose-500">错过: ${m.missed_balance || 0} U</div>
         </td>
         <td class="py-1 text-left" style="padding-left:4px;padding-right:4px;">
-            ${m.group_link ? `<div class="flex items-center gap-1"><a href="${m.group_link}" target="_blank" class="text-blue-500 underline underline-offset-2">群链接</a><button class="px-1.5 py-0.5 text-[11px] border border-slate-200 rounded hover:bg-slate-100" onclick="copyText('${m.group_link}')">复制</button></div>` : '<span class="text-slate-400">未设置</span>'}
+            ${m.group_link ? `<div class="flex items-center gap-1">
+                <span class="text-blue-600 break-all">${m.group_link}</span>
+                <button class="px-1.5 py-0.5 text-[11px] border border-slate-200 rounded hover:bg-slate-100" onclick="copyText('${m.group_link}')">复制</button>
+            </div>` : '<span class="text-slate-400">未设置</span>'}
         </td>
         <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">${yesNo(m.is_group_bound)}</td>
         <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">${yesNo(m.is_bot_admin)}</td>
@@ -377,8 +380,8 @@ function displayMembers(members) {
             <div>团队: ${m.team_count || 0}</div>
         </td>
         <td class="py-1 text-left text-[11px] text-slate-600" style="padding-left:4px;padding-right:4px;">
-            <div>注册: ${m.register_time || '—'}</div>
-            <div>VIP: ${m.vip_time || '—'}</div>
+            <div>注册: ${m.register_time ? m.register_time.replace('T', ' ') : '—'}</div>
+            <div>VIP: ${m.vip_time ? m.vip_time.replace('T', ' ') : '—'}</div>
         </td>
         <td class="py-1" style="padding-left:4px;padding-right:4px;"><div class="flex items-center gap-1"><button onclick="showGraph(${m.telegram_id})" class="px-2 py-0.5 text-xs rounded bg-purple-500 text-white">图谱</button><button onclick="editMember(${m.telegram_id})" class="px-2 py-0.5 text-xs rounded bg-blue-500 text-white">编辑</button><button onclick="deleteMember(${m.telegram_id}, '@${m.username}')" class="px-2 py-0.5 text-xs rounded bg-red-500 text-white">删除</button></div></td>
     </tr>`).join('');
@@ -387,7 +390,16 @@ function displayMembers(members) {
 
 async function copyText(text) {
     try {
-        await navigator.clipboard.writeText(text);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+        } else {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+        }
         showToast('已复制', text, 'success');
     } catch (e) {
         showToast('复制失败', e.message || '请手动复制', 'error');
