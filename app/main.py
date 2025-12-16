@@ -4370,7 +4370,7 @@ def api_recharges():
 @app.route('/api/recharges/<int:recharge_id>/status', methods=['POST'])
 @login_required
 def api_update_recharge_status(recharge_id):
-    """后台手动修改充值订单状态（支持标记为已支付并入账）"""
+    """后台手动修改充值订单状态（支持标记为已支付并入账，分成规则与自动充值完全一致）"""
     global notify_queue
     try:
         data = request.get_json() or {}
@@ -4387,114 +4387,39 @@ def api_update_recharge_status(recharge_id):
             return jsonify({'success': False, 'message': '订单不存在'})
 
         member_id, amount, old_status, order_id = row
-
-        # 已经完成的不重复加钱
-        if old_status == 'completed' and new_status == 'completed':
-            conn.close()
-            return jsonify({'success': True, 'message': '该订单已是已支付状态，无需重复处理'})
-
-        if new_status == 'completed':
-            # 标记为已支付，并为用户增加余额
-            c.execute('UPDATE recharge_records SET status = ? WHERE id = ?', ('completed', recharge_id))
-            c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?', (amount, member_id))
-            conn.commit()
-
-            # 重新获取会员信息
-            c.execute('SELECT balance, is_vip, username FROM members WHERE telegram_id = ?', (member_id,))
-            mrow = c.fetchone()
-            if mrow:
-                current_balance, is_vip, username = mrow
-            else:
-                current_balance, is_vip, username = 0, 0, ''
-
-            # 如果金额满足VIP价格且用户未开通，则开通VIP并分发上级奖励
-            config = get_system_config()
-            vip_price = float(config.get('vip_price', 10))
-            level_reward = float(config.get('level_reward', 1))
-            level_count = int(config.get('level_count', 10))
-
-            became_vip = False
-            if (not is_vip) and current_balance >= vip_price:
-                new_balance = current_balance - vip_price
-                c.execute('UPDATE members SET balance = ?, is_vip = 1, vip_time = ? WHERE telegram_id = ?',
-                          (new_balance, datetime.now(CN_TIMEZONE).isoformat(), member_id))
-                conn.commit()
-                became_vip = True
-                is_vip = 1
-                current_balance = new_balance
-
-                # 给上级发放奖励（不再要求上级是VIP，只要存在就发放）
-                uplines = DB.get_upline_members(member_id, level_count)
-                reward_count = 0
-                for u in uplines:
-                    up_id = u['telegram_id']
-                    up_member = DB.get_member(up_id)
-                    if up_member:
-                        up_new_balance = up_member.get('balance', 0) + level_reward
-                        total_earned = up_member.get('total_earned', 0) + level_reward
-                        DB.update_member(up_id, balance=up_new_balance, total_earned=total_earned)
-
-                        # 收益记录
-                        conn2 = DB.get_conn()
-                        c2 = conn2.cursor()
-                        c2.execute('''INSERT INTO earnings_records 
-                                       (member_id, amount, source_type, source_id, description, create_time)
-                                       VALUES (?, ?, ?, ?, ?, ?)''',
-                                   (up_id, level_reward, 'vip_commission', member_id,
-                                    f'后台确认VIP分红（下级: {member_id}）', datetime.now(CN_TIMEZONE).isoformat()))
-                        conn2.commit()
-                        conn2.close()
-                        reward_count += 1
-
-                # 补充：如果没有上级且存在捡漏账号，随机发放
-                if not uplines:
-                    import random
-                    conn_fb = DB.get_conn()
-                    c_fb = conn_fb.cursor()
-                    c_fb.execute("SELECT telegram_id FROM fallback_accounts WHERE is_active = 1")
-                    fb_list = [r[0] for r in c_fb.fetchall()]
-                    conn_fb.close()
-                    if fb_list:
-                        for _ in range(level_count):
-                            fb_id = random.choice(fb_list)
-                            fb_member = DB.get_member(fb_id)
-                            if fb_member:
-                                DB.update_member(fb_id,
-                                                 balance=fb_member.get('balance', 0) + level_reward,
-                                                 total_earned=fb_member.get('total_earned', 0) + level_reward)
-
-                                conn3 = DB.get_conn()
-                                c3 = conn3.cursor()
-                                c3.execute('''INSERT INTO earnings_records 
-                                               (member_id, amount, source_type, source_id, description, create_time)
-                                               VALUES (?, ?, ?, ?, ?, ?)''',
-                                           (fb_id, level_reward, 'vip_commission', member_id,
-                                            '后台确认VIP分红（捡漏）', datetime.now(CN_TIMEZONE).isoformat()))
-                                conn3.commit()
-                                conn3.close()
-
-            conn.close()
-
-            try:
-                msg_lines = [
-                    "✅ 充值成功（后台确认）",
-                    f"💰 金额: {amount} USDT",
-                    f"📝 订单号: {order_id or recharge_id}",
-                    f"💵 余额: {current_balance} U"
-                ]
-                if became_vip:
-                    msg_lines.append("💎 VIP 已开通，分红已发放")
-                notify_queue.append({'member_id': member_id, 'message': "\n".join(msg_lines)})
-            except Exception as notify_err:
-                print(f'[后台充值状态修改] 发送通知失败: {notify_err}')
-
-            return jsonify({'success': True, 'message': '已标记为已支付并完成处理'})
-        else:
-            # 其他状态只更新字段，不动余额
+        # 其他状态：只更新订单状态，不动余额和分成
+        if new_status != 'completed':
             c.execute('UPDATE recharge_records SET status = ? WHERE id = ?', (new_status, recharge_id))
             conn.commit()
             conn.close()
             return jsonify({'success': True, 'message': '订单状态已更新'})
+
+        # new_status == 'completed' 的情况：标记为已支付 + 余额入账，然后统一走 process_recharge 分成逻辑
+        # 已经是 completed 就不重复处理
+        if old_status == 'completed':
+            conn.close()
+            return jsonify({'success': True, 'message': '该订单已是已支付状态，无需重复处理'})
+
+        # 标记为已支付，并为用户增加余额
+        c.execute('UPDATE recharge_records SET status = ? WHERE id = ?', ('completed', recharge_id))
+        c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?', (amount, member_id))
+        conn.commit()
+        conn.close()
+
+        # 统一走异步充值处理逻辑（process_recharge：自动开VIP + 条件检测 + 捡漏账号）
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            # 后台确认的订单通常就是“VIP 订单”，这里明确传 is_vip_order=True，
+            # 这样逻辑与前端创建 VIP 订单的自动充值路径完全一致。
+            if loop.is_running():
+                loop.create_task(process_recharge(member_id, amount, is_vip_order=True))
+            else:
+                loop.run_until_complete(process_recharge(member_id, amount, is_vip_order=True))
+        except Exception as async_err:
+            print(f'[后台充值状态修改] 调用 process_recharge 失败: {async_err}')
+
+        return jsonify({'success': True, 'message': '已标记为已支付并触发统一充值处理逻辑'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
