@@ -5729,6 +5729,7 @@ def upgrade_member_groups_table():
     conn.close()
 
 upgrade_member_groups_table()
+sync_member_groups_from_members()
 
 # 统一写入/更新会员群信息，保证后台“会员群管理”可见
 def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_admin=1):
@@ -5763,6 +5764,23 @@ def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_adm
         conn.close()
     except Exception as e:
         print(f'[member_groups upsert] error: {e}')
+
+# 启动时同步已存在的会员群链接到 member_groups，避免后台列表为空
+def sync_member_groups_from_members():
+    try:
+        conn = DB.get_conn()
+        c = conn.cursor()
+        c.execute("SELECT telegram_id, username, group_link FROM members WHERE group_link IS NOT NULL AND group_link != ''")
+        rows = c.fetchall()
+        conn.close()
+        for r in rows:
+            tg_id, uname, glink = r
+            try:
+                upsert_member_group(tg_id, glink, uname or None, is_bot_admin=1)
+            except Exception as inner_err:
+                print(f'[sync_member_groups] 单条失败 {tg_id}: {inner_err}')
+    except Exception as e:
+        print(f'[sync_member_groups] 失败: {e}')
 
 # 更新broadcast_messages表结构
 def upgrade_broadcast_table():
