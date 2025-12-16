@@ -415,20 +415,20 @@ class DB:
         """
         max_retries = 5
         for retry in range(max_retries):
-            conn = DB.get_conn()
-            c = conn.cursor()
-            try:
+        conn = DB.get_conn()
+        c = conn.cursor()
+        try:
                 c.execute(
                     '''INSERT INTO members (telegram_id, username, referrer_id, register_time)
                         VALUES (?, ?, ?, ?)''',
                     (telegram_id, username, referrer_id, datetime.now().isoformat())
                 )
-                conn.commit()
+            conn.commit()
                 conn.close()
                 return True
-            except sqlite3.IntegrityError:
+        except sqlite3.IntegrityError:
                 # 已存在视为成功
-                conn.close()
+        conn.close()
                 return True
             except sqlite3.OperationalError as e:
                 conn.close()
@@ -675,7 +675,7 @@ def get_main_account_id(telegram_id, username=None):
             )
             fallback_result = c.fetchone()
             if fallback_result and fallback_result[0]:
-                conn.close()
+        conn.close()
                 return fallback_result[0]
 
         conn.close()
@@ -743,7 +743,7 @@ def link_account(main_id, backup_id, backup_username):
         
     except Exception as e:
         try:
-            conn.close()
+        conn.close()
         except:
             pass
         return False, f"关联失败: {str(e)}"
@@ -1011,6 +1011,7 @@ async def create_recharge_order(event, amount, is_vip_order=False):
     # 优先使用支付平台返回的支付链接/二维码
     payment_url = None
     payment_qrcode = None
+    usdt_address = None
     
     if payment_result.get("code") == 200:
         data = payment_result.get("data", {})
@@ -1018,9 +1019,79 @@ async def create_recharge_order(event, amount, is_vip_order=False):
             # 尝试获取支付链接
             payment_url = data.get("url") or data.get("data", {}).get("url") or data.get("data", {}).get("qrcode")
             payment_qrcode = data.get("data", {}).get("qrcode")
+            
+            # 尝试从支付平台返回的数据中直接获取地址（如果有的话）
+            # 有些支付平台会在返回数据中包含收款地址
+            if "address" in str(data).lower() or "收款地址" in str(data):
+                # 尝试从data中提取地址
+                import re
+                data_str = str(data)
+                pattern = r'T[A-Za-z1-9]{33}'
+                matches = re.findall(pattern, data_str)
+                if matches:
+                    usdt_address = matches[0]
     
-    # 如果支付平台返回了支付链接，优先使用
-    if payment_url:
+    # 如果没有从返回数据中获取到地址，尝试从支付链接页面解析
+    if not usdt_address and payment_url:
+        usdt_address = extract_usdt_address_from_payment_url(payment_url)
+        # 如果成功解析到地址，保存到系统配置中（用于下次直接使用）
+        if usdt_address:
+            try:
+                conn_addr = DB.get_conn()
+                c_addr = conn_addr.cursor()
+                c_addr.execute('''
+                    CREATE TABLE IF NOT EXISTS system_config (
+                        key TEXT PRIMARY KEY,
+                        value TEXT
+                    )
+                ''')
+                c_addr.execute('INSERT OR REPLACE INTO system_config (key, value) VALUES (?, ?)',
+                             ('payment_platform_usdt_address', usdt_address))
+                conn_addr.commit()
+                conn_addr.close()
+                print(f'[支付地址] 已保存到配置: {usdt_address}')
+            except Exception as e:
+                print(f'[保存支付地址] 失败: {e}')
+    
+    # 如果还是没有地址，尝试从系统配置中读取（手动配置的优先，然后是自动解析保存的）
+    if not usdt_address:
+        try:
+            conn_cfg = DB.get_conn()
+            c_cfg = conn_cfg.cursor()
+            # 优先读取手动配置的地址
+            c_cfg.execute("SELECT value FROM system_config WHERE key = 'payment_usdt_address'")
+            row = c_cfg.fetchone()
+            if row and row[0]:
+                usdt_address = row[0]
+            else:
+                # 如果没有手动配置，读取自动解析保存的地址
+                c_cfg.execute("SELECT value FROM system_config WHERE key = 'payment_platform_usdt_address'")
+                row = c_cfg.fetchone()
+                if row and row[0]:
+                    usdt_address = row[0]
+            conn_cfg.close()
+        except Exception as e:
+            print(f'[读取支付地址] 失败: {e}')
+    
+    # 如果获取到了USDT地址，直接显示地址
+    if usdt_address:
+        msg = f'''✅ 支付订单已创建
+
+订单号: `{order_number}`
+支付金额: {amount:.2f} USDT
+
+📝 请转账到以下地址：
+`{usdt_address}`
+(TRC-20网络)
+
+⚠️ 订单10分钟内有效，过期后请重新创建
+⚠️ 转账金额必须与订单金额完全一致
+✅ 支付完成后，系统将自动到账（约1-2分钟）'''
+    
+    buttons = [[Button.inline("返回", b"back")]]
+        await event.respond(msg, buttons=buttons, parse_mode='markdown')
+    elif payment_url:
+        # 如果没有地址但有支付链接，显示链接（保留原有逻辑作为备选）
         msg = f'''✅ 支付订单已创建
 
 订单号: `{order_number}`
@@ -1036,11 +1107,11 @@ async def create_recharge_order(event, amount, is_vip_order=False):
             [Button.url("💳 立即支付", payment_url)],
             [Button.inline("返回", b"back")]
         ]
-        await event.respond(msg, buttons=buttons)
+    await event.respond(msg, buttons=buttons)
     else:
-        # 如果支付平台没有返回支付链接，提示错误
+        # 如果支付平台没有返回任何信息，提示错误
         await event.respond(
-            "❌ 支付平台未返回支付链接，请稍后重试或联系管理员",
+            "❌ 支付平台未返回支付信息，请稍后重试或联系管理员",
             buttons=[[Button.inline("返回", b"back")]]
         )
 
@@ -1202,7 +1273,7 @@ async def start_handler(event):
     if original_id != telegram_id:
         print(f"⚠️ [Start命令] 检测到备用号登录: {original_id} -> 切换至主账号 {telegram_id}")
     else:
-        print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
+    print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
     
     # 解析推荐人ID (保持原有逻辑)
     referrer_id = None
@@ -2693,7 +2764,7 @@ async def verify_groups_callback(event):
     if joined_count == total_groups:
         text += "🎉 恭喜！您已加入所有 {total_groups} 个群组！\n\n"
         text += "✅ 所有条件已满足，可以正常获得分红！"
-    else:
+            else:
         if joined:
             text += "✅ 已加入的群组:\n"
             for g in joined:
@@ -3608,6 +3679,36 @@ def create_payment_order(amount, out_trade_no, remark=''):
         print(f'[支付API错误] {e}')
         import traceback
         traceback.print_exc()
+        return None
+
+def extract_usdt_address_from_payment_url(payment_url):
+    """
+    从支付链接页面解析USDT收款地址
+    如果支付平台返回的页面包含地址，尝试提取
+    """
+    if not payment_url:
+        return None
+    
+    try:
+        # 尝试访问支付链接页面
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = req.get(payment_url, headers=headers, timeout=10, allow_redirects=True)
+        
+        if response.status_code == 200:
+            html = response.text
+            # 尝试从HTML中提取USDT地址（TRC20地址通常以T开头，34个字符）
+            import re
+            # 匹配TRC20地址格式：T开头，34个字符
+            pattern = r'T[A-Za-z1-9]{33}'
+            matches = re.findall(pattern, html)
+            if matches:
+                # 返回第一个匹配的地址
+                return matches[0]
+    except Exception as e:
+        print(f'[解析支付地址] 失败: {e}')
+    
         return None
 
 async def send_recharge_notification(telegram_id, amount):
@@ -4834,7 +4935,6 @@ def get_payment_config():
         c = conn.cursor()
         c.execute("SELECT key, value FROM system_config WHERE key LIKE 'payment_%'")
         rows = c.fetchall()
-        conn.close()
         
         config = {}
         for row in rows:
@@ -4851,6 +4951,14 @@ def get_payment_config():
             config['payment_channel'] = PAYMENT_CONFIG.get('pay_type', 'trc20')
         if not config.get('payment_user_id'):
             config['payment_user_id'] = PAYMENT_CONFIG.get('partner_id', '')
+        # 尝试从自动解析保存的地址读取（在关闭连接前）
+        if not config.get('payment_usdt_address'):
+            c.execute("SELECT value FROM system_config WHERE key = 'payment_platform_usdt_address'")
+            addr_row = c.fetchone()
+            if addr_row and addr_row[0]:
+                config['payment_usdt_address'] = addr_row[0]
+        
+        conn.close()
         
         return jsonify({
             'success': True,
@@ -4869,16 +4977,26 @@ def update_payment_config():
         c = conn.cursor()
         
         # 更新各个配置项
-        config_keys = ['payment_url', 'payment_token', 'payment_rate', 'payment_channel', 'payment_user_id']
+        config_keys = ['payment_url', 'payment_token', 'payment_rate', 'payment_channel', 'payment_user_id', 'payment_usdt_address']
         for key in config_keys:
             if key in data:
                 value = str(data[key])
-                c.execute("SELECT id FROM system_config WHERE key = ?", (key,))
+                c.execute("SELECT key FROM system_config WHERE key = ?", (key,))
                 existing = c.fetchone()
                 if existing:
                     c.execute("UPDATE system_config SET value = ? WHERE key = ?", (value, key))
                 else:
                     c.execute("INSERT INTO system_config (key, value) VALUES (?, ?)", (key, value))
+        
+        # 如果设置了 payment_usdt_address，同时更新 payment_platform_usdt_address（用于自动解析的地址）
+        if 'payment_usdt_address' in data and data['payment_usdt_address']:
+            addr_value = str(data['payment_usdt_address'])
+            c.execute("SELECT key FROM system_config WHERE key = ?", ('payment_platform_usdt_address',))
+            existing = c.fetchone()
+            if existing:
+                c.execute("UPDATE system_config SET value = ? WHERE key = ?", (addr_value, 'payment_platform_usdt_address'))
+            else:
+                c.execute("INSERT INTO system_config (key, value) VALUES (?, ?)", ('payment_platform_usdt_address', addr_value))
         
         conn.commit()
         conn.close()
