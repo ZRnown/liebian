@@ -415,19 +415,19 @@ class DB:
         """
         max_retries = 5
         for retry in range(max_retries):
-            conn = DB.get_conn()
-            c = conn.cursor()
-            try:
+        conn = DB.get_conn()
+        c = conn.cursor()
+        try:
                 c.execute(
                     '''INSERT INTO members (telegram_id, username, referrer_id, register_time)
-                       VALUES (?, ?, ?, ?)''',
+                        VALUES (?, ?, ?, ?)''',
                     (telegram_id, username, referrer_id, datetime.now().isoformat())
                 )
-                conn.commit()
+            conn.commit()
                 conn.close()
                 return True
-            except sqlite3.IntegrityError:
-                conn.close()
+        except sqlite3.IntegrityError:
+        conn.close()
                 return True
             except sqlite3.OperationalError as e:
                 conn.close()
@@ -674,7 +674,7 @@ def get_main_account_id(telegram_id, username=None):
             )
             fallback_result = c.fetchone()
             if fallback_result and fallback_result[0]:
-                conn.close()
+        conn.close()
                 return fallback_result[0]
 
         conn.close()
@@ -742,7 +742,7 @@ def link_account(main_id, backup_id, backup_username):
         
     except Exception as e:
         try:
-            conn.close()
+        conn.close()
         except:
             pass
         return False, f"关联失败: {str(e)}"
@@ -1176,13 +1176,13 @@ async def start_handler(event):
     # ================= 核心修复结束 =================
 
     username = event.sender.username or f'user_{original_id}'  # 显示用户名保持原始来访账号
-
+    
     # 调试打印，确保后台能看到切换
     if original_id != telegram_id:
         print(f"⚠️ [Start命令] 检测到备用号登录: {original_id} -> 切换至主账号 {telegram_id}")
     else:
-        print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
-
+    print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
+    
     # 解析推荐人ID (保持原有逻辑)
     referrer_id = None
     if event.message.text and len(event.message.text.split()) > 1:
@@ -1190,7 +1190,7 @@ async def start_handler(event):
             referrer_id = int(event.message.text.split()[1])
         except:
             pass
-
+    
     # 【关键】这里必须用转换后的 telegram_id 去查数据库
     member = DB.get_member(telegram_id)
 
@@ -1201,7 +1201,7 @@ async def start_handler(event):
         if not created and not member:
             await event.respond('❌ 账号信息创建失败，请稍后再试')
             return
-
+        
         # 通知推荐人
         if referrer_id:
             referrer = DB.get_member(referrer_id)
@@ -1215,11 +1215,11 @@ async def start_handler(event):
                     )
                 except:
                     pass
-
+    
     # 获取系统配置
     sys_config = get_system_config()
     pinned_ad = sys_config.get('pinned_ad', '')
-
+    
     # 显示欢迎信息（数据来自主账号）
     welcome_text = (
         f'👋 欢迎使用裂变推广机器人!\n\n'
@@ -1228,11 +1228,11 @@ async def start_handler(event):
         f'💰 余额: {member["balance"]} U\n\n'
         f'请选择功能:'
     )
-
+    
     # 如果有置顶广告，附加在消息末尾
     if pinned_ad:
         welcome_text += f'\n\n━━━━━━━━━━━━━━━\n📢 {pinned_ad}'
-
+    
     await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
 
 
@@ -1259,14 +1259,14 @@ async def profile_handler(event):
         member = DB.get_member(target_id)
         if (not created) and (not member):
             await event.respond('❌ 账号信息创建失败，请稍后再试')
-            return
-
+        return
+    
     buttons = [
         [Button.inline('🔗 设置群链接', b'set_group'), Button.inline('✏️ 设置备用号', b'set_backup')],
         [Button.inline('💳 提现', b'withdraw'), Button.inline('💰 充值', b'do_recharge'), Button.inline('💎 开通VIP', b'open_vip')],
         [Button.inline('📊 收益记录', b'earnings_history')],
     ]
-
+    
     await event.respond(
         f'👤 个人中心 (已同步主账号)\n\n'
         f'🆔 主账号ID: `{member["telegram_id"]}`\n'
@@ -2664,21 +2664,21 @@ async def verify_groups_callback(event):
                 not_joined.append(group_info)
                 continue
                 
-            try:
-                # 尝试获取群组实体
-                group_entity = await bot.get_entity(group_username)
-                
-                # 检查用户是否在群组中
                 try:
+                    # 尝试获取群组实体
+                    group_entity = await bot.get_entity(group_username)
+                    
+                    # 检查用户是否在群组中
+                    try:
                     participant = await bot(GetParticipantRequest(
                         channel=group_entity,
                         participant=telegram_id
                     ))
                     joined.append(group_info)
-                except:
+                    except:
                     not_joined.append(group_info)
-            except:
-                # 无法获取群组信息，可能是私有群或链接无效
+                except:
+                    # 无法获取群组信息，可能是私有群或链接无效
                 not_joined.append(group_info)
         except Exception as e:
             not_joined.append(group_info)
@@ -2696,16 +2696,16 @@ async def verify_groups_callback(event):
     if joined_count == total_groups:
         text += "🎉 恭喜！您已加入所有 {total_groups} 个群组！\n\n"
         text += "✅ 所有条件已满足，可以正常获得分红！"
-    else:
+            else:
         if joined:
             text += "✅ 已加入的群组:\n"
             for g in joined:
                 group_name = g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link']
                 idx = g.get('display_index', g.get('level', '?'))
                 text += f"  {idx}. {group_name}\n"
-            text += "\n"
-        
-        if not_joined:
+        text += "\n"
+    
+    if not_joined:
             text += "❌ 未加入的群组（请点击加入）:\n"
             for g in not_joined:
                 group_name = g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link']
@@ -3849,7 +3849,7 @@ class WebDB:
                 ref = c.fetchone()
                 if ref:
                     referrer_name = ref[0]
-
+            
             tg_id = row[1]
             # 实时计算直推与团队（避免 team_count 全为 0）
             downline_counts = DB.get_downline_count(tg_id, level_count_cfg)
@@ -4965,7 +4965,7 @@ def update_payment_config():
         for key in config_keys:
             if key in data:
                 value = str(data[key])
-                c.execute("SELECT id FROM system_config WHERE key = ?", (key,))
+                c.execute("SELECT key FROM system_config WHERE key = ?", (key,))
                 existing = c.fetchone()
                 if existing:
                     c.execute("UPDATE system_config SET value = ? WHERE key = ?", (value, key))
