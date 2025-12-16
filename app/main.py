@@ -1008,28 +1008,41 @@ async def create_recharge_order(event, amount, is_vip_order=False):
     conn.commit()
     conn.close()
     
-    # 获取USDT收款地址
-    conn2 = DB.get_conn()
-    c2 = conn2.cursor()
-    c2.execute("SELECT value FROM system_config WHERE key = 'usdt_address'")
-    usdt_row = c2.fetchone()
-    usdt_address = usdt_row[0] if usdt_row else "未设置"
-    conn2.close()
+    # 优先使用支付平台返回的支付链接/二维码
+    payment_url = None
+    payment_qrcode = None
     
-    # 显示充值信息
-    msg = f'''此订单10分钟内有效，过期后请重新生成订单。
-➖➖➖➖➖➖➖➖➖➖
-订单号: {order_number}
-转账地址: 
-`{usdt_address}`
-(TRC-20网络)
-转账金额: {amount:.2f} USDT
-➖➖➖➖➖➖➖➖➖➖
-⚠️ 请注意转账金额务必与上方的转账金额一致，否则无法自动到账
-✅ 支付完成后，请等待1分钟左右查询，自动到账。'''
+    if payment_result.get("code") == 200:
+        data = payment_result.get("data", {})
+        if isinstance(data, dict):
+            # 尝试获取支付链接
+            payment_url = data.get("url") or data.get("data", {}).get("url") or data.get("data", {}).get("qrcode")
+            payment_qrcode = data.get("data", {}).get("qrcode")
     
-    buttons = [[Button.inline("返回", b"back")]]
-    await event.respond(msg, buttons=buttons)
+    # 如果支付平台返回了支付链接，优先使用
+    if payment_url:
+        msg = f'''✅ 支付订单已创建
+
+订单号: `{order_number}`
+支付金额: {amount:.2f} USDT
+
+请点击下方链接完成支付：
+{payment_url}
+
+⚠️ 订单10分钟内有效，过期后请重新创建
+✅ 支付完成后，系统将自动到账（约1-2分钟）'''
+        
+        buttons = [
+            [Button.url("💳 立即支付", payment_url)],
+            [Button.inline("返回", b"back")]
+        ]
+        await event.respond(msg, buttons=buttons)
+    else:
+        # 如果支付平台没有返回支付链接，提示错误
+        await event.respond(
+            "❌ 支付平台未返回支付链接，请稍后重试或联系管理员",
+            buttons=[[Button.inline("返回", b"back")]]
+        )
 
 @bot.on(events.ChatAction)
 async def group_welcome_handler(event):
@@ -2075,9 +2088,8 @@ async def admin_handler(event):
     buttons = [
         [Button.inline('📊 设置层数', b'admin_set_level'), Button.inline('💰 设置返利', b'admin_set_reward')],
         [Button.inline('💎 设置VIP价格', b'admin_set_vip_price'), Button.inline('💳 设置提现门槛', b'admin_set_withdraw')],
-        [Button.inline('💵 设置USDT地址', b'admin_set_usdt'), Button.inline('👩‍💼 设置客服文本', b'admin_set_support')],
-        [Button.inline('💫 查看会员统计', b'admin_stats'), Button.inline('🎁 手动充值VIP', b'admin_manual_vip')],
-        [Button.inline('📢 用户广播', b'admin_broadcast')]
+        [Button.inline('👩‍💼 设置客服文本', b'admin_set_support'), Button.inline('💫 查看会员统计', b'admin_stats')],
+        [Button.inline('🎁 手动充值VIP', b'admin_manual_vip'), Button.inline('📢 用户广播', b'admin_broadcast')]
     ]
     
     await event.respond(text, buttons=buttons, parse_mode='md')
@@ -2174,29 +2186,6 @@ async def admin_set_withdraw_callback(event):
     )
     await event.answer()
 
-# 设置USDT地址
-@bot.on(events.CallbackQuery(pattern=b'admin_set_usdt'))
-async def admin_set_usdt_callback(event):
-    # 账号关联处理（备用号->主账号）
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    if event.sender_id not in ADMIN_IDS:
-        await event.answer('无权限')
-        return
-    
-    config = get_system_config()
-    admin_waiting[event.sender_id] = 'usdt_address'
-    await event.respond(
-        f'💵 设置USDT地址\n\n'
-        f'当前地址:\n<code>{config["usdt_address"]}</code>\n\n'
-        f'请输入新的USDT TRC20地址:\n\n'
-        f'发送 /cancel 取消',
-        parse_mode='html'
-    )
-    await event.answer()
 
 # 设置客服文本
 @bot.on(events.CallbackQuery(pattern=b'admin_set_support'))
@@ -3288,26 +3277,6 @@ async def message_handler(event):
                 await event.respond('❌ 请输入有效的数字')
             return
         
-        elif wait_type == 'usdt_address':
-            if len(text) > 200:
-                await event.respond('❌ USDT地址长度不能超过200个字符')
-                return
-            
-            # 更新配置中的USDT地址
-            update_system_config('usdt_address', text)
-            
-            # 更新全局USDT地址
-            
-            # 生成新的二维码
-            try:
-                img = qrcode.make(usdt_address)
-                img.save("usdt_qr.png")
-                await event.respond(f'✅ USDT地址已更新!\n\n新地址:\n<code>{usdt_address}</code>\n\n二维码已重新生成', parse_mode='html')
-            except Exception as e:
-                await event.respond(f'✅ USDT地址已更新，但二维码生成失败\n\n新地址:\n<code>{usdt_address}</code>', parse_mode='html')
-            
-            del admin_waiting[sender_id]
-            return
         
         elif wait_type == 'support_text':
             update_system_config('support_text', text)

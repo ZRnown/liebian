@@ -139,25 +139,6 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- USDT收款地址 -->
-            <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                <div class="flex items-center gap-3 mb-4">
-                    <div class="h-10 w-10 rounded-full bg-teal-50 flex items-center justify-center text-teal-600"><i class="ti ti-currency-tether text-xl"></i></div>
-                    <div>
-                        <h3 class="text-base font-bold text-slate-900">收款钱包配置</h3>
-                        <p class="text-sm text-slate-500">USDT-TRC20 收款地址</p>
-                    </div>
-                </div>
-                <div class="bg-slate-50 rounded-lg p-4 mb-4">
-                    <span class="text-xs text-slate-400">当前地址</span>
-                    <p id="currentAddress" class="font-mono text-sm text-slate-800 break-all">-</p>
-                </div>
-                <div class="flex gap-2">
-                    <input type="text" id="sysUsdtAddress" class="flex-1 px-4 py-2 border rounded-lg text-sm" placeholder="T...">
-                    <button onclick="updateSetting('usdt_address', document.getElementById('sysUsdtAddress').value)" class="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"><i class="ti ti-device-floppy mr-1"></i>保存</button>
-                </div>
-            </div>
-
             <!-- 修改密码 -->
             <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
                 <div class="flex items-center gap-3 mb-4">
@@ -508,12 +489,6 @@ async function loadSystemSettings() {
             const withdrawFeeEl = document.getElementById('sysWithdrawFee');
             if (withdrawFeeEl) withdrawFeeEl.value = s.withdraw_fee || 5;
             
-            const usdtAddressEl = document.getElementById('sysUsdtAddress');
-            if (usdtAddressEl) usdtAddressEl.value = s.usdt_address || '';
-            
-            const currentAddressEl = document.getElementById('currentAddress');
-            if (currentAddressEl) currentAddressEl.textContent = s.usdt_address || '-';
-            
             const pinnedAdEl = document.getElementById('pinnedAdContent');
             if (pinnedAdEl) pinnedAdEl.value = s.pinned_ad || '';
             
@@ -531,7 +506,7 @@ async function updateSetting(key, value) {
             body: JSON.stringify({ key: key, value: value })
         });
         const data = await res.json();
-        if (data.success) { showToast('成功', '设置已更新'); if (key === 'usdt_address') document.getElementById('currentAddress').textContent = value; }
+        if (data.success) { showToast('成功', '设置已更新'); }
         else showToast('错误', data.message, 'error');
     } catch (e) { showToast('错误', e.message, 'error'); }
 }
