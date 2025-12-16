@@ -779,6 +779,13 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                 new_balance = new_balance - config['vip_price']
                 DB.update_member(telegram_id, balance=new_balance, is_vip=1, vip_time=datetime.now().isoformat())
                 
+                # 如果有群链接，写入/更新 member_groups，便于后台展示
+                try:
+                    if member.get('group_link'):
+                        upsert_member_group(telegram_id, member['group_link'], member.get('username'), is_bot_admin=1)
+                except Exception as sync_err:
+                    print(f'[VIP开通时同步member_groups失败] {sync_err}')
+                
                 # 更新层级路径
                 update_level_path(telegram_id)
                 
@@ -3542,6 +3549,11 @@ async def message_handler(event):
             
             if verification_result['success']:
                 DB.update_member(sender_id, group_link=link)
+                try:
+                    sender_username = getattr(event.sender, 'username', None) if hasattr(event, 'sender') else None
+                    upsert_member_group(sender_id, link, sender_username, is_bot_admin=1)
+                except Exception as sync_err:
+                    print(f'[绑定群写入member_groups失败] {sync_err}')
                 del waiting_for_group_link[sender_id]
                 await event.respond(
                     f'✅ 群链接设置成功!\n\n'
@@ -5717,6 +5729,40 @@ def upgrade_member_groups_table():
     conn.close()
 
 upgrade_member_groups_table()
+
+# 统一写入/更新会员群信息，保证后台“会员群管理”可见
+def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_admin=1):
+    """
+    写入或更新 member_groups 表，便于后台列表展示。
+    默认 is_bot_admin=1，因为验证通过后才会调用。
+    """
+    if not group_link:
+        return
+    try:
+        conn = DB.get_conn()
+        c = conn.cursor()
+        c.execute('SELECT id FROM member_groups WHERE telegram_id = ?', (telegram_id,))
+        row = c.fetchone()
+        from datetime import datetime
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        if row:
+            c.execute(
+                '''UPDATE member_groups 
+                   SET group_link = ?, owner_username = COALESCE(?, owner_username)
+                 WHERE id = ?''',
+                (group_link, owner_username, row[0])
+            )
+        else:
+            c.execute(
+                '''INSERT INTO member_groups 
+                   (telegram_id, group_name, group_link, is_bot_admin, create_time, owner_username, group_type, schedule_broadcast)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                (telegram_id, '', group_link, is_bot_admin, now, owner_username or '', 'group', 1)
+            )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'[member_groups upsert] error: {e}')
 
 # 更新broadcast_messages表结构
 def upgrade_broadcast_table():
