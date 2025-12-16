@@ -3599,8 +3599,9 @@ PAYMENT_CONFIG = {
     'api_url': 'https://usdt.qxzy7888.org/pay/',
     'partner_id': '15',
     'key': '5c9dd0b054b184f964',
-    'notify_url': 'http://liebian.mifzla.top:5051/api/payment/notify',
-    'return_url': 'http://liebian.mifzla.top:5051/payment/success',
+    # 回调和同步地址建议走 80 端口，由前面的 nginx 转发到 Flask
+    'notify_url': 'http://liebian.mifzla.top/api/payment/notify',
+    'return_url': 'http://liebian.mifzla.top/payment/success',
     'pay_type': 'trc20',
     'version': '1.0'
 }
