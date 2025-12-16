@@ -1182,7 +1182,7 @@ async def start_handler(event):
     if original_id != telegram_id:
         print(f"⚠️ [Start命令] 检测到备用号登录: {original_id} -> 切换至主账号 {telegram_id}")
     else:
-    print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
+        print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
     
     # 解析推荐人ID (保持原有逻辑)
     referrer_id = None
@@ -2671,16 +2671,16 @@ async def verify_groups_callback(event):
                     
                     # 检查用户是否在群组中
                     try:
-                    participant = await bot(GetParticipantRequest(
+                        participant = await bot(GetParticipantRequest(
                         channel=group_entity,
                         participant=telegram_id
                     ))
-                    joined.append(group_info)
+                        joined.append(group_info)
                     except:
-                    not_joined.append(group_info)
-                except:
+                        not_joined.append(group_info)
+                except Exception as e:
                     # 无法获取群组信息，可能是私有群或链接无效
-                not_joined.append(group_info)
+                    not_joined.append(group_info)
         except Exception as e:
             not_joined.append(group_info)
     
@@ -2697,7 +2697,7 @@ async def verify_groups_callback(event):
     if joined_count == total_groups:
         text += "🎉 恭喜！您已加入所有 {total_groups} 个群组！\n\n"
         text += "✅ 所有条件已满足，可以正常获得分红！"
-            else:
+    else:
         if joined:
             text += "✅ 已加入的群组:\n"
             for g in joined:
