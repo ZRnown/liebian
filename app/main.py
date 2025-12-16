@@ -3005,8 +3005,72 @@ async def withdraw_callback(event):
 
 @bot.on(events.CallbackQuery(pattern=b'do_recharge'))
 async def do_recharge_callback(event):
-    await event.respond('请输入充值金额（USDT，例如：200）:')
-    waiting_for_recharge_amount[event.sender_id] = True
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    telegram_id = event.sender_id
+    member = DB.get_member(telegram_id)
+    
+    if not member:
+        await event.answer("❌ 用户信息不存在", alert=True)
+        return
+    
+    waiting_for_recharge_amount[telegram_id] = True
+    
+    text = """💰 充值余额
+
+请输入您要充值的金额（USDT）
+
+例如: 200
+
+⚠️ 注意:
+• 仅支持TRC-20网络USDT
+• 最低充值金额: 10 USDT
+• 充值后自动到账"""
+    
+    try:
+        await event.edit(text)
+    except:
+        await event.respond(text)
+    await event.answer()
+
+# 返回充值金额输入界面
+@bot.on(events.CallbackQuery(data=b'back'))
+async def back_to_recharge_callback(event):
+    """返回充值金额输入界面"""
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    telegram_id = event.sender_id
+    member = DB.get_member(telegram_id)
+    
+    if not member:
+        await event.answer("❌ 用户信息不存在", alert=True)
+        return
+    
+    waiting_for_recharge_amount[telegram_id] = True
+    
+    text = """💰 充值余额
+
+请输入您要充值的金额（USDT）
+
+例如: 200
+
+⚠️ 注意:
+• 仅支持TRC-20网络USDT
+• 最低充值金额: 10 USDT
+• 充值后自动到账"""
+    
+    try:
+        await event.edit(text)
+    except:
+        await event.respond(text)
     await event.answer()
 
 # 充值金额选择回调（仅用于VIP充值）
