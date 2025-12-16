@@ -1031,49 +1031,16 @@ async def create_recharge_order(event, amount, is_vip_order=False):
                 if matches:
                     usdt_address = matches[0]
     
-    # 如果没有从返回数据中获取到地址，尝试从支付链接页面解析
+    # 如果没有从返回数据中获取到地址，尝试从支付链接页面实时解析
     if not usdt_address and payment_url:
+        print(f'[支付地址] 开始实时解析支付链接: {payment_url}')
         usdt_address = extract_usdt_address_from_payment_url(payment_url)
-        # 如果成功解析到地址，保存到系统配置中（用于下次直接使用）
         if usdt_address:
-            try:
-                conn_addr = DB.get_conn()
-                c_addr = conn_addr.cursor()
-                c_addr.execute('''
-                    CREATE TABLE IF NOT EXISTS system_config (
-                        key TEXT PRIMARY KEY,
-                        value TEXT
-                    )
-                ''')
-                c_addr.execute('INSERT OR REPLACE INTO system_config (key, value) VALUES (?, ?)',
-                             ('payment_platform_usdt_address', usdt_address))
-                conn_addr.commit()
-                conn_addr.close()
-                print(f'[支付地址] 已保存到配置: {usdt_address}')
-            except Exception as e:
-                print(f'[保存支付地址] 失败: {e}')
+            print(f'[支付地址] 实时解析成功: {usdt_address}')
+        else:
+            print(f'[支付地址] 实时解析失败，未找到USDT地址')
     
-    # 如果还是没有地址，尝试从系统配置中读取（手动配置的优先，然后是自动解析保存的）
-    if not usdt_address:
-        try:
-            conn_cfg = DB.get_conn()
-            c_cfg = conn_cfg.cursor()
-            # 优先读取手动配置的地址
-            c_cfg.execute("SELECT value FROM system_config WHERE key = 'payment_usdt_address'")
-            row = c_cfg.fetchone()
-            if row and row[0]:
-                usdt_address = row[0]
-            else:
-                # 如果没有手动配置，读取自动解析保存的地址
-                c_cfg.execute("SELECT value FROM system_config WHERE key = 'payment_platform_usdt_address'")
-                row = c_cfg.fetchone()
-                if row and row[0]:
-                    usdt_address = row[0]
-            conn_cfg.close()
-        except Exception as e:
-            print(f'[读取支付地址] 失败: {e}')
-    
-    # 如果获取到了USDT地址，直接显示地址
+    # 只使用实时解析到的地址，不使用任何缓存或手动配置
     if usdt_address:
         msg = f'''✅ 支付订单已创建
 
@@ -1090,28 +1057,13 @@ async def create_recharge_order(event, amount, is_vip_order=False):
     
         buttons = [[Button.inline("返回", b"back")]]
         await event.respond(msg, buttons=buttons, parse_mode='markdown')
-    elif payment_url:
-        # 如果没有地址但有支付链接，显示链接（保留原有逻辑作为备选）
-        msg = f'''✅ 支付订单已创建
-
-订单号: `{order_number}`
-支付金额: {amount:.2f} USDT
-
-请点击下方链接完成支付：
-{payment_url}
-
-⚠️ 订单10分钟内有效，过期后请重新创建
-✅ 支付完成后，系统将自动到账（约1-2分钟）'''
-        
-        buttons = [
-            [Button.url("💳 立即支付", payment_url)],
-            [Button.inline("返回", b"back")]
-        ]
-        await event.respond(msg, buttons=buttons)
     else:
-        # 如果支付平台没有返回任何信息，提示错误
+        # 如果无法解析到USDT地址，提示错误（不使用缓存地址）
+        error_msg = "❌ 无法获取支付地址，请稍后重试"
+        if payment_url:
+            error_msg += f"\n\n支付链接: {payment_url}\n（系统无法解析该链接中的收款地址）"
         await event.respond(
-            "❌ 支付平台未返回支付信息，请稍后重试或联系管理员",
+            error_msg,
             buttons=[[Button.inline("返回", b"back")]]
         )
 
