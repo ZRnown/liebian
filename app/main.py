@@ -4365,6 +4365,56 @@ def api_recharges():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+@app.route('/api/recharges/<int:recharge_id>/status', methods=['POST'])
+@login_required
+def api_update_recharge_status(recharge_id):
+    """后台手动修改充值订单状态（支持标记为已支付并入账）"""
+    global notify_queue
+    try:
+        data = request.get_json() or {}
+        new_status = (data.get('status') or '').strip()
+        if not new_status:
+            return jsonify({'success': False, 'message': '缺少状态参数'})
+
+        conn = DB.get_conn()
+        c = conn.cursor()
+        c.execute('SELECT member_id, amount, status, order_id FROM recharge_records WHERE id = ?', (recharge_id,))
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'success': False, 'message': '订单不存在'})
+
+        member_id, amount, old_status, order_id = row
+
+        # 已经完成的不重复加钱
+        if old_status == 'completed' and new_status == 'completed':
+            conn.close()
+            return jsonify({'success': True, 'message': '该订单已是已支付状态，无需重复处理'})
+
+        if new_status == 'completed':
+            # 标记为已支付，并为用户增加余额
+            c.execute('UPDATE recharge_records SET status = ? WHERE id = ?', ('completed', recharge_id))
+            c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?', (amount, member_id))
+            conn.commit()
+            conn.close()
+
+            try:
+                msg = f"✅ 充值成功（后台确认）\n\n💰 金额: {amount} USDT\n📝 订单号: {order_id or recharge_id}\n\n余额已到账，感谢您的支持！"
+                notify_queue.append({'member_id': member_id, 'message': msg})
+            except Exception as notify_err:
+                print(f'[后台充值状态修改] 发送通知失败: {notify_err}')
+
+            return jsonify({'success': True, 'message': '已标记为已支付并为用户增加余额'})
+        else:
+            # 其他状态只更新字段，不动余额
+            c.execute('UPDATE recharge_records SET status = ? WHERE id = ?', (new_status, recharge_id))
+            conn.commit()
+            conn.close()
+            return jsonify({'success': True, 'message': '订单状态已更新'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @app.route('/api/members')
 @login_required
 def api_members():
@@ -4377,6 +4427,56 @@ def api_members():
 
     data = WebDB.get_all_members(page, per_page, search, filter_type)
     return jsonify(data)
+
+
+@app.route('/api/members/broadcast', methods=['POST'])
+@login_required
+def api_members_broadcast():
+    """向会员发送群发消息（可选中或全部）"""
+    global notify_queue
+    try:
+        data = request.get_json() or {}
+        message = (data.get('message') or '').strip()
+        member_ids = data.get('member_ids') or []
+        send_all = bool(data.get('all'))
+
+        if not message:
+            return jsonify({'success': False, 'message': '消息内容不能为空'})
+
+        conn = DB.get_conn()
+        c = conn.cursor()
+
+        targets = []
+        if send_all:
+            c.execute('SELECT telegram_id FROM members')
+            targets = [row[0] for row in c.fetchall()]
+        else:
+            # 只保留有效数字ID
+            ids = []
+            for mid in member_ids:
+                try:
+                    ids.append(int(mid))
+                except (TypeError, ValueError):
+                    continue
+            if not ids:
+                conn.close()
+                return jsonify({'success': False, 'message': '请选择要发送的会员'})
+            placeholders = ','.join(['?' for _ in ids])
+            c.execute(f'SELECT telegram_id FROM members WHERE telegram_id IN ({placeholders})', ids)
+            targets = [row[0] for row in c.fetchall()]
+
+        conn.close()
+
+        if not targets:
+            return jsonify({'success': False, 'message': '未找到对应的会员'})
+
+        for mid in targets:
+            notify_queue.append({'member_id': mid, 'message': message})
+
+        count = len(targets)
+        return jsonify({'success': True, 'count': count, 'message': f'已加入发送队列，将向 {count} 位会员发送'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/member/<int:telegram_id>')
 @login_required

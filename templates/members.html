@@ -92,6 +92,12 @@
                 <button onclick="batchDelete()" class="px-3 py-1.5 text-sm bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium">
                     批量删除
                 </button>
+                <button onclick="showMemberBroadcastModal('selected')" class="px-3 py-1.5 text-sm bg-sky-500 hover:bg-sky-600 text-white rounded-lg font-medium">
+                    选择群发
+                </button>
+                <button onclick="showMemberBroadcastModal('all')" class="px-3 py-1.5 text-sm bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg font-medium">
+                    一键群发
+                </button>
             </div>
         </div>
     </div>
@@ -105,16 +111,16 @@
                         <th class="px-2 py-3 text-center w-10"><input type="checkbox" id="checkAll" onchange="toggleAll()" class="w-4 h-4 rounded"></th>
                         <th class="px-2 py-3 text-left">ID</th>
                         <th class="px-2 py-3 text-left">用户ID</th>
-                        <th class="px-2 py-3 text-left">用户名/备用</th>
+                        <th class="px-2 py-3 text-left">用户名 / 备用</th>
                         <th class="px-2 py-3 text-left">推荐人</th>
-                        <th class="px-2 py-3 text-right">余额</th>
-                        <th class="px-2 py-3 text-center">群链接</th>
+                        <th class="px-2 py-3 text-left">余额</th>
+                        <th class="px-2 py-3 text-left">群链接</th>
                         <th class="px-2 py-3 text-center">拉群</th>
                         <th class="px-2 py-3 text-center">群管</th>
                         <th class="px-2 py-3 text-center">加群</th>
                         <th class="px-2 py-3 text-center">VIP</th>
-                        <th class="px-2 py-3 text-center">直推</th>
                         <th class="px-2 py-3 text-center">团队</th>
+                        <th class="px-2 py-3 text-left">注册 / VIP时间</th>
                         <th class="px-2 py-3 text-center">操作</th>
                     </tr>
                 </thead>
@@ -249,6 +255,31 @@
     </div>
 </div>
 
+<!-- 会员群发模态框 -->
+<div id="memberBroadcastModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm hidden">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg m-4 max-h-[90vh] overflow-y-auto">
+        <div class="p-4 border-b border-slate-200 flex justify-between items-center">
+            <h3 class="text-base font-bold text-slate-900">会员群发</h3>
+            <button onclick="closeModal('memberBroadcastModal')" class="text-slate-400 hover:text-slate-600">
+                <i class="ti ti-x text-xl"></i>
+            </button>
+        </div>
+        <div class="p-4 space-y-3">
+            <p id="memberBroadcastScope" class="text-xs text-slate-500">
+                将向选中的会员发送下面这条消息。
+            </p>
+            <textarea id="memberBroadcastMessage" rows="5" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500" placeholder="在这里输入要发送给会员的内容，例如活动通知、充值提醒等"></textarea>
+            <p class="text-[11px] text-slate-400">
+                提示：消息将通过机器人私聊发送给会员，发送较多时会分批完成。
+            </p>
+            <div class="flex gap-3 pt-2">
+                <button onclick="closeModal('memberBroadcastModal')" class="flex-1 px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">取消</button>
+                <button onclick="sendMemberBroadcast()" class="flex-1 px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium">确认发送</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <style>
 .modal.show { display: flex !important; }
 </style>
@@ -257,6 +288,7 @@
 let currentPage = 1;
 let currentMember = null;
 let selectedMembers = new Set();
+let memberBroadcastMode = 'selected';
 
 function showToast(title, message, type = 'success') {
     const toast = document.getElementById('toast');
@@ -323,20 +355,43 @@ function displayMembers(members) {
             <span class="${m.is_fallback ? 'text-orange-600 font-bold' : 'text-indigo-600 font-medium'}">@${m.username || 'N/A'}</span>
             ${m.backup_username ? '<br><span class="text-slate-400">备:@' + m.backup_username + '</span>' : ''}
         </td>
-        <td class="py-1 text-slate-500" style="padding-left:2px;padding-right:4px;">${m.referrer_name ? '@' + m.referrer_name : '-'}</td>
-        <td class="py-1 text-right font-semibold text-emerald-600" style="padding-left:4px;padding-right:4px;">${m.balance}U</td>
-        <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">${m.group_link ? '<a href="' + m.group_link + '" target="_blank" class="text-blue-500">查看</a>' : '-'}</td>
+        <td class="py-1 text-slate-500" style="padding-left:2px;padding-right:4px;">
+            <div class="text-[11px] leading-tight text-slate-600">ID: ${m.referrer_id || '-'}</div>
+            <div class="text-[11px] leading-tight text-indigo-600 font-medium">${m.referrer_name ? '@' + m.referrer_name : '—'}</div>
+        </td>
+        <td class="py-1 text-left" style="padding-left:4px;padding-right:4px;">
+            <div class="text-sm font-semibold text-emerald-600">剩余: ${m.balance} U</div>
+            <div class="text-xs text-rose-500">错过: ${m.missed_balance || 0} U</div>
+        </td>
+        <td class="py-1 text-left" style="padding-left:4px;padding-right:4px;">
+            ${m.group_link ? `<div class="flex items-center gap-1"><a href="${m.group_link}" target="_blank" class="text-blue-500 underline underline-offset-2">群链接</a><button class="px-1.5 py-0.5 text-[11px] border border-slate-200 rounded hover:bg-slate-100" onclick="copyText('${m.group_link}')">复制</button></div>` : '<span class="text-slate-400">未设置</span>'}
+        </td>
         <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">${yesNo(m.is_group_bound)}</td>
         <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">${yesNo(m.is_bot_admin)}</td>
         <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">${yesNo(m.is_joined_upline)}</td>
         <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">
             ${m.is_vip ? `<span class="px-1 py-0.5 rounded font-semibold ${m.is_fallback ? 'bg-orange-200 text-orange-800' : 'bg-amber-100 text-amber-700'}">VIP</span>` : '<span class="text-slate-400">普通</span>'}
         </td>
-        <td class="py-1 text-center text-slate-600" style="padding-left:4px;padding-right:4px;">${m.direct_count || 0}</td>
-        <td class="py-1 text-center text-slate-600" style="padding-left:4px;padding-right:4px;">${m.team_count || 0}</td>
+        <td class="py-1 text-center text-slate-600 text-xs" style="padding-left:4px;padding-right:4px;">
+            <div>直推: ${m.direct_count || 0}</div>
+            <div>团队: ${m.team_count || 0}</div>
+        </td>
+        <td class="py-1 text-left text-[11px] text-slate-600" style="padding-left:4px;padding-right:4px;">
+            <div>注册: ${m.register_time || '—'}</div>
+            <div>VIP: ${m.vip_time || '—'}</div>
+        </td>
         <td class="py-1" style="padding-left:4px;padding-right:4px;"><div class="flex items-center gap-1"><button onclick="showGraph(${m.telegram_id})" class="px-2 py-0.5 text-xs rounded bg-purple-500 text-white">图谱</button><button onclick="editMember(${m.telegram_id})" class="px-2 py-0.5 text-xs rounded bg-blue-500 text-white">编辑</button><button onclick="deleteMember(${m.telegram_id}, '@${m.username}')" class="px-2 py-0.5 text-xs rounded bg-red-500 text-white">删除</button></div></td>
     </tr>`).join('');
     document.getElementById('membersList').innerHTML = html;
+}
+
+async function copyText(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        showToast('已复制', text, 'success');
+    } catch (e) {
+        showToast('复制失败', e.message || '请手动复制', 'error');
+    }
 }
 
 function displayPagination(data) {
@@ -387,6 +442,51 @@ function toggleSelect(id) {
 function selectAll() {
     document.getElementById('checkAll').checked = true;
     toggleAll();
+}
+
+function showMemberBroadcastModal(mode) {
+    memberBroadcastMode = mode;
+    if (mode === 'selected' && selectedMembers.size === 0) {
+        showToast('提示', '请先选择要群发的会员', 'error');
+        return;
+    }
+    const scopeText = mode === 'all'
+        ? '将向当前所有会员发送下面这条消息。'
+        : `将向已勾选的 ${selectedMembers.size} 位会员发送下面这条消息。`;
+    document.getElementById('memberBroadcastScope').textContent = scopeText;
+    document.getElementById('memberBroadcastMessage').value = '';
+    showModal('memberBroadcastModal');
+}
+
+async function sendMemberBroadcast() {
+    const message = document.getElementById('memberBroadcastMessage').value.trim();
+    if (!message) {
+        showToast('错误', '请输入要发送的消息内容', 'error');
+        return;
+    }
+
+    const payload = {
+        message: message,
+        all: memberBroadcastMode === 'all',
+        member_ids: memberBroadcastMode === 'selected' ? Array.from(selectedMembers) : []
+    };
+
+    try {
+        const res = await fetch('/api/members/broadcast', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('群发已提交', data.message || `已加入发送队列，预计向 ${data.count || 0} 位会员发送`);
+            closeModal('memberBroadcastModal');
+        } else {
+            showToast('群发失败', data.message || '提交群发任务失败', 'error');
+        }
+    } catch (e) {
+        showToast('群发失败', e.message, 'error');
+    }
 }
 
 async function batchDelete() {
