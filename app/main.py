@@ -2069,7 +2069,7 @@ async def admin_handler(event):
     text += f'💵 USDT地址: {config["usdt_address"][:10] if config["usdt_address"] else "未设置"}...{config["usdt_address"][-10:] if config["usdt_address"] and len(config["usdt_address"]) > 20 else ""}\n\n'
     text += f'客服文本:\n{config["support_text"]}\n\n'
     # 根据环境自动选择地址
-    web_url = 'http://liebian.mifzla.top' if not USE_PROXY else 'http://localhost:5051'
+    web_url = 'http://154.201.68.178:5051' if not USE_PROXY else 'http://localhost:5051'
     text += f'🌐 Web管理后台: {web_url}'
     
     buttons = [
@@ -3600,8 +3600,8 @@ PAYMENT_CONFIG = {
     'partner_id': '15',
     'key': '5c9dd0b054b184f964',
     # 回调和同步地址建议走 80 端口，由前面的 nginx 转发到 Flask
-    'notify_url': 'http://liebian.mifzla.top/api/payment/notify',
-    'return_url': 'http://liebian.mifzla.top/payment/success',
+    'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
+    'return_url': 'http://154.201.68.178:5051/payment/success',
     'pay_type': 'trc20',
     'version': '1.0'
 }
@@ -5849,7 +5849,7 @@ def main():
     if USE_PROXY:
         print('   本地访问：http://localhost:5051')
     else:
-        print('   服务器访问：http://liebian.mifzla.top')
+        print('   服务器访问：http://154.201.68.178:5051')
         print('   IP访问：http://118.107.0.247:5051')
     print('=' * 60)
     print()
@@ -6021,13 +6021,13 @@ def main():
                                     # 处理本地上传的图片路径
                                     file_path = image_url
                                     if image_url.startswith('/static/uploads/'):
-                                        file_path = '/www/wwwroot/liebian.mifzla.top' + image_url
+                                        file_path = '/www/wwwroot/154.201.68.178:5051' + image_url
                                     await bot.send_file(f'@{chat_username}', file_path, caption=msg_content, buttons=inline_buttons)
                                 elif video_url:
                                     # 处理本地上传的视频路径
                                     file_path = video_url
                                     if video_url.startswith('/static/uploads/'):
-                                        file_path = '/www/wwwroot/liebian.mifzla.top' + video_url
+                                        file_path = '/www/wwwroot/154.201.68.178:5051' + video_url
                                     await bot.send_file(f'@{chat_username}', file_path, caption=msg_content, buttons=inline_buttons)
                                 else:
                                     await bot.send_message(f'@{chat_username}', msg_content, buttons=inline_buttons)
