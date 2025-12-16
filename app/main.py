@@ -415,19 +415,20 @@ class DB:
         """
         max_retries = 5
         for retry in range(max_retries):
-        conn = DB.get_conn()
-        c = conn.cursor()
-        try:
+            conn = DB.get_conn()
+            c = conn.cursor()
+            try:
                 c.execute(
                     '''INSERT INTO members (telegram_id, username, referrer_id, register_time)
                         VALUES (?, ?, ?, ?)''',
                     (telegram_id, username, referrer_id, datetime.now().isoformat())
                 )
-            conn.commit()
+                conn.commit()
                 conn.close()
                 return True
-        except sqlite3.IntegrityError:
-        conn.close()
+            except sqlite3.IntegrityError:
+                # 已存在视为成功
+                conn.close()
                 return True
             except sqlite3.OperationalError as e:
                 conn.close()
@@ -674,7 +675,7 @@ def get_main_account_id(telegram_id, username=None):
             )
             fallback_result = c.fetchone()
             if fallback_result and fallback_result[0]:
-        conn.close()
+                conn.close()
                 return fallback_result[0]
 
         conn.close()
