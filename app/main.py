@@ -5729,7 +5729,6 @@ def upgrade_member_groups_table():
     conn.close()
 
 upgrade_member_groups_table()
-sync_member_groups_from_members()
 
 # 统一写入/更新会员群信息，保证后台“会员群管理”可见
 def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_admin=1):
@@ -5827,6 +5826,11 @@ def main():
     print()
     print('📊 初始化数据库...')
     init_db()
+    # 同步已有会员群链接到 member_groups，保证后台列表可见
+    try:
+        sync_member_groups_from_members()
+    except Exception as e:
+        print(f'[main] 同步member_groups失败: {e}')
     print('✅ 数据库初始化完成')
     print()
     
