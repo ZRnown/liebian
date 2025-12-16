@@ -4407,9 +4407,9 @@ def api_update_recharge_status(recharge_id):
 
             # 如果金额满足VIP价格且用户未开通，则开通VIP并分发上级奖励
             config = get_system_config()
-            vip_price = config.get('vip_price', 10)
-            level_reward = config.get('level_reward', 1)
-            level_count = config.get('level_count', 10)
+            vip_price = float(config.get('vip_price', 10))
+            level_reward = float(config.get('level_reward', 1))
+            level_count = int(config.get('level_count', 10))
 
             became_vip = False
             if (not is_vip) and current_balance >= vip_price:
@@ -4421,29 +4421,28 @@ def api_update_recharge_status(recharge_id):
                 is_vip = 1
                 current_balance = new_balance
 
-                # 给上级发放奖励（仅VIP上级，每层 level_reward）
+                # 给上级发放奖励（不再要求上级是VIP，只要存在就发放）
                 uplines = DB.get_upline_members(member_id, level_count)
                 reward_count = 0
                 for u in uplines:
-                    if u.get('is_vip'):
-                        up_id = u['telegram_id']
-                        up_member = DB.get_member(up_id)
-                        if up_member:
-                            up_new_balance = up_member.get('balance', 0) + level_reward
-                            total_earned = up_member.get('total_earned', 0) + level_reward
-                            DB.update_member(up_id, balance=up_new_balance, total_earned=total_earned)
+                    up_id = u['telegram_id']
+                    up_member = DB.get_member(up_id)
+                    if up_member:
+                        up_new_balance = up_member.get('balance', 0) + level_reward
+                        total_earned = up_member.get('total_earned', 0) + level_reward
+                        DB.update_member(up_id, balance=up_new_balance, total_earned=total_earned)
 
-                            # 收益记录
-                            conn2 = DB.get_conn()
-                            c2 = conn2.cursor()
-                            c2.execute('''INSERT INTO earnings_records 
-                                           (member_id, amount, source_type, source_id, description, create_time)
-                                           VALUES (?, ?, ?, ?, ?, ?)''',
-                                       (up_id, level_reward, 'vip_commission', member_id,
-                                        f'后台确认VIP分红（下级: {member_id}）', datetime.now(CN_TIMEZONE).isoformat()))
-                            conn2.commit()
-                            conn2.close()
-                            reward_count += 1
+                        # 收益记录
+                        conn2 = DB.get_conn()
+                        c2 = conn2.cursor()
+                        c2.execute('''INSERT INTO earnings_records 
+                                       (member_id, amount, source_type, source_id, description, create_time)
+                                       VALUES (?, ?, ?, ?, ?, ?)''',
+                                   (up_id, level_reward, 'vip_commission', member_id,
+                                    f'后台确认VIP分红（下级: {member_id}）', datetime.now(CN_TIMEZONE).isoformat()))
+                        conn2.commit()
+                        conn2.close()
+                        reward_count += 1
 
                 # 补充：如果没有上级且存在捡漏账号，随机发放
                 if not uplines:
