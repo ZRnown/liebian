@@ -421,7 +421,7 @@ class DB:
                 c.execute(
                     '''INSERT INTO members (telegram_id, username, referrer_id, register_time)
                         VALUES (?, ?, ?, ?)''',
-                    (telegram_id, username, referrer_id, datetime.now().isoformat())
+                    (telegram_id, username, referrer_id, datetime.now(CN_TIMEZONE).isoformat())
                 )
                 conn.commit()
                 conn.close()
@@ -693,6 +693,35 @@ def get_main_account_id(telegram_id, username=None):
         print(f"[关联查询出错] {e}")
         return telegram_id
 
+def format_backup_account_display(backup_account):
+    """
+    格式化备用号显示：如果是ID则查询用户名，如果是用户名则直接显示
+    返回格式化的字符串，如 "@username" 或 "未设置"
+    """
+    if not backup_account:
+        return "未设置"
+    
+    backup_account_str = str(backup_account).strip()
+    
+    # 如果已经是用户名格式（以@开头或不是纯数字），直接返回
+    if backup_account_str.startswith('@'):
+        return backup_account_str
+    if not backup_account_str.isdigit():
+        # 如果不是纯数字，可能是用户名（没有@前缀），加上@返回
+        return f"@{backup_account_str}"
+    
+    # 如果是纯数字ID，查询对应的用户名
+    try:
+        backup_id = int(backup_account_str)
+        backup_member = DB.get_member(backup_id)
+        if backup_member and backup_member.get('username'):
+            return f"@{backup_member['username']}"
+        else:
+            # 查不到用户名，返回ID
+            return backup_account_str
+    except (ValueError, Exception):
+        # 转换失败或其他错误，返回原值
+        return backup_account_str
 
 def link_account(main_id, backup_id, backup_username):
     """
@@ -713,6 +742,15 @@ def link_account(main_id, backup_id, backup_username):
     # 防止自己绑定自己
     if str(main_id) == str(backup_id) or value_to_store == str(main_id):
         return False, "❌ 不能将自己设置为备用号"
+
+    # 2.1 已注册账号不可绑定为备用号
+    try:
+        if backup_id:
+            existing_member = DB.get_member(backup_id)
+            if existing_member and str(backup_id) != str(main_id):
+                return False, "❌ 该账号已注册，不能设置为备用号"
+    except Exception as e:
+        print(f"[检查备用号是否已注册失败] {e}")
 
     conn = DB.get_conn()
     c = conn.cursor()
@@ -1311,6 +1349,9 @@ async def profile_handler(event):
         [Button.inline('📊 收益记录', b'earnings_history')],
     ]
     
+    # 格式化备用号显示（显示用户名而不是ID）
+    backup_display = format_backup_account_display(member.get("backup_account"))
+    
     await event.respond(
         f'👤 个人中心 (已同步主账号)\n\n'
         f'🆔 主账号ID: `{member["telegram_id"]}`\n'
@@ -1319,7 +1360,7 @@ async def profile_handler(event):
         f'💰 余额: {member["balance"]} U\n'
         f'📉 错过余额: {member["missed_balance"]} U\n'
         f'🔗 群链接: {member["group_link"] or "未设置"}\n'
-        f'📱 绑定备用号: {member["backup_account"] or "未设置"}\n'
+        f'📱 绑定备用号: {backup_display}\n'
         f'📅 注册时间: {member["register_time"][:10] if member["register_time"] else "未知"}',
         buttons=buttons
     )
@@ -2955,6 +2996,9 @@ async def back_to_profile_callback(event):
         [Button.inline('💳 提现', b'withdraw'), Button.inline('💰 充值', b'do_recharge'), Button.inline('💎 开通VIP', b'open_vip')],
     ]
     
+    # 格式化备用号显示（显示用户名而不是ID）
+    backup_display = format_backup_account_display(member.get("backup_account"))
+    
     text = (
         f'👤 个人中心\n\n'
         f'🆔 ID: {member["telegram_id"]}\n'
@@ -2964,7 +3008,7 @@ async def back_to_profile_callback(event):
         f'📉 错过余额: {member["missed_balance"]} U\n'
         f'💵 累计收益: {member.get("total_earned", 0)} U\n'
         f'🔗 群链接: {member["group_link"] or "未设置"}\n'
-        f'📱 备用号: {member["backup_account"] or "未设置"}\n'
+        f'📱 备用号: {backup_display}\n'
         f'📅 注册时间: {member["register_time"][:10] if member["register_time"] else "未知"}'
     )
     
