@@ -572,65 +572,92 @@ notify_queue = []
 async def verify_group_link(link):
     """验证群链接，检查机器人是否在群内且为管理员
     
-    仅支持形如 http://t.me/xxx 或 https://t.me/xxx 的公开群链接
+    支持：
+    - http://t.me/群用户名 / https://t.me/群用户名 （公开群）
+    - http://t.me/+xxxx / https://t.me/+xxxx / https://t.me/joinchat/xxxx （私有邀请链接，前提是机器人已在群里）
     """
     try:
         # 必须是 http(s)://t.me/ 开头
         if link.startswith('http://t.me/'):
-            username = link.replace('http://t.me/', '').split('?')[0]
+            tail = link.replace('http://t.me/', '').split('?')[0]
         elif link.startswith('https://t.me/'):
-            username = link.replace('https://t.me/', '').split('?')[0]
+            tail = link.replace('https://t.me/', '').split('?')[0]
         else:
-            return {'success': False, 'message': '链接格式不正确，请使用 http://t.me/群用户名 形式'}
+            return {'success': False, 'message': '链接格式不正确，请使用 http://t.me/ 开头的链接'}
         
-        # 如果包含 "+"，说明是私有邀请链接（如 https://t.me/+xxxx）
-        # 机器人无法通过邀请链接检测自己的管理员权限，只能通过公开群用户名(@xxx)验证
-        if '+' in username:
-            return {'success': False, 'message': '检测到是私有邀请链接，暂不支持验证，请发送公开群用户名链接（例如：https://t.me/群用户名 或 @群用户名）'}
+        entity = None
         
-        try:
-            # 尝试获取实体
-            entity = await bot.get_entity(username)
+        # 1) 私有邀请链接: +hash 或 joinchat/hash
+        if tail.startswith('+') or tail.startswith('joinchat/'):
+            # 提取邀请 hash
+            if tail.startswith('+'):
+                invite_hash = tail[1:]
+            else:
+                invite_hash = tail.split('joinchat/')[-1]
             
-            # 检查是否是群组或超级群
-            if not hasattr(entity, 'broadcast') or entity.broadcast:
-                return {'success': False, 'message': '这不是一个群组链接'}
-            
-            # 获取机器人在群内的权限
             try:
-                me = await bot.get_me()
-                participant = await bot(GetParticipantRequest(
-                    channel=entity,
-                    participant=me.id
-                ))
+                # 通过邀请链接检查群信息
+                from telethon.tl.functions.messages import CheckChatInviteRequest
+                from telethon.tl.types import ChatInviteAlready
                 
-                # 检查是否为管理员
-                from telethon.tl.types import (
-                    ChatParticipantAdmin,
-                    ChatParticipantCreator,
-                    ChannelParticipantAdmin,
-                    ChannelParticipantCreator
-                )
+                invite = await bot(CheckChatInviteRequest(invite_hash))
                 
-                is_admin = isinstance(participant.participant, (
-                    ChatParticipantAdmin,
-                    ChatParticipantCreator,
-                    ChannelParticipantAdmin,
-                    ChannelParticipantCreator
-                ))
-                
-                if not is_admin:
-                    return {'success': False, 'message': '机器人不是群管理员'}
-                
-                return {'success': True, 'message': '验证成功'}
-                
+                # 如果机器人已经在群里，返回 ChatInviteAlready，其中包含 chat 实体
+                if isinstance(invite, ChatInviteAlready):
+                    entity = invite.chat
+                else:
+                    return {'success': False, 'message': '机器人尚未被加入该私有群，请先手动把机器人拉入群并设为管理员'}
             except Exception as e:
-                print(f'获取权限失败: {e}')
-                return {'success': False, 'message': '机器人不在该群内或无法获取权限'}
-                
+                print(f'通过邀请链接获取实体失败: {e}')
+                return {'success': False, 'message': '无法通过该私有链接访问群，请确认链接有效且机器人已在群内'}
+        else:
+            # 2) 普通公开群用户名
+            username = tail
+            try:
+                entity = await bot.get_entity(username)
+            except Exception as e:
+                print(f'获取实体失败: {e}')
+                return {'success': False, 'message': '无法访问该群，可能是私有群或链接无效'}
+        
+        # 到这里应该已经拿到群实体
+        if not entity:
+            return {'success': False, 'message': '无法识别该群链接'}
+        
+        # 检查是否是群组或超级群
+        if not hasattr(entity, 'broadcast') or entity.broadcast:
+            return {'success': False, 'message': '这不是一个群组链接'}
+        
+        # 获取机器人在群内的权限
+        try:
+            me = await bot.get_me()
+            participant = await bot(GetParticipantRequest(
+                channel=entity,
+                participant=me.id
+            ))
+            
+            # 检查是否为管理员
+            from telethon.tl.types import (
+                ChatParticipantAdmin,
+                ChatParticipantCreator,
+                ChannelParticipantAdmin,
+                ChannelParticipantCreator
+            )
+            
+            is_admin = isinstance(participant.participant, (
+                ChatParticipantAdmin,
+                ChatParticipantCreator,
+                ChannelParticipantAdmin,
+                ChannelParticipantCreator
+            ))
+            
+            if not is_admin:
+                return {'success': False, 'message': '机器人不是群管理员'}
+            
+            return {'success': True, 'message': '验证成功'}
+            
         except Exception as e:
-            print(f'获取实体失败: {e}')
-            return {'success': False, 'message': '无法访问该群，可能是私有群或链接无效'}
+            print(f'获取权限失败: {e}')
+            return {'success': False, 'message': '机器人不在该群内或无法获取权限'}
             
     except Exception as e:
         print(f'验证群链接失败: {e}')
