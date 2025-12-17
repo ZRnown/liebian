@@ -3753,24 +3753,24 @@ async def message_handler(event):
                         f'✅ 机器人已在群内\n'
                         f'✅ 机器人具有管理员权限'
                     )
+                else:
+                    # 私有邀请链接，只能记录，无法自动校验管理员
+                    await event.respond(
+                        f'✅ 群组链接已记录\n\n'
+                        f'链接: {link}\n\n'
+                        f'ℹ️ 未能自动检测管理员权限，请确保机器人已在群且为管理员，否则某些验证功能可能不可用。'
+                    )
             else:
-                # 私有邀请链接，只能记录，无法自动校验管理员
+                reason = verification_result.get("message", "未知错误")
                 await event.respond(
-                    f'✅ 群组链接已记录\n\n'
-                    f'链接: {link}\n\n'
-                    f'ℹ️ 未能自动检测管理员权限，请确保机器人已在群且为管理员，否则某些验证功能可能不可用。'
+                    f'❌ 群链接验证失败\n\n'
+                    f'原因: {reason}\n\n'
+                    f'请确保:\n'
+                    f'1. 机器人已被添加到群内\n'
+                    f'2. 机器人具有管理员权限\n\n'
+                    f'3. 使用 http://t.me/群用户名 或 https://t.me/群用户名 的公开群链接\n\n'
+                    f'完成后请重新发送群链接'
                 )
-        else:
-            reason = verification_result.get("message", "未知错误")
-            await event.respond(
-                f'❌ 群链接验证失败\n\n'
-                f'原因: {reason}\n\n'
-                f'请确保:\n'
-                f'1. 机器人已被添加到群内\n'
-                f'2. 机器人具有管理员权限\n\n'
-                f'3. 使用 http://t.me/群用户名 或 https://t.me/群用户名 的公开群链接\n\n'
-                f'完成后请重新发送群链接'
-            )
         else:
             await event.respond('❌ 链接格式不正确，请发送正确的Telegram群链接\n例如: http://t.me/群用户名 或 https://t.me/群用户名')
         return
@@ -4256,7 +4256,7 @@ class WebDB:
             query = f"UPDATE members SET {', '.join(updates)} WHERE telegram_id = ?"
             print(f"[会员更新] SQL: {query}, params: {params}")
             c.execute(query, params)
-                conn.commit()
+            conn.commit()
 
         conn.close()
         return True
