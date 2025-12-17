@@ -731,11 +731,11 @@ def link_account(main_id, backup_id, backup_username):
     clean_username = (backup_username or '').strip().lstrip('@')
     
     # 2. 准备存储的值
-    # 优先存 ID，如果没有 ID 则存 @用户名
-    if backup_id:
-        value_to_store = str(backup_id)
-    elif clean_username:
+    # 为了展示用户名，这里优先存用户名（@username），如果没有用户名才存ID
+    if clean_username:
         value_to_store = f"@{clean_username}"
+    elif backup_id:
+        value_to_store = str(backup_id)
     else:
         return False, "❌ 无效的备用账号信息"
         
@@ -3616,20 +3616,22 @@ async def message_handler(event):
     if sender_id in waiting_for_backup and waiting_for_backup[sender_id]:
         backup_raw = text.strip().lstrip('@')
         backup_id = None
-        backup_username = backup_raw
+        backup_username = None
         
         # 尝试解析数字ID
         if backup_raw.isdigit():
             backup_id = int(backup_raw)
-        else:
-            # 尝试通过用户名解析为账号ID
-            try:
-                entity = await bot.get_entity(backup_raw)
-                if getattr(entity, 'id', None):
-                    backup_id = entity.id
-                    backup_username = getattr(entity, 'username', backup_raw) or backup_raw
-            except Exception as e:
-                print(f"[备用号解析失败] {e}")
+        
+        # 无论是ID还是用户名，都尝试通过 Telegram 获取实体以拿到准确用户名
+        try:
+            # 如果是纯数字ID，优先用ID查询；否则用用户名查询
+            entity_query = backup_id if backup_id is not None else backup_raw
+            entity = await bot.get_entity(entity_query)
+            if getattr(entity, 'id', None):
+                backup_id = entity.id
+                backup_username = getattr(entity, 'username', None)
+        except Exception as e:
+            print(f"[备用号解析失败] {e}")
         
         if not backup_id:
             await event.respond('❌ 未找到该备用号，请发送正确的用户名或ID')

@@ -351,7 +351,11 @@ function displayMembers(members) {
         <td class="py-1 font-mono text-slate-700" style="padding-left:4px;padding-right:4px;">${m.telegram_id}</td>
         <td class="py-1" style="padding-left:4px;padding-right:0px;">
             <div class="text-sm font-semibold ${m.is_fallback ? 'text-orange-600' : 'text-indigo-600'}">@${m.username || 'N/A'}</div>
-            ${m.backup_username ? '<div class="text-[11px] text-slate-500">备:@' + m.backup_username + '</div>' : '<div class="text-[11px] text-slate-400">备: —</div>'}
+            ${
+                m.backup_username
+                    ? '<div class="text-[11px] text-slate-500">备:' + (m.backup_username.startsWith('@') ? m.backup_username : '@' + m.backup_username) + '</div>'
+                    : '<div class="text-[11px] text-slate-400">备: —</div>'
+            }
         </td>
         <td class="py-1 text-slate-500" style="padding-left:2px;padding-right:4px;">
             <div class="text-[11px] leading-tight text-slate-600">推荐人ID: ${m.referrer_id || '—'}</div>
