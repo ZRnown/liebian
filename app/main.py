@@ -568,13 +568,15 @@ withdraw_temp_data = {}
 # 通知消息队列
 notify_queue = []
 
-# 验证群链接功能
 async def verify_group_link(link):
     """验证群链接，检查机器人是否在群内且为管理员
     
     支持：
-    - http://t.me/群用户名 / https://t.me/群用户名 （公开群）
-    - http://t.me/+xxxx / https://t.me/+xxxx / https://t.me/joinchat/xxxx （私有邀请链接，前提是机器人已在群里）
+    - http://t.me/群用户名 / https://t.me/群用户名 （公开群，支持自动检测管理员）
+    - http://t.me/+xxxx / https://t.me/+xxxx / https://t.me/joinchat/xxxx （私有邀请链接，只能记录，无法自动检测管理员）
+    
+    返回示例：
+    - {'success': True, 'message': 'xxx', 'admin_checked': True/False}
     """
     try:
         # 必须是 http(s)://t.me/ 开头
@@ -583,49 +585,28 @@ async def verify_group_link(link):
         elif link.startswith('https://t.me/'):
             tail = link.replace('https://t.me/', '').split('?')[0]
         else:
-            return {'success': False, 'message': '链接格式不正确，请使用 http://t.me/ 开头的链接'}
+            return {'success': False, 'message': '链接格式不正确，请使用 http://t.me/ 开头的链接', 'admin_checked': False}
         
-        entity = None
-        
-        # 1) 私有邀请链接: +hash 或 joinchat/hash
+        # 1) 私有邀请链接: +hash 或 joinchat/hash -> 无法用 Bot 检测管理员，只能记录
         if tail.startswith('+') or tail.startswith('joinchat/'):
-            # 提取邀请 hash
-            if tail.startswith('+'):
-                invite_hash = tail[1:]
-            else:
-                invite_hash = tail.split('joinchat/')[-1]
-            
-            try:
-                # 通过邀请链接检查群信息
-                from telethon.tl.functions.messages import CheckChatInviteRequest
-                from telethon.tl.types import ChatInviteAlready
-                
-                invite = await bot(CheckChatInviteRequest(invite_hash))
-                
-                # 如果机器人已经在群里，返回 ChatInviteAlready，其中包含 chat 实体
-                if isinstance(invite, ChatInviteAlready):
-                    entity = invite.chat
-                else:
-                    return {'success': False, 'message': '机器人尚未被加入该私有群，请先手动把机器人拉入群并设为管理员'}
-            except Exception as e:
-                print(f'通过邀请链接获取实体失败: {e}')
-                return {'success': False, 'message': '无法通过该私有链接访问群，请确认链接有效且机器人已在群内'}
-        else:
-            # 2) 普通公开群用户名
-            username = tail
-            try:
-                entity = await bot.get_entity(username)
-            except Exception as e:
-                print(f'获取实体失败: {e}')
-                return {'success': False, 'message': '无法访问该群，可能是私有群或链接无效'}
+            return {
+                'success': True,
+                'message': '私有邀请链接已记录，Telegram 限制无法自动检测管理员，请确保机器人已在群且为管理员',
+                'admin_checked': False
+            }
         
-        # 到这里应该已经拿到群实体
-        if not entity:
-            return {'success': False, 'message': '无法识别该群链接'}
+        # 2) 普通公开群用户名：可以检测是否为管理员
+        username = tail
+        try:
+            # 尝试获取实体
+            entity = await bot.get_entity(username)
+        except Exception as e:
+            print(f'获取实体失败: {e}')
+            return {'success': False, 'message': '无法访问该群，可能是私有群或链接无效', 'admin_checked': False}
         
         # 检查是否是群组或超级群
         if not hasattr(entity, 'broadcast') or entity.broadcast:
-            return {'success': False, 'message': '这不是一个群组链接'}
+            return {'success': False, 'message': '这不是一个群组链接', 'admin_checked': False}
         
         # 获取机器人在群内的权限
         try:
@@ -651,17 +632,17 @@ async def verify_group_link(link):
             ))
             
             if not is_admin:
-                return {'success': False, 'message': '机器人不是群管理员'}
+                return {'success': False, 'message': '机器人不是群管理员', 'admin_checked': True}
             
-            return {'success': True, 'message': '验证成功'}
+            return {'success': True, 'message': '验证成功', 'admin_checked': True}
             
         except Exception as e:
             print(f'获取权限失败: {e}')
-            return {'success': False, 'message': '机器人不在该群内或无法获取权限'}
+            return {'success': False, 'message': '机器人不在该群内或无法获取权限', 'admin_checked': True}
             
     except Exception as e:
         print(f'验证群链接失败: {e}')
-        return {'success': False, 'message': f'验证失败: {str(e)}'}
+        return {'success': False, 'message': f'验证失败: {str(e)}', 'admin_checked': False}
 
 # ============ USDT充值功能 ============
 
@@ -3690,30 +3671,48 @@ async def message_handler(event):
     # 设置群链接
     if sender_id in waiting_for_group_link and waiting_for_group_link[sender_id]:
         link = text
-        # 只允许 http(s)://t.me/ 开头的公开群链接
+        # 只允许 http(s)://t.me/ 开头的链接（公开群或私有邀请链接）
         if link.startswith('http://t.me/') or link.startswith('https://t.me/'):
             # 验证群链接
             verification_result = await verify_group_link(link)
             
             if verification_result['success']:
-                # 绑定群链接时，同时标记已拉群且机器人为群管
-                DB.update_member(sender_id, group_link=link, is_group_bound=1, is_bot_admin=1)
+                # 根据是否成功检测管理员来设置 is_bot_admin
+                is_admin_flag = 1 if verification_result.get('admin_checked') else 0
+                
+                DB.update_member(sender_id, group_link=link, is_group_bound=1, is_bot_admin=is_admin_flag)
                 try:
                     sender_username = getattr(event.sender, 'username', None) if hasattr(event, 'sender') else None
-                    upsert_member_group(sender_id, link, sender_username, is_bot_admin=1)
+                    upsert_member_group(sender_id, link, sender_username, is_bot_admin=is_admin_flag)
                 except Exception as sync_err:
                     print(f'[绑定群写入member_groups失败] {sync_err}')
                 del waiting_for_group_link[sender_id]
-                await event.respond(
-                    f'✅ 群链接设置成功!\n\n'
-                    f'链接: {link}\n'
-                    f'✅ 机器人已在群内\n'
-                    f'✅ 机器人具有管理员权限'
-                )
+                
+                # 构造提示文案
+                if verification_result.get('admin_checked'):
+                    # 已成功检测管理员
+                    await event.respond(
+                        f'✅ 群链接设置成功!\n\n'
+                        f'链接: {link}\n'
+                        f'✅ 机器人已在群内\n'
+                        f'✅ 机器人具有管理员权限'
+                    )
+                else:
+                    # 私有邀请链接，只能记录，无法自动校验管理员
+                    await event.respond(
+                        f'✅ 群链接已记录\n\n'
+                        f'链接: {link}\n\n'
+                        f'ℹ️ 由于是私有邀请链接，Telegram 限制无法自动检测机器人是否为管理员\n'
+                        f'请确保:\n'
+                        f'1. 机器人已被添加到群内\n'
+                        f'2. 机器人具有管理员权限\n\n'
+                        f'如需系统自动校验管理员，请发送公开群链接: http://t.me/群用户名 或 https://t.me/群用户名'
+                    )
             else:
+                reason = verification_result.get("message", "未知错误")
                 await event.respond(
                     f'❌ 群链接验证失败\n\n'
-                    f'原因: {verification_result["message"]}\n\n'
+                    f'原因: {reason}\n\n'
                     f'请确保:\n'
                     f'1. 机器人已被添加到群内\n'
                     f'2. 机器人具有管理员权限\n\n'
