@@ -2724,23 +2724,23 @@ async def verify_groups_callback(event):
             if group_username.startswith('+'):
                 not_joined.append(group_info)
                 continue
+            
+            # 尝试获取群组实体
+            try:
+                group_entity = await bot.get_entity(group_username)
                 
+                # 检查用户是否在群组中
                 try:
-                    # 尝试获取群组实体
-                    group_entity = await bot.get_entity(group_username)
-                    
-                    # 检查用户是否在群组中
-                    try:
-                        participant = await bot(GetParticipantRequest(
+                    participant = await bot(GetParticipantRequest(
                         channel=group_entity,
                         participant=telegram_id
                     ))
-                        joined.append(group_info)
-                    except:
-                        not_joined.append(group_info)
-                except Exception as e:
-                    # 无法获取群组信息，可能是私有群或链接无效
+                    joined.append(group_info)
+                except:
                     not_joined.append(group_info)
+            except Exception as e:
+                # 无法获取群组信息，可能是私有群或链接无效
+                not_joined.append(group_info)
         except Exception as e:
             not_joined.append(group_info)
     
@@ -2749,13 +2749,19 @@ async def verify_groups_callback(event):
     joined_count = len(joined)
     not_joined_count = len(not_joined)
     
+    # 更新数据库中的 is_joined_upline 标志（只有全部加入且总数>0时才标记为1）
+    try:
+        DB.update_member(telegram_id, is_joined_upline=1 if (total_groups > 0 and joined_count == total_groups) else 0)
+    except Exception as e:
+        print(f"[verify_groups] 更新 is_joined_upline 失败: {e}")
+    
     text = f"🔍 群组加入验证结果\n\n"
     text += f"📊 总计: {total_groups} 个群组\n"
     text += f"✅ 已加入: {joined_count} 个\n"
     text += f"❌ 未加入: {not_joined_count} 个\n\n"
     
-    if joined_count == total_groups:
-        text += "🎉 恭喜！您已加入所有 {total_groups} 个群组！\n\n"
+    if total_groups > 0 and joined_count == total_groups:
+        text += f"🎉 恭喜！您已加入所有 {total_groups} 个群组！\n\n"
         text += "✅ 所有条件已满足，可以正常获得分红！"
     else:
         if joined:
@@ -3650,7 +3656,8 @@ async def message_handler(event):
             verification_result = await verify_group_link(link)
             
             if verification_result['success']:
-                DB.update_member(sender_id, group_link=link)
+                # 绑定群链接时，同时标记已拉群且机器人为群管
+                DB.update_member(sender_id, group_link=link, is_group_bound=1, is_bot_admin=1)
                 try:
                     sender_username = getattr(event.sender, 'username', None) if hasattr(event, 'sender') else None
                     upsert_member_group(sender_id, link, sender_username, is_bot_admin=1)
