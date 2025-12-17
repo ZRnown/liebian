@@ -415,20 +415,20 @@ class DB:
         """
         max_retries = 5
         for retry in range(max_retries):
-        conn = DB.get_conn()
-        c = conn.cursor()
-        try:
+            conn = DB.get_conn()
+            c = conn.cursor()
+            try:
                 c.execute(
                     '''INSERT INTO members (telegram_id, username, referrer_id, register_time)
                         VALUES (?, ?, ?, ?)''',
                     (telegram_id, username, referrer_id, datetime.now().isoformat())
                 )
-            conn.commit()
+                conn.commit()
                 conn.close()
                 return True
-        except sqlite3.IntegrityError:
+            except sqlite3.IntegrityError:
                 # 已存在视为成功
-        conn.close()
+                conn.close()
                 return True
             except sqlite3.OperationalError as e:
                 conn.close()
@@ -675,7 +675,7 @@ def get_main_account_id(telegram_id, username=None):
             )
             fallback_result = c.fetchone()
             if fallback_result and fallback_result[0]:
-        conn.close()
+                conn.close()
                 return fallback_result[0]
 
         conn.close()
@@ -743,7 +743,7 @@ def link_account(main_id, backup_id, backup_username):
         
     except Exception as e:
         try:
-        conn.close()
+            conn.close()
         except:
             pass
         return False, f"关联失败: {str(e)}"
@@ -1054,8 +1054,8 @@ async def create_recharge_order(event, amount, is_vip_order=False):
 ⚠️ 订单10分钟内有效，过期后请重新创建
 ⚠️ 转账金额必须与订单金额完全一致
 ✅ 支付完成后，系统将自动到账（约1-2分钟）'''
-    
-    buttons = [[Button.inline("返回", b"back")]]
+        
+        buttons = [[Button.inline("返回", b"back")]]
         await event.respond(msg, buttons=buttons, parse_mode='markdown')
     else:
         # 如果无法解析到USDT地址，提示错误（不使用缓存地址）
@@ -1225,7 +1225,7 @@ async def start_handler(event):
     if original_id != telegram_id:
         print(f"⚠️ [Start命令] 检测到备用号登录: {original_id} -> 切换至主账号 {telegram_id}")
     else:
-    print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
+        print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
     
     # 解析推荐人ID (保持原有逻辑)
     referrer_id = None
@@ -2716,7 +2716,7 @@ async def verify_groups_callback(event):
     if joined_count == total_groups:
         text += "🎉 恭喜！您已加入所有 {total_groups} 个群组！\n\n"
         text += "✅ 所有条件已满足，可以正常获得分红！"
-            else:
+    else:
         if joined:
             text += "✅ 已加入的群组:\n"
             for g in joined:
