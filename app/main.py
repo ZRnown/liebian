@@ -2729,6 +2729,14 @@ async def verify_groups_callback(event):
             try:
                 group_entity = await bot.get_entity(group_username)
                 
+                # 记录更友好的群名称，方便后面展示
+                try:
+                    title = getattr(group_entity, 'title', None)
+                    if title:
+                        group_info['group_name'] = title
+                except Exception:
+                    pass
+                
                 # 检查用户是否在群组中
                 try:
                     participant = await bot(GetParticipantRequest(
@@ -2769,18 +2777,18 @@ async def verify_groups_callback(event):
         if joined:
             text += "✅ 已加入的群组:\n"
             for g in joined:
-                group_name = g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link']
+                group_name = g.get('group_name') or (g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link'])
                 idx = g.get('display_index', g.get('level', '?'))
                 text += f"  {idx}. {group_name}\n"
         text += "\n"
     
     if not_joined:
-            text += "❌ 未加入的群组（请点击加入）:\n"
-            for g in not_joined:
-                group_name = g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link']
-                idx = g.get('display_index', g.get('level', '?'))
-                text += f"  {idx}. [{group_name}]({g['link']})\n"
-            text += "\n⚠️ 请加入以上未加入的群组，才能获得分红！"
+        text += "❌ 未加入的群组（请点击加入）:\n"
+        for g in not_joined:
+            group_name = g.get('group_name') or (g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link'])
+            idx = g.get('display_index', g.get('level', '?'))
+            text += f"  {idx}. [{group_name}]({g['link']})\n"
+        text += "\n⚠️ 请加入以上未加入的群组，才能获得分红！"
     
     await event.respond(text, parse_mode='markdown')
 
