@@ -572,7 +572,7 @@ notify_queue = []
 async def verify_group_link(link):
     """验证群链接，检查机器人是否在群内且为管理员"""
     try:
-        # 提取群用户名
+        # 提取群用户名/邀请标识
         username = None
         if link.startswith('https://t.me/'):
             username = link.replace('https://t.me/', '').split('?')[0]
@@ -583,8 +583,10 @@ async def verify_group_link(link):
         else:
             return {'success': False, 'message': '链接格式不正确'}
         
-        # 移除可能的+号（私有群）
-        username = username.replace('+', '')
+        # 如果包含 "+"，说明是私有邀请链接（如 https://t.me/+xxxx）
+        # 机器人无法通过邀请链接检测自己的管理员权限，只能通过公开群用户名(@xxx)验证
+        if '+' in username:
+            return {'success': False, 'message': '检测到是私有邀请链接，暂不支持验证，请发送公开群用户名链接（例如：https://t.me/群用户名 或 @群用户名）'}
         
         try:
             # 尝试获取实体
