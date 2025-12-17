@@ -3748,11 +3748,11 @@ async def message_handler(event):
                 if verification_result.get('admin_checked'):
                     # 已成功检测管理员
                     await event.respond(
-                    f'✅ 群链接设置成功!\n\n'
-                    f'链接: {link}\n'
-                    f'✅ 机器人已在群内\n'
-                    f'✅ 机器人具有管理员权限'
-                )
+                        f'✅ 群链接设置成功!\n\n'
+                        f'链接: {link}\n'
+                        f'✅ 机器人已在群内\n'
+                        f'✅ 机器人具有管理员权限'
+                    )
             else:
                 # 私有邀请链接，只能记录，无法自动校验管理员
                 await event.respond(
