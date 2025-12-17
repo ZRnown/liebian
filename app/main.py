@@ -603,41 +603,41 @@ async def verify_group_link(link):
         except Exception as e:
             print(f'获取实体失败: {e}')
             return {'success': False, 'message': '无法访问该群，可能是私有群或链接无效', 'admin_checked': False}
-        
-        # 检查是否是群组或超级群
-        if not hasattr(entity, 'broadcast') or entity.broadcast:
+            
+            # 检查是否是群组或超级群
+            if not hasattr(entity, 'broadcast') or entity.broadcast:
             return {'success': False, 'message': '这不是一个群组链接', 'admin_checked': False}
-        
-        # 获取机器人在群内的权限
-        try:
-            me = await bot.get_me()
-            participant = await bot(GetParticipantRequest(
-                channel=entity,
-                participant=me.id
-            ))
             
-            # 检查是否为管理员
-            from telethon.tl.types import (
-                ChatParticipantAdmin,
-                ChatParticipantCreator,
-                ChannelParticipantAdmin,
-                ChannelParticipantCreator
-            )
-            
-            is_admin = isinstance(participant.participant, (
-                ChatParticipantAdmin,
-                ChatParticipantCreator,
-                ChannelParticipantAdmin,
-                ChannelParticipantCreator
-            ))
-            
-            if not is_admin:
+            # 获取机器人在群内的权限
+            try:
+                me = await bot.get_me()
+                participant = await bot(GetParticipantRequest(
+                    channel=entity,
+                    participant=me.id
+                ))
+                
+                # 检查是否为管理员
+                from telethon.tl.types import (
+                    ChatParticipantAdmin,
+                    ChatParticipantCreator,
+                    ChannelParticipantAdmin,
+                    ChannelParticipantCreator
+                )
+                
+                is_admin = isinstance(participant.participant, (
+                    ChatParticipantAdmin,
+                    ChatParticipantCreator,
+                    ChannelParticipantAdmin,
+                    ChannelParticipantCreator
+                ))
+                
+                if not is_admin:
                 return {'success': False, 'message': '机器人不是群管理员', 'admin_checked': True}
-            
+                
             return {'success': True, 'message': '验证成功', 'admin_checked': True}
-        
-        except Exception as e:
-            print(f'获取权限失败: {e}')
+                
+            except Exception as e:
+                print(f'获取权限失败: {e}')
             return {'success': False, 'message': '机器人不在该群内或无法获取权限', 'admin_checked': True}
             
     except Exception as e:
@@ -685,7 +685,7 @@ def get_main_account_id(telegram_id, username=None):
             )
             fallback_result = c.fetchone()
             if fallback_result and fallback_result[0]:
-                conn.close()
+        conn.close()
                 return fallback_result[0]
         
         conn.close()
@@ -791,7 +791,7 @@ def link_account(main_id, backup_id, backup_username):
         
     except Exception as e:
         try:
-            conn.close()
+        conn.close()
         except:
             pass
         return False, f"关联失败: {str(e)}"
@@ -872,12 +872,17 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                         conn.close()
                         
                         try:
-                            await bot.send_message(upline_id,
-                                f'🎉 恭喜！您获得了 {config["level_reward"]} U 分红！\n\n'
-                                f'来自第 {level} 层下级开通VIP\n'
-                                f'下级用户: @{member["username"]}\n'
-                                f'当前余额: {up_new_balance} U\n'
-                                f'累计获得: {total_earned} U')
+                            await bot.send_message(
+                                upline_id,
+                                (
+                                    f"🎉 恭喜您成功获得 {config['level_reward']} U\n\n"
+                                    f"👥 下级开通 VIP：@{member['username']}\n"
+                                    f"🎯 第 {level} 级会员开通 VIP +{config['level_reward']} U\n\n"
+                                    f"💰 当前余额：{up_new_balance} U\n"
+                                    f"📈 累计获得：{total_earned} U\n\n"
+                                    "💡 继续分享您的邀请链接，裂变更多好友获取更多收益～"
+                                )
+                            )
                         except:
                             pass
                     else:
@@ -1103,7 +1108,7 @@ async def create_recharge_order(event, amount, is_vip_order=False):
 ⚠️ 转账金额必须与订单金额完全一致
 ✅ 支付完成后，系统将自动到账（约1-2分钟）'''
     
-        buttons = [[Button.inline("返回", b"back")]]
+    buttons = [[Button.inline("返回", b"back")]]
         await event.respond(msg, buttons=buttons, parse_mode='markdown')
     else:
         # 如果无法解析到USDT地址，提示错误（不使用缓存地址）
@@ -1217,13 +1222,18 @@ async def group_welcome_handler(event):
                                 DB.create_member(new_user_id, new_username, added_by)
                                 print(f'✅ 自动注册成功: {new_username} 成为 {inviter["username"]} 的下级')
                                 
-                                # 通知邀请者
+                                # 通知邀请者（邀请成功提示）
                                 try:
-                                    await bot.send_message(added_by, 
-                                        f'🎉 新成员加入!\n'
-                                        f'用户: [{user_name}](tg://user?id={new_user_id})\n'
-                                        f'已自动注册为您的下级',
-                                        parse_mode='markdown')
+                                    await bot.send_message(
+                                        added_by,
+                                        (
+                                            "📨 邀请成功通知\n\n"
+                                            f"👥 您的下级新成员加入：[{user_name}](tg://user?id={new_user_id})\n"
+                                            "🎯 您的直推好友数量 +1\n\n"
+                                            "💡 快去带领他开通 VIP，发展更多团队吧～"
+                                        ),
+                                        parse_mode='markdown'
+                                    )
                                     print(f'✅ 已通知邀请者 {added_by}')
                                 except Exception as notify_err:
                                     print(f'通知邀请者失败: {notify_err}')
@@ -1273,7 +1283,7 @@ async def start_handler(event):
     if original_id != telegram_id:
         print(f"⚠️ [Start命令] 检测到备用号登录: {original_id} -> 切换至主账号 {telegram_id}")
     else:
-        print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
+    print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
     
     # 解析推荐人ID (保持原有逻辑)
     referrer_id = None
@@ -1789,21 +1799,33 @@ async def promote_handler(event):
         await event.respond('请先发送 /start 注册')
         return
     
-    # 检查条件
+    # 1e：未开通 VIP，禁止使用推广功能
     if not member['is_vip']:
         await event.respond(
-            '❌ 推广功能需要先开通VIP\n\n'
-            f'VIP价格: {config["vip_price"]} U\n'
-            '开通后即可开始推广赚钱!',
-            buttons=[[Button.inline('💎 立即开通VIP', b'open_vip')]]
+            "抱歉，您还不是 VIP\n\n"
+            "不能使用此功能，请先开通 VIP\n"
+            "点击下方“开通 VIP”按钮即可开通",
+            buttons=[[Button.inline('💎 开通 VIP', b'open_vip')]]
         )
         return
     
-    if not member['group_link']:
+    # 2e：未完成上级加群任务（未加入上级 10 个群）
+    if not member.get('is_joined_upline', 0):
+        from telethon import Button
         await event.respond(
-            '❌ 请先设置您的群链接\n\n'
-            '设置群链接后才能开始推广',
-            buttons=[[Button.inline('🔗 设置群链接', b'set_group')]]
+            "抱歉，您还没加入上级群，不能使用此功能\n\n"
+            "请先按照要求加入 10 级共 10 个上级群，\n"
+            "完成后再回来使用推广功能。",
+            buttons=[[Button.inline('🔍 验证未加群', f'verify_groups_{event.sender_id}'.encode())]]
+        )
+        return
+    
+    # 3e：未绑定自己群
+    if not member.get('group_link'):
+        await event.respond(
+            "抱歉，您还没有绑定自己的群，不能使用此功能\n\n"
+            "请先绑定自己的群，并确保已将机器人拉入群并设置为管理员。",
+            buttons=[[Button.inline('🔗 绑定我的群', b'set_group')]]
         )
         return
     
@@ -2533,17 +2555,17 @@ async def open_vip_balance_callback(event):
     reward_count = 0
     fallback_count = 0
     
-    # 如果没有上级，奖励给捡漏账号
+    # 如果没有上级，按捡漏账号ID顺序补满10层收益
     if not uplines:
-        import random
         _conn = DB.get_conn()
         _c = _conn.cursor()
-        _c.execute("SELECT telegram_id FROM fallback_accounts WHERE is_active = 1")
+        _c.execute("SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id ASC")
         _fallback_list = [row[0] for row in _c.fetchall()]
         _conn.close()
         if _fallback_list:
-            for _ in range(config.get("level_count", 10)):
-                _fb_id = random.choice(_fallback_list)
+            levels = config.get("level_count", 10)
+            for i in range(levels):
+                _fb_id = _fallback_list[i % len(_fallback_list)]
                 _conn2 = DB.get_conn()
                 _c2 = _conn2.cursor()
                 _c2.execute("UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?", (level_reward, _fb_id))
@@ -2674,6 +2696,16 @@ async def verify_groups_callback(event):
         await event.answer("❌ 用户信息不存在", alert=True)
         return
     
+    # 如果该用户已经完成过“加群任务”，则不再重新检测，状态保持已完成
+    if member.get('is_joined_upline'):
+        text = (
+            "🔍 群组加入验证结果\n\n"
+            "✅ 您之前已经完成过加群任务，当前状态保持【已完成】。\n\n"
+            "⚠️ 即使之后退群或个别群失效，系统也不会重新判定为未完成。"
+        )
+        await event.respond(text)
+        return
+    
     await event.answer("🔍 正在检测群组加入情况，请稍候...", alert=False)
     
     # 获取需要加入的群组列表（最多10个）
@@ -2757,10 +2789,10 @@ async def verify_groups_callback(event):
                 not_joined.append(group_info)
                 continue
             
-            # 尝试获取群组实体
+                    # 尝试获取群组实体
             try:
-                group_entity = await bot.get_entity(group_username)
-                
+                    group_entity = await bot.get_entity(group_username)
+                    
                 # 记录更友好的群名称，方便后面展示
                 try:
                     title = getattr(group_entity, 'title', None)
@@ -2769,17 +2801,17 @@ async def verify_groups_callback(event):
                 except Exception:
                     pass
                 
-                # 检查用户是否在群组中
-                try:
+                    # 检查用户是否在群组中
+                    try:
                     participant = await bot(GetParticipantRequest(
                         channel=group_entity,
                         participant=telegram_id
                     ))
                     joined.append(group_info)
-                except:
+                    except:
                     not_joined.append(group_info)
             except Exception as e:
-                # 无法获取群组信息，可能是私有群或链接无效
+                    # 无法获取群组信息，可能是私有群或链接无效
                 not_joined.append(group_info)
         except Exception as e:
             not_joined.append(group_info)
@@ -2805,7 +2837,7 @@ async def verify_groups_callback(event):
     if total_groups > 0 and joined_count == total_groups:
         text += f"🎉 恭喜！您已加入所有 {total_groups} 个群组！\n\n"
         text += "✅ 所有条件已满足，可以正常获得分红！"
-    else:
+            else:
         if joined:
             text += "✅ 已加入的群组:\n"
             for g in joined:
@@ -2880,17 +2912,17 @@ async def confirm_vip_callback(event):
     rewarded_count = 0
     fallback_count = 0
 
-    # 如果没有上级，奖励给捡漏账号
+    # 如果没有上级，奖励给捡漏账号（按ID顺序循环补满10层）
     if not uplines:
-        import random
         _conn = DB.get_conn()
         _c = _conn.cursor()
-        _c.execute("SELECT telegram_id FROM fallback_accounts WHERE is_active = 1")
+        _c.execute("SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id ASC")
         _fallback_list = [row[0] for row in _c.fetchall()]
         _conn.close()
         if _fallback_list:
-            for _ in range(config.get("level_count", 10)):
-                _fb_id = random.choice(_fallback_list)
+            levels = config.get("level_count", 10)
+            for i in range(levels):
+                _fb_id = _fallback_list[i % len(_fallback_list)]
                 _conn2 = DB.get_conn()
                 _c2 = _conn2.cursor()
                 _c2.execute("UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?", (config["level_reward"], _fb_id))
@@ -2918,20 +2950,22 @@ async def confirm_vip_callback(event):
                 except:
                     pass
             else:
-                # 上级不符合条件，分配给随机捡漏账号
-                import random
+                # 上级不符合条件，分配给捡漏账号（按ID顺序循环）
                 conn = DB.get_conn()
                 c = conn.cursor()
-                c.execute("SELECT telegram_id FROM members WHERE telegram_id >= 9000000000 AND is_vip = 1")
+                c.execute("SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id ASC")
                 fallback_accounts = [row[0] for row in c.fetchall()]
                 conn.close()
                 
                 if fallback_accounts:
-                    fallback_id = random.choice(fallback_accounts)
-                    fallback_member = DB.get_member(fallback_id)
-                    if fallback_member:
-                        new_balance = fallback_member['balance'] + config['level_reward']
-                        DB.update_member(fallback_id, balance=new_balance)
+                    # 使用当前层级索引决定分配给哪个捡漏账号（简单循环）
+                    idx = (upline.get('level_index', 0) or 0) % len(fallback_accounts)
+                    fallback_id = fallback_accounts[idx]
+                    c2_conn = DB.get_conn()
+                    c2 = c2_conn.cursor()
+                    c2.execute("UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?", (config['level_reward'], fallback_id))
+                    c2_conn.commit()
+                    c2_conn.close()
                         fallback_count += 1
                 
                 # 记录上级错过的奖励
@@ -3512,17 +3546,17 @@ async def message_handler(event):
             uplines = DB.get_upline_members(target_user['telegram_id'], config['level_count'])
             rewarded_count = 0
             
-            # 如果没有上级，奖励给捡漏账号
+            # 如果没有上级，奖励给捡漏账号（按ID顺序循环补满10层）
             if not uplines:
-                import random
                 _conn = DB.get_conn()
                 _c = _conn.cursor()
-                _c.execute("SELECT telegram_id FROM fallback_accounts WHERE is_active = 1")
+                _c.execute("SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id ASC")
                 _fallback_list = [row[0] for row in _c.fetchall()]
                 _conn.close()
                 if _fallback_list:
-                    for _ in range(config.get("level_count", 10)):
-                        _fb_id = random.choice(_fallback_list)
+                    levels = config.get("level_count", 10)
+                    for i in range(levels):
+                        _fb_id = _fallback_list[i % len(_fallback_list)]
                         _conn2 = DB.get_conn()
                         _c2 = _conn2.cursor()
                         _c2.execute("UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?", (config["level_reward"], _fb_id))
@@ -3713,13 +3747,13 @@ async def message_handler(event):
                 # 构造提示文案
                 if verification_result.get('admin_checked'):
                     # 已成功检测管理员
-                    await event.respond(
-                        f'✅ 群链接设置成功!\n\n'
-                        f'链接: {link}\n'
-                        f'✅ 机器人已在群内\n'
-                        f'✅ 机器人具有管理员权限'
-                    )
-                else:
+                await event.respond(
+                    f'✅ 群链接设置成功!\n\n'
+                    f'链接: {link}\n'
+                    f'✅ 机器人已在群内\n'
+                    f'✅ 机器人具有管理员权限'
+                )
+            else:
                     # 私有邀请链接，只能记录，无法自动校验管理员
                     await event.respond(
                         f'✅ 群组链接已记录\n\n'
@@ -4019,10 +4053,11 @@ class WebDB:
                 conditions.append('username LIKE ?')
                 params.append(f'%{search}%')
         
+        # 始终在会员列表中排除捡漏账号（只在“捡漏账号”页面管理）
+        conditions.append('telegram_id NOT IN (SELECT telegram_id FROM fallback_accounts)')
+        
         # 组合WHERE条件
-        search_condition = ''
-        if conditions:
-            search_condition = 'WHERE ' + ' AND '.join(conditions)
+        search_condition = 'WHERE ' + ' AND '.join(conditions) if conditions else ''
         
         # 获取总数
         c.execute(f'SELECT COUNT(*) FROM members {search_condition}', params)
@@ -4221,20 +4256,6 @@ class WebDB:
             query = f"UPDATE members SET {', '.join(updates)} WHERE telegram_id = ?"
             print(f"[会员更新] SQL: {query}, params: {params}")
             c.execute(query, params)
-            conn.commit()
-
-        # 处理捡漏账号状态
-        if 'is_fallback' in data:
-            if data['is_fallback']:
-                c.execute('SELECT id FROM fallback_accounts WHERE telegram_id = ?', (telegram_id,))
-                if not c.fetchone():
-                    c.execute('SELECT username FROM members WHERE telegram_id = ?', (telegram_id,))
-                    row = c.fetchone()
-                    username = row[0] if row else ''
-                    c.execute('INSERT INTO fallback_accounts (telegram_id, username, is_active) VALUES (?, ?, 1)', (telegram_id, username))
-                    conn.commit()
-            else:
-                c.execute('DELETE FROM fallback_accounts WHERE telegram_id = ?', (telegram_id,))
                 conn.commit()
 
         conn.close()
