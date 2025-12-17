@@ -791,7 +791,7 @@ def link_account(main_id, backup_id, backup_username):
         
     except Exception as e:
         try:
-        conn.close()
+            conn.close()
         except:
             pass
         return False, f"关联失败: {str(e)}"
@@ -1103,7 +1103,7 @@ async def create_recharge_order(event, amount, is_vip_order=False):
 ⚠️ 转账金额必须与订单金额完全一致
 ✅ 支付完成后，系统将自动到账（约1-2分钟）'''
     
-    buttons = [[Button.inline("返回", b"back")]]
+        buttons = [[Button.inline("返回", b"back")]]
         await event.respond(msg, buttons=buttons, parse_mode='markdown')
     else:
         # 如果无法解析到USDT地址，提示错误（不使用缓存地址）
@@ -1273,7 +1273,7 @@ async def start_handler(event):
     if original_id != telegram_id:
         print(f"⚠️ [Start命令] 检测到备用号登录: {original_id} -> 切换至主账号 {telegram_id}")
     else:
-    print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
+        print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
     
     # 解析推荐人ID (保持原有逻辑)
     referrer_id = None
@@ -2757,10 +2757,10 @@ async def verify_groups_callback(event):
                 not_joined.append(group_info)
                 continue
             
-                    # 尝试获取群组实体
+            # 尝试获取群组实体
             try:
-                    group_entity = await bot.get_entity(group_username)
-                    
+                group_entity = await bot.get_entity(group_username)
+                
                 # 记录更友好的群名称，方便后面展示
                 try:
                     title = getattr(group_entity, 'title', None)
@@ -2769,17 +2769,17 @@ async def verify_groups_callback(event):
                 except Exception:
                     pass
                 
-                    # 检查用户是否在群组中
-                    try:
+                # 检查用户是否在群组中
+                try:
                     participant = await bot(GetParticipantRequest(
                         channel=group_entity,
                         participant=telegram_id
                     ))
                     joined.append(group_info)
-                    except:
+                except:
                     not_joined.append(group_info)
             except Exception as e:
-                    # 无法获取群组信息，可能是私有群或链接无效
+                # 无法获取群组信息，可能是私有群或链接无效
                 not_joined.append(group_info)
         except Exception as e:
             not_joined.append(group_info)
@@ -2805,7 +2805,7 @@ async def verify_groups_callback(event):
     if total_groups > 0 and joined_count == total_groups:
         text += f"🎉 恭喜！您已加入所有 {total_groups} 个群组！\n\n"
         text += "✅ 所有条件已满足，可以正常获得分红！"
-            else:
+    else:
         if joined:
             text += "✅ 已加入的群组:\n"
             for g in joined:
@@ -3713,13 +3713,13 @@ async def message_handler(event):
                 # 构造提示文案
                 if verification_result.get('admin_checked'):
                     # 已成功检测管理员
-                await event.respond(
-                    f'✅ 群链接设置成功!\n\n'
-                    f'链接: {link}\n'
-                    f'✅ 机器人已在群内\n'
-                    f'✅ 机器人具有管理员权限'
-                )
-            else:
+                    await event.respond(
+                        f'✅ 群链接设置成功!\n\n'
+                        f'链接: {link}\n'
+                        f'✅ 机器人已在群内\n'
+                        f'✅ 机器人具有管理员权限'
+                    )
+                else:
                     # 私有邀请链接，只能记录，无法自动校验管理员
                     await event.respond(
                         f'✅ 群组链接已记录\n\n'
