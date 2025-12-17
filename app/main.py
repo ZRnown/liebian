@@ -2837,7 +2837,7 @@ async def verify_groups_callback(event):
     if total_groups > 0 and joined_count == total_groups:
         text += f"🎉 恭喜！您已加入所有 {total_groups} 个群组！\n\n"
         text += "✅ 所有条件已满足，可以正常获得分红！"
-            else:
+    else:
         if joined:
             text += "✅ 已加入的群组:\n"
             for g in joined:
@@ -2966,7 +2966,7 @@ async def confirm_vip_callback(event):
                     c2.execute("UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?", (config['level_reward'], fallback_id))
                     c2_conn.commit()
                     c2_conn.close()
-                        fallback_count += 1
+                    fallback_count += 1
                 
                 # 记录上级错过的奖励
                 new_missed = up_member['missed_balance'] + config['level_reward']
@@ -3747,30 +3747,30 @@ async def message_handler(event):
                 # 构造提示文案
                 if verification_result.get('admin_checked'):
                     # 已成功检测管理员
-                await event.respond(
+                    await event.respond(
                     f'✅ 群链接设置成功!\n\n'
                     f'链接: {link}\n'
                     f'✅ 机器人已在群内\n'
                     f'✅ 机器人具有管理员权限'
                 )
             else:
-                    # 私有邀请链接，只能记录，无法自动校验管理员
-                    await event.respond(
-                        f'✅ 群组链接已记录\n\n'
-                        f'链接: {link}\n\n'
-                        f'ℹ️ 未能自动检测管理员权限，请确保机器人已在群且为管理员，否则某些验证功能可能不可用。'
-                    )
-            else:
-                reason = verification_result.get("message", "未知错误")
+                # 私有邀请链接，只能记录，无法自动校验管理员
                 await event.respond(
-                    f'❌ 群链接验证失败\n\n'
-                    f'原因: {reason}\n\n'
-                    f'请确保:\n'
-                    f'1. 机器人已被添加到群内\n'
-                    f'2. 机器人具有管理员权限\n\n'
-                    f'3. 使用 http://t.me/群用户名 或 https://t.me/群用户名 的公开群链接\n\n'
-                    f'完成后请重新发送群链接'
+                    f'✅ 群组链接已记录\n\n'
+                    f'链接: {link}\n\n'
+                    f'ℹ️ 未能自动检测管理员权限，请确保机器人已在群且为管理员，否则某些验证功能可能不可用。'
                 )
+        else:
+            reason = verification_result.get("message", "未知错误")
+            await event.respond(
+                f'❌ 群链接验证失败\n\n'
+                f'原因: {reason}\n\n'
+                f'请确保:\n'
+                f'1. 机器人已被添加到群内\n'
+                f'2. 机器人具有管理员权限\n\n'
+                f'3. 使用 http://t.me/群用户名 或 https://t.me/群用户名 的公开群链接\n\n'
+                f'完成后请重新发送群链接'
+            )
         else:
             await event.respond('❌ 链接格式不正确，请发送正确的Telegram群链接\n例如: http://t.me/群用户名 或 https://t.me/群用户名')
         return
