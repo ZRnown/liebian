@@ -606,38 +606,38 @@ async def verify_group_link(link):
             
             # 检查是否是群组或超级群
             if not hasattr(entity, 'broadcast') or entity.broadcast:
-            return {'success': False, 'message': '这不是一个群组链接', 'admin_checked': False}
+                return {'success': False, 'message': '这不是一个群组链接', 'admin_checked': False}
             
-            # 获取机器人在群内的权限
-            try:
-                me = await bot.get_me()
-                participant = await bot(GetParticipantRequest(
-                    channel=entity,
-                    participant=me.id
-                ))
-                
-                # 检查是否为管理员
-                from telethon.tl.types import (
-                    ChatParticipantAdmin,
-                    ChatParticipantCreator,
-                    ChannelParticipantAdmin,
-                    ChannelParticipantCreator
-                )
-                
-                is_admin = isinstance(participant.participant, (
-                    ChatParticipantAdmin,
-                    ChatParticipantCreator,
-                    ChannelParticipantAdmin,
-                    ChannelParticipantCreator
-                ))
-                
-                if not is_admin:
+        # 获取机器人在群内的权限
+        try:
+            me = await bot.get_me()
+            participant = await bot(GetParticipantRequest(
+                channel=entity,
+                participant=me.id
+            ))
+            
+            # 检查是否为管理员
+            from telethon.tl.types import (
+                ChatParticipantAdmin,
+                ChatParticipantCreator,
+                ChannelParticipantAdmin,
+                ChannelParticipantCreator
+            )
+            
+            is_admin = isinstance(participant.participant, (
+                ChatParticipantAdmin,
+                ChatParticipantCreator,
+                ChannelParticipantAdmin,
+                ChannelParticipantCreator
+            ))
+            
+            if not is_admin:
                 return {'success': False, 'message': '机器人不是群管理员', 'admin_checked': True}
-                
+            
             return {'success': True, 'message': '验证成功', 'admin_checked': True}
-                
-            except Exception as e:
-                print(f'获取权限失败: {e}')
+        
+        except Exception as e:
+            print(f'获取权限失败: {e}')
             return {'success': False, 'message': '机器人不在该群内或无法获取权限', 'admin_checked': True}
             
     except Exception as e:
