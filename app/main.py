@@ -2747,7 +2747,9 @@ async def verify_groups_callback(event):
     # 构建结果消息
     total_groups = len(groups_to_check)
     joined_count = len(joined)
-    not_joined_count = len(not_joined)
+    # 为避免统计异常，这里强制用「总数 - 已加入」来计算未加入数量
+    # 理论上 len(not_joined) 应该等于该值，但如果上面逻辑哪怕有遗漏，也能保证展示数据正确
+    not_joined_count = max(total_groups - joined_count, 0)
     
     # 更新数据库中的 is_joined_upline 标志（只有全部加入且总数>0时才标记为1）
     try:
