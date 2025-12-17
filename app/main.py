@@ -635,7 +635,7 @@ async def verify_group_link(link):
                 return {'success': False, 'message': '机器人不是群管理员', 'admin_checked': True}
             
             return {'success': True, 'message': '验证成功', 'admin_checked': True}
-            
+        
         except Exception as e:
             print(f'获取权限失败: {e}')
             return {'success': False, 'message': '机器人不在该群内或无法获取权限', 'admin_checked': True}
@@ -687,7 +687,7 @@ def get_main_account_id(telegram_id, username=None):
             if fallback_result and fallback_result[0]:
                 conn.close()
                 return fallback_result[0]
-
+        
         conn.close()
         
         # 6. 返回结果
@@ -791,7 +791,7 @@ def link_account(main_id, backup_id, backup_username):
         
     except Exception as e:
         try:
-            conn.close()
+        conn.close()
         except:
             pass
         return False, f"关联失败: {str(e)}"
@@ -1102,8 +1102,8 @@ async def create_recharge_order(event, amount, is_vip_order=False):
 ⚠️ 订单10分钟内有效，过期后请重新创建
 ⚠️ 转账金额必须与订单金额完全一致
 ✅ 支付完成后，系统将自动到账（约1-2分钟）'''
-        
-        buttons = [[Button.inline("返回", b"back")]]
+    
+    buttons = [[Button.inline("返回", b"back")]]
         await event.respond(msg, buttons=buttons, parse_mode='markdown')
     else:
         # 如果无法解析到USDT地址，提示错误（不使用缓存地址）
@@ -1273,7 +1273,7 @@ async def start_handler(event):
     if original_id != telegram_id:
         print(f"⚠️ [Start命令] 检测到备用号登录: {original_id} -> 切换至主账号 {telegram_id}")
     else:
-        print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
+    print(f'用户ID: {telegram_id}, 是否管理员: {telegram_id in ADMIN_IDS}')
     
     # 解析推荐人ID (保持原有逻辑)
     referrer_id = None
@@ -1676,9 +1676,19 @@ async def fission_handler(event):
     referrer_id = member.get('referrer_id')
     
     if referrer_id:
-        # 有上级，获取上级的群
+        # 有上级，先检查上级是否满足领取分成的所有条件
         referrer = DB.get_member(referrer_id)
-        if referrer and referrer.get('group_link'):
+        referrer_ok = False
+        if referrer:
+            try:
+                conditions = await check_user_conditions(bot, referrer_id)
+                if conditions and conditions.get('all_conditions_met') and referrer.get('is_vip'):
+                    referrer_ok = True
+            except Exception as e:
+                print(f"[fission_handler] 检查上级条件失败: {e}")
+        
+        # 只有当上级是“正常”（符合条件且VIP）时，才使用上级自己的群；否则走捡漏推荐群
+        if referrer and referrer_ok and referrer.get('group_link'):
             groups = referrer.get('group_link', '').split('\n')
             valid_groups = [g.strip() for g in groups[:10] if g.strip()]
             
@@ -2674,21 +2684,33 @@ async def verify_groups_callback(event):
     upline_chain = get_upline_chain(telegram_id, max_groups)
     groups_to_check = []
     
-    # 从上级链获取群组
+    # 从上级链获取群组（只使用“正常上级”的群：满足分成条件且为VIP）
     for level, upline_id in upline_chain:
         up_member = DB.get_member(upline_id)
-        if up_member and up_member.get('group_link'):
-            group_links = up_member.get('group_link', '').split('\n')
-            for gl in group_links:
-                gl = gl.strip()
-                if gl and gl not in [g['link'] for g in groups_to_check]:
-                    groups_to_check.append({
-                        'level': level,
-                        'link': gl,
-                        'upline_username': up_member.get('username', '')
-                    })
-                    if len(groups_to_check) >= max_groups:
-                        break
+        if not up_member or not up_member.get('group_link'):
+            continue
+        
+        # 检查上级是否满足条件
+        try:
+            conditions = await check_user_conditions(bot, upline_id)
+            if not (conditions and conditions.get('all_conditions_met') and up_member.get('is_vip')):
+                # 异常上级：不提供群，由捡漏账号的推荐群补位
+                continue
+        except Exception as e:
+            print(f"[verify_groups_callback] 检查上级条件失败: {e}")
+            continue
+        
+        group_links = up_member.get('group_link', '').split('\n')
+        for gl in group_links:
+            gl = gl.strip()
+            if gl and gl not in [g['link'] for g in groups_to_check]:
+                groups_to_check.append({
+                    'level': level,
+                    'link': gl,
+                    'upline_username': up_member.get('username', '')
+                })
+                if len(groups_to_check) >= max_groups:
+                    break
         if len(groups_to_check) >= max_groups:
             break
     
@@ -2730,15 +2752,15 @@ async def verify_groups_callback(event):
             else:
                 group_username = group_link
                 
-            # 跳过私有群链接
+            # 跳过私有群链接（无法通过用户名检查成员）
             if group_username.startswith('+'):
                 not_joined.append(group_info)
                 continue
             
-            # 尝试获取群组实体
+                    # 尝试获取群组实体
             try:
-                group_entity = await bot.get_entity(group_username)
-                
+                    group_entity = await bot.get_entity(group_username)
+                    
                 # 记录更友好的群名称，方便后面展示
                 try:
                     title = getattr(group_entity, 'title', None)
@@ -2747,17 +2769,17 @@ async def verify_groups_callback(event):
                 except Exception:
                     pass
                 
-                # 检查用户是否在群组中
-                try:
+                    # 检查用户是否在群组中
+                    try:
                     participant = await bot(GetParticipantRequest(
                         channel=group_entity,
                         participant=telegram_id
                     ))
                     joined.append(group_info)
-                except:
+                    except:
                     not_joined.append(group_info)
             except Exception as e:
-                # 无法获取群组信息，可能是私有群或链接无效
+                    # 无法获取群组信息，可能是私有群或链接无效
                 not_joined.append(group_info)
         except Exception as e:
             not_joined.append(group_info)
@@ -2783,7 +2805,7 @@ async def verify_groups_callback(event):
     if total_groups > 0 and joined_count == total_groups:
         text += f"🎉 恭喜！您已加入所有 {total_groups} 个群组！\n\n"
         text += "✅ 所有条件已满足，可以正常获得分红！"
-    else:
+            else:
         if joined:
             text += "✅ 已加入的群组:\n"
             for g in joined:
@@ -3691,22 +3713,18 @@ async def message_handler(event):
                 # 构造提示文案
                 if verification_result.get('admin_checked'):
                     # 已成功检测管理员
-                    await event.respond(
-                        f'✅ 群链接设置成功!\n\n'
-                        f'链接: {link}\n'
-                        f'✅ 机器人已在群内\n'
-                        f'✅ 机器人具有管理员权限'
-                    )
-                else:
+                await event.respond(
+                    f'✅ 群链接设置成功!\n\n'
+                    f'链接: {link}\n'
+                    f'✅ 机器人已在群内\n'
+                    f'✅ 机器人具有管理员权限'
+                )
+            else:
                     # 私有邀请链接，只能记录，无法自动校验管理员
                     await event.respond(
-                        f'✅ 群链接已记录\n\n'
+                        f'✅ 群组链接已记录\n\n'
                         f'链接: {link}\n\n'
-                        f'ℹ️ 由于是私有邀请链接，Telegram 限制无法自动检测机器人是否为管理员\n'
-                        f'请确保:\n'
-                        f'1. 机器人已被添加到群内\n'
-                        f'2. 机器人具有管理员权限\n\n'
-                        f'如需系统自动校验管理员，请发送公开群链接: http://t.me/群用户名 或 https://t.me/群用户名'
+                        f'ℹ️ 未能自动检测管理员权限，请确保机器人已在群且为管理员，否则某些验证功能可能不可用。'
                     )
             else:
                 reason = verification_result.get("message", "未知错误")
@@ -4049,9 +4067,13 @@ class WebDB:
             direct_count = downline_counts[0]['total'] if downline_counts else 0
             team_count = sum(item.get('total', 0) for item in downline_counts) if downline_counts else 0
             
-            # 检查是否是捡漏账号
-            c.execute('SELECT id FROM fallback_accounts WHERE telegram_id = ?', (row[1],))
-            is_fallback = c.fetchone() is not None
+            # 检查是否是捡漏账号，并获取其配置的群链接
+            c.execute('SELECT id, group_link FROM fallback_accounts WHERE telegram_id = ?', (row[1],))
+            fb_row = c.fetchone()
+            is_fallback = fb_row is not None
+            fallback_group_link = ''
+            if fb_row and fb_row[1]:
+                fallback_group_link = fb_row[1]
 
             # 备用号展示：优先显示备用号的用户名
             backup_raw = row[3] or ''
@@ -4074,7 +4096,8 @@ class WebDB:
                 'referrer_name': referrer_name,
                 'balance': row[5],
                 'missed_balance': row[6],
-                'group_link': row[7] or '',
+                # 群链接：如果是捡漏账号且fallback表里配置了群链接，则优先显示fallback的group_link
+                'group_link': (fallback_group_link or (row[7] or '')),
                 'is_vip': row[8],
                 'register_time': row[9][:19] if row[9] else '',
                 'vip_time': row[10][:19] if row[10] else '',
