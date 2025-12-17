@@ -570,18 +570,18 @@ notify_queue = []
 
 # 验证群链接功能
 async def verify_group_link(link):
-    """验证群链接，检查机器人是否在群内且为管理员"""
+    """验证群链接，检查机器人是否在群内且为管理员
+    
+    仅支持形如 http://t.me/xxx 或 https://t.me/xxx 的公开群链接
+    """
     try:
-        # 提取群用户名/邀请标识
-        username = None
-        if link.startswith('https://t.me/'):
+        # 必须是 http(s)://t.me/ 开头
+        if link.startswith('http://t.me/'):
+            username = link.replace('http://t.me/', '').split('?')[0]
+        elif link.startswith('https://t.me/'):
             username = link.replace('https://t.me/', '').split('?')[0]
-        elif link.startswith('t.me/'):
-            username = link.replace('t.me/', '').split('?')[0]
-        elif link.startswith('@'):
-            username = link[1:]
         else:
-            return {'success': False, 'message': '链接格式不正确'}
+            return {'success': False, 'message': '链接格式不正确，请使用 http://t.me/群用户名 形式'}
         
         # 如果包含 "+"，说明是私有邀请链接（如 https://t.me/+xxxx）
         # 机器人无法通过邀请链接检测自己的管理员权限，只能通过公开群用户名(@xxx)验证
@@ -2391,7 +2391,7 @@ async def set_group_callback(event):
     waiting_for_group_link[event.sender_id] = True
     await event.respond(
         '🔗 设置群链接\n\n'
-        '请发送您的群链接 (格式: https://t.me/xxx)\n\n'
+        '请发送您的群链接 (格式: http://t.me/群用户名 或 https://t.me/群用户名)\n\n'
         '发送 /cancel 取消操作'
     )
     await event.answer()
@@ -3663,7 +3663,8 @@ async def message_handler(event):
     # 设置群链接
     if sender_id in waiting_for_group_link and waiting_for_group_link[sender_id]:
         link = text
-        if link.startswith('https://t.me/') or link.startswith('t.me/') or link.startswith('@'):
+        # 只允许 http(s)://t.me/ 开头的公开群链接
+        if link.startswith('http://t.me/') or link.startswith('https://t.me/'):
             # 验证群链接
             verification_result = await verify_group_link(link)
             
@@ -3689,10 +3690,11 @@ async def message_handler(event):
                     f'请确保:\n'
                     f'1. 机器人已被添加到群内\n'
                     f'2. 机器人具有管理员权限\n\n'
+                    f'3. 使用 http://t.me/群用户名 或 https://t.me/群用户名 的公开群链接\n\n'
                     f'完成后请重新发送群链接'
                 )
         else:
-            await event.respond('❌ 链接格式不正确，请发送正确的Telegram群链接\n例如: https://t.me/xxx')
+            await event.respond('❌ 链接格式不正确，请发送正确的Telegram群链接\n例如: http://t.me/群用户名 或 https://t.me/群用户名')
         return
 
 
@@ -6069,8 +6071,8 @@ def main():
             event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
         except: pass
         text = event.message.text.strip()
-        # 检测是否是群链接
-        if text.startswith('https://t.me/') or text.startswith('@'):
+        # 检测是否是群链接（仅允许 http(s)://t.me/）
+        if text.startswith('http://t.me/') or text.startswith('https://t.me/'):
             await handle_group_link_message(event, bot, DB)
     
     # 群发任务处理器
