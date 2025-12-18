@@ -5820,29 +5820,33 @@ def api_get_earnings():
         params = []
         
         if search:
-            # 搜索用户ID或用户名
+            # 搜索用户ID或用户名（同时搜索members和fallback_accounts表）
             if search.isdigit():
                 where_clause = 'WHERE er.member_id = ?'
                 params = [int(search)]
             else:
-                where_clause = 'WHERE m.username LIKE ?'
-                params = [f'%{search}%']
+                where_clause = 'WHERE (m.username LIKE ? OR fa.username LIKE ?)'
+                params = [f'%{search}%', f'%{search}%']
         
-        # 获取总数
+        # 获取总数（同时关联members和fallback_accounts表）
         count_query = f'''
             SELECT COUNT(*) FROM earnings_records er
             LEFT JOIN members m ON er.member_id = m.telegram_id
+            LEFT JOIN fallback_accounts fa ON er.member_id = fa.telegram_id
             {where_clause}
         '''
         c.execute(count_query, params)
         total = c.fetchone()[0]
         
-        # 获取数据
+        # 获取数据（优先使用members表的username，如果没有则使用fallback_accounts表的username）
         query = f'''
-            SELECT er.id, er.member_id, m.username, er.amount, er.source_type, 
+            SELECT er.id, er.member_id, 
+                   COALESCE(m.username, fa.username, '') as username,
+                   er.amount, er.source_type, 
                    er.description, er.create_time
             FROM earnings_records er
             LEFT JOIN members m ON er.member_id = m.telegram_id
+            LEFT JOIN fallback_accounts fa ON er.member_id = fa.telegram_id
             {where_clause}
             ORDER BY er.create_time DESC
             LIMIT ? OFFSET ?
@@ -5851,10 +5855,23 @@ def api_get_earnings():
         
         records = []
         for row in c.fetchall():
+            member_id = row[1]
+            username = row[2] or ''
+            # 如果用户名还是空的，尝试从fallback_accounts表获取
+            if not username and member_id:
+                c2 = conn.cursor()
+                c2.execute('SELECT username FROM fallback_accounts WHERE telegram_id = ?', (member_id,))
+                fb_row = c2.fetchone()
+                if fb_row and fb_row[0]:
+                    username = fb_row[0]
+                # 如果还是空的，使用telegram_id作为显示
+                if not username:
+                    username = str(member_id)
+            
             records.append({
                 'id': row[0],
-                'member_id': row[1],
-                'username': row[2] or '',
+                'member_id': member_id if member_id is not None else 0,
+                'username': username,
                 'amount': row[3],
                 'source_type': row[4] or '',
                 'description': row[5] or '',
@@ -6565,6 +6582,16 @@ def main():
                 
                 for telegram_id, group_link, referrer_id in members:
                     try:
+                        # 先查询当前状态，如果 is_joined_upline 已经是 1，则不再重新检测
+                        c.execute("SELECT is_joined_upline FROM members WHERE telegram_id = ?", (telegram_id,))
+                        current_status = c.fetchone()
+                        current_is_joined_upline = current_status[0] if current_status else 0
+                        
+                        # 如果已经完成加群任务，跳过检测（保持已完成状态）
+                        if current_is_joined_upline == 1:
+                            print(f"[状态检测] 会员 {telegram_id} 已完成加群任务，跳过检测")
+                            continue
+                        
                         # 提取群组用户名或ID
                         if group_link.startswith('https://t.me/'):
                             group_username = group_link.replace('https://t.me/', '').split('/')[0].split('?')[0]
@@ -6597,7 +6624,7 @@ def main():
                             except Exception as admin_err:
                                 print(f"[状态检测] 检查群管失败 {group_username}: {admin_err}")
                             
-                            # 检查3：用户是否加入了上级的群
+                            # 检查3：用户是否加入了上级的群（只在未完成时检测）
                             if referrer_id:
                                 c.execute("SELECT group_link FROM members WHERE telegram_id = ?", (referrer_id,))
                                 upline_row = c.fetchone()
@@ -6623,12 +6650,15 @@ def main():
                         except Exception as e:
                             print(f"[状态检测] 检查群组失败 {group_username}: {e}")
                         
-                        # 更新数据库
+                        # 更新数据库（is_joined_upline 保持原值如果已经是1）
+                        # 如果检测到已完成，更新为1；如果检测失败但原值是1，保持1不变
+                        final_is_joined_upline = max(is_joined_upline, current_is_joined_upline)
+                        
                         c.execute("""
                             UPDATE members 
                             SET is_group_bound = ?, is_bot_admin = ?, is_joined_upline = ?
                             WHERE telegram_id = ?
-                        """, (is_group_bound, is_bot_admin, is_joined_upline, telegram_id))
+                        """, (is_group_bound, is_bot_admin, final_is_joined_upline, telegram_id))
                         
                         await asyncio.sleep(1)  # 避免频率限制
                         

@@ -103,7 +103,7 @@
                 tbody.innerHTML = data.records.map(item => {
                     return `<tr class="hover:bg-slate-50">
                         <td class="px-6 py-4 text-slate-500">#${item.id}</td>
-                        <td class="px-6 py-4"><div class="font-medium text-slate-900">@${item.username || 'N/A'}</div><div class="text-xs text-slate-500">ID: ${item.member_id}</div></td>
+                        <td class="px-6 py-4"><div class="font-medium text-slate-900">@${item.username || 'N/A'}</div><div class="text-xs text-slate-500">ID: ${item.member_id || 'N/A'}</div></td>
                         <td class="px-6 py-4 font-bold text-emerald-600">+${item.amount} U</td>
                         <td class="px-6 py-4 text-slate-600">${item.source_type || '-'}</td>
                         <td class="px-6 py-4 text-slate-600">${item.description || '-'}</td>
