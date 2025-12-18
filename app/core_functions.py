@@ -110,12 +110,21 @@ def get_upline_chain(telegram_id, max_level=10):
     
     # 如果不足max_level层，用捡漏账号补足
     if len(upline_chain) < max_level:
+        needed_count = max_level - len(upline_chain)
         c.execute('SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id LIMIT ?',
-                 (max_level - len(upline_chain),))
+                 (needed_count,))
         fallback_ids = c.fetchall()
         
-        for i, (fb_id,) in enumerate(fallback_ids):
-            upline_chain.append((len(upline_chain) + 1, fb_id))
+        if not fallback_ids:
+            print(f'[get_upline_chain] 警告: 没有激活的捡漏账号，无法补足 {needed_count} 层')
+        else:
+            # 如果捡漏账号数量不足，循环使用
+            for i in range(needed_count):
+                fb_id = fallback_ids[i % len(fallback_ids)][0]
+                if fb_id:  # 确保 fb_id 不为 None
+                    upline_chain.append((len(upline_chain) + 1, fb_id))
+                else:
+                    print(f'[get_upline_chain] 警告: 捡漏账号ID为None，跳过')
     
     conn.close()
     return upline_chain

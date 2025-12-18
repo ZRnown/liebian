@@ -870,9 +870,26 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                     
                     # 如果是捡漏账号，直接分配收益（不需要检查条件）
                     if is_fallback:
-                        if not up_member:
-                            # 如果仍然不存在，跳过
+                        # 确保 upline_id 有效
+                        if not upline_id:
+                            print(f'[process_recharge] 警告: 捡漏账号ID为空，level={level}')
                             continue
+                        
+                        if not up_member:
+                            # 如果仍然不存在，尝试创建会员记录
+                            conn_fb = DB.get_conn()
+                            c_fb = conn_fb.cursor()
+                            c_fb.execute('SELECT username FROM fallback_accounts WHERE telegram_id = ?', (upline_id,))
+                            fb_row = c_fb.fetchone()
+                            conn_fb.close()
+                            if fb_row:
+                                fb_username = fb_row[0] if fb_row[0] else f'fallback_{upline_id}'
+                                DB.create_member(upline_id, fb_username, referrer_id=None)
+                                up_member = DB.get_member(upline_id)
+                            
+                            if not up_member:
+                                print(f'[process_recharge] 警告: 无法创建捡漏账号会员记录，upline_id={upline_id}')
+                                continue
                         
                         # 捡漏账号直接获得收益
                         fb_new_balance = up_member.get('balance', 0) + config['level_reward']
@@ -880,24 +897,32 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                         DB.update_member(upline_id, balance=fb_new_balance, total_earned=fb_total_earned)
                         fallback_count += 1
                         
-                        # 记录捡漏账号的收益
-                        conn = DB.get_conn()
-                        c = conn.cursor()
-                        c.execute('''INSERT INTO earnings_records 
-                                   (member_id, amount, source_type, source_id, description, create_time)
-                                   VALUES (?, ?, ?, ?, ?, ?)''',
-                                (upline_id, config['level_reward'], 'fallback_commission', telegram_id,
-                                 f'第{level}层（无上级，转入捡漏账号）', datetime.now().isoformat()))
-                        conn.commit()
-                        conn.close()
+                        # 记录捡漏账号的收益（确保 upline_id 不为 None）
+                        try:
+                            conn = DB.get_conn()
+                            c = conn.cursor()
+                            c.execute('''INSERT INTO earnings_records 
+                                       (member_id, amount, source_type, source_id, description, create_time)
+                                       VALUES (?, ?, ?, ?, ?, ?)''',
+                                    (upline_id, config['level_reward'], 'fallback_commission', telegram_id,
+                                     f'第{level}层（无上级，转入捡漏账号）', datetime.now().isoformat()))
+                            conn.commit()
+                            conn.close()
+                            print(f'[process_recharge] 已记录捡漏账号收益: member_id={upline_id}, level={level}, amount={config["level_reward"]}')
+                        except Exception as e:
+                            print(f'[process_recharge] 插入收益记录失败: {e}, upline_id={upline_id}')
                         
                         # 同时更新fallback_accounts表的total_earned
-                        conn = DB.get_conn()
-                        c = conn.cursor()
-                        c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?', 
-                                 (config['level_reward'], upline_id))
-                        conn.commit()
-                        conn.close()
+                        try:
+                            conn = DB.get_conn()
+                            c = conn.cursor()
+                            c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?', 
+                                     (config['level_reward'], upline_id))
+                            conn.commit()
+                            conn.close()
+                        except Exception as e:
+                            print(f'[process_recharge] 更新fallback_accounts失败: {e}, upline_id={upline_id}')
+                        
                         continue  # 捡漏账号处理完毕，继续下一层
                     
                     # 非捡漏账号，需要检查条件
@@ -5909,9 +5934,18 @@ def api_get_earnings():
             # 如果member_id是NULL，尝试从description中提取信息（fallback_commission类型）
             if not member_id and row[4] == 'fallback_commission':
                 # 对于fallback_commission类型的记录，member_id应该总是存在的
-                # 如果不存在，可能是数据问题，显示为未知
-                username = username or '未知账号'
-                member_id = 0
+                # 如果不存在，可能是数据问题，尝试从fallback_accounts表查找最近的记录
+                print(f'[收益记录查询] 警告: member_id为NULL，description={row[5]}, source_type={row[4]}')
+                # 尝试从fallback_accounts表获取第一个激活的账号作为备选显示
+                c2 = conn.cursor()
+                c2.execute('SELECT telegram_id, username FROM fallback_accounts WHERE is_active = 1 ORDER BY id LIMIT 1')
+                fb_row = c2.fetchone()
+                if fb_row:
+                    member_id = fb_row[0]
+                    username = fb_row[1] or str(fb_row[0])
+                else:
+                    username = '未知账号'
+                    member_id = 0
             
             records.append({
                 'id': row[0],
