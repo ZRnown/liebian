@@ -4849,16 +4849,15 @@ def api_update_recharge_status(recharge_id):
 
         # 统一走异步充值处理逻辑（process_recharge：自动开VIP + 条件检测 + 捡漏账号）
         try:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            # 后台确认的订单通常就是“VIP 订单”，这里明确传 is_vip_order=True，
+            # 使用 bot 的事件循环来调用异步函数
+            # 后台确认的订单通常就是"VIP 订单"，这里明确传 is_vip_order=True，
             # 这样逻辑与前端创建 VIP 订单的自动充值路径完全一致。
-            if loop.is_running():
-                loop.create_task(process_recharge(member_id, amount, is_vip_order=True))
-            else:
-                loop.run_until_complete(process_recharge(member_id, amount, is_vip_order=True))
+            bot.loop.create_task(process_recharge(member_id, amount, is_vip_order=True))
+            print(f'[后台充值状态修改] 已创建 process_recharge 任务: member_id={member_id}, amount={amount}')
         except Exception as async_err:
             print(f'[后台充值状态修改] 调用 process_recharge 失败: {async_err}')
+            import traceback
+            traceback.print_exc()
 
         return jsonify({'success': True, 'message': '已标记为已支付并触发统一充值处理逻辑'})
     except Exception as e:
