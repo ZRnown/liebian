@@ -602,12 +602,12 @@ async def verify_group_link(link):
             entity = await bot.get_entity(username)
         except Exception as e:
             print(f'获取实体失败: {e}')
-            return {'success': False, 'message': '无法访问该群，可能是私有群或链接无效', 'admin_checked': False}
+            return {'success': False, 'message': '无法访问该群，可能是私有群 or 链接无效', 'admin_checked': False}
         
         # 检查是否是群组或超级群
         if not hasattr(entity, 'broadcast') or entity.broadcast:
             return {'success': False, 'message': '这不是一个群组链接', 'admin_checked': False}
-        
+            
         # 获取机器人在群内的权限
         try:
             me = await bot.get_me()
@@ -2698,12 +2698,7 @@ async def verify_groups_callback(event):
     
     # 如果该用户已经完成过“加群任务”，则不再重新检测，状态保持已完成
     if member.get('is_joined_upline'):
-        text = (
-            "🔍 群组加入验证结果\n\n"
-            "✅ 您之前已经完成过加群任务，当前状态保持【已完成】。\n\n"
-            "⚠️ 即使之后退群或个别群失效，系统也不会重新判定为未完成。"
-        )
-        await event.respond(text)
+        await event.answer("✅ 加群任务已完成", alert=False)
         return
     
     await event.answer("🔍 正在检测群组加入情况，请稍候...", alert=False)
@@ -2823,27 +2818,35 @@ async def verify_groups_callback(event):
     # 理论上 len(not_joined) 应该等于该值，但如果上面逻辑哪怕有遗漏，也能保证展示数据正确
     not_joined_count = max(total_groups - joined_count, 0)
     
-    # 更新数据库中的 is_joined_upline 标志（只有全部加入且总数>0时才标记为1）
+    # 更新数据库中的 is_joined_upline 标志：
+    # ✅ 只要曾经检测通过一次就永久记为 1，不再因为后续检测失败而变回 0
+    is_completed = False
     try:
-        DB.update_member(telegram_id, is_joined_upline=1 if (total_groups > 0 and joined_count == total_groups) else 0)
+        if total_groups > 0 and joined_count == total_groups and not member.get('is_joined_upline'):
+            DB.update_member(telegram_id, is_joined_upline=1)
+            is_completed = True
+        elif member.get('is_joined_upline') and total_groups > 0 and joined_count == total_groups:
+            is_completed = True
     except Exception as e:
         print(f"[verify_groups] 更新 is_joined_upline 失败: {e}")
     
+    # 如果已完成，只显示简单提示，不显示群列表
+    if is_completed:
+        await event.answer("✅ 加群任务已完成", alert=False)
+        return
+    
+    # 未完成时，显示详细检测结果
     text = f"🔍 群组加入验证结果\n\n"
     text += f"📊 总计: {total_groups} 个群组\n"
     text += f"✅ 已加入: {joined_count} 个\n"
     text += f"❌ 未加入: {not_joined_count} 个\n\n"
     
-    if total_groups > 0 and joined_count == total_groups:
-        text += f"🎉 恭喜！您已加入所有 {total_groups} 个群组！\n\n"
-        text += "✅ 所有条件已满足，可以正常获得分红！"
-    else:
-        if joined:
-            text += "✅ 已加入的群组:\n"
-            for g in joined:
-                group_name = g.get('group_name') or (g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link'])
-                idx = g.get('display_index', g.get('level', '?'))
-                text += f"  {idx}. {group_name}\n"
+    if joined:
+        text += "✅ 已加入的群组:\n"
+        for g in joined:
+            group_name = g.get('group_name') or (g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link'])
+            idx = g.get('display_index', g.get('level', '?'))
+            text += f"  {idx}. {group_name}\n"
         text += "\n"
     
     if not_joined:
@@ -3746,7 +3749,7 @@ async def message_handler(event):
                 
                 # 构造提示文案
                 if verification_result.get('admin_checked'):
-                    # 已成功检测管理员
+                    # 已成功检测管理员（公开群）
                     await event.respond(
                         f'✅ 群链接设置成功!\n\n'
                         f'链接: {link}\n'
@@ -3754,11 +3757,13 @@ async def message_handler(event):
                         f'✅ 机器人具有管理员权限'
                     )
                 else:
-                    # 私有邀请链接，只能记录，无法自动校验管理员
+                    # 私有邀请链接：只能记录，无法自动校验管理员，引导用户尽量使用公开群链接
                     await event.respond(
                         f'✅ 群组链接已记录\n\n'
                         f'链接: {link}\n\n'
-                        f'ℹ️ 未能自动检测管理员权限，请确保机器人已在群且为管理员，否则某些验证功能可能不可用。'
+                        f'ℹ️ 由于是私有邀请链接，Telegram 限制无法自动检测是否加群 / 是否设置群管。\n'
+                        f'👉 建议为该群设置一个公开用户名，并发送公开群链接（例如 https://t.me/群用户名），\n'
+                        f'这样系统才能自动检测您是否已加群并且机器人是否为群管。'
                     )
             else:
                 reason = verification_result.get("message", "未知错误")
