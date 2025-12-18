@@ -603,11 +603,11 @@ async def verify_group_link(link):
         except Exception as e:
             print(f'获取实体失败: {e}')
             return {'success': False, 'message': '无法访问该群，可能是私有群或链接无效', 'admin_checked': False}
-            
-            # 检查是否是群组或超级群
-            if not hasattr(entity, 'broadcast') or entity.broadcast:
-                return {'success': False, 'message': '这不是一个群组链接', 'admin_checked': False}
-            
+        
+        # 检查是否是群组或超级群
+        if not hasattr(entity, 'broadcast') or entity.broadcast:
+            return {'success': False, 'message': '这不是一个群组链接', 'admin_checked': False}
+        
         # 获取机器人在群内的权限
         try:
             me = await bot.get_me()
@@ -4733,6 +4733,31 @@ def api_member_detail(telegram_id):
         return jsonify(member)
     return jsonify({'error': '会员不存在'}), 404
 
+@app.route('/api/member/<int:telegram_id>/bot-admin', methods=['PUT'])
+@login_required
+def api_update_bot_admin(telegram_id):
+    """快速更新会员群管理状态"""
+    try:
+        data = request.json
+        is_bot_admin = data.get('is_bot_admin', 0)
+        
+        conn = DB.get_conn()
+        c = conn.cursor()
+        c.execute('UPDATE members SET is_bot_admin = ? WHERE telegram_id = ?', (is_bot_admin, telegram_id))
+        conn.commit()
+        
+        # 同时更新 member_groups 表
+        try:
+            c.execute('UPDATE member_groups SET is_bot_admin = ? WHERE telegram_id = ?', (is_bot_admin, telegram_id))
+            conn.commit()
+        except Exception as e:
+            print(f'[更新member_groups群管状态失败] {e}')
+        
+        conn.close()
+        return jsonify({'success': True, 'message': '群管状态已更新'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/member/<int:telegram_id>', methods=['PUT'])
 @login_required
 def api_update_member(telegram_id):
@@ -5783,6 +5808,69 @@ def api_fallback_accounts():
             })
         conn.close()
         return jsonify({'success': True, 'accounts': accounts})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# API: 添加捡漏账号
+@app.route('/api/fallback-accounts', methods=['POST'])
+@login_required
+def api_add_fallback_account():
+    """添加捡漏账号"""
+    try:
+        data = request.json
+        username = data.get('username', '').strip()
+        group_link = data.get('group_link', '').strip()
+        telegram_id = data.get('telegram_id')  # 可选
+        
+        # 如果没有提供telegram_id，尝试从members表查找
+        if not telegram_id and username:
+            # 去掉@符号
+            username_clean = username.lstrip('@')
+            conn = DB.get_conn()
+            c = conn.cursor()
+            c.execute('SELECT telegram_id FROM members WHERE username = ?', (username_clean,))
+            row = c.fetchone()
+            if row:
+                telegram_id = row[0]
+            conn.close()
+        
+        # 如果还是没有telegram_id，允许创建但telegram_id为NULL（后续可以手动更新）
+        conn = DB.get_conn()
+        c = conn.cursor()
+        
+        # 检查是否已存在相同的telegram_id（如果提供了）
+        if telegram_id:
+            c.execute('SELECT id FROM fallback_accounts WHERE telegram_id = ?', (telegram_id,))
+            if c.fetchone():
+                conn.close()
+                return jsonify({'success': False, 'message': '该账号已存在'}), 400
+        
+        # 获取下一个可用的ID（从1开始，如果已有记录则找最大ID+1）
+        c.execute('SELECT MAX(id) FROM fallback_accounts')
+        max_id = c.fetchone()[0]
+        if max_id is None:
+            next_id = 1
+        else:
+            # 查找第一个缺失的ID（从1开始）
+            c.execute('SELECT id FROM fallback_accounts ORDER BY id ASC')
+            existing_ids = [row[0] for row in c.fetchall()]
+            next_id = 1
+            for i in range(1, max_id + 2):
+                if i not in existing_ids:
+                    next_id = i
+                    break
+        
+        # 插入新记录（使用指定的ID）
+        c.execute('''
+            INSERT INTO fallback_accounts (id, telegram_id, username, group_link, total_earned, is_active)
+            VALUES (?, ?, ?, ?, 0, 1)
+        ''', (next_id, telegram_id, username if username else None, group_link if group_link else None))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': '添加成功', 'id': next_id})
+    except sqlite3.IntegrityError as e:
+        return jsonify({'success': False, 'message': '账号已存在或ID冲突'}), 400
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
