@@ -895,6 +895,25 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                                 fb_total_earned = fb_member.get('total_earned', 0) + config['level_reward']
                                 DB.update_member(fallback_id, balance=fb_new_balance, total_earned=fb_total_earned)
                                 fallback_count += 1
+                                
+                                # 记录捡漏账号的收益
+                                conn = DB.get_conn()
+                                c = conn.cursor()
+                                c.execute('''INSERT INTO earnings_records 
+                                           (member_id, amount, source_type, source_id, description, create_time)
+                                           VALUES (?, ?, ?, ?, ?, ?)''',
+                                        (fallback_id, config['level_reward'], 'fallback_commission', telegram_id,
+                                         f'第{level}层下级开通VIP（上级未满足条件，转入捡漏账号）', datetime.now().isoformat()))
+                                conn.commit()
+                                conn.close()
+                                
+                                # 同时更新fallback_accounts表的total_earned
+                                conn = DB.get_conn()
+                                c = conn.cursor()
+                                c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?', 
+                                         (config['level_reward'], fallback_id))
+                                conn.commit()
+                                conn.close()
                         
                         # 记录错过的金额（如果上级是VIP但未完成其他条件）
                         if up_member['is_vip'] and conditions:
@@ -2566,11 +2585,32 @@ async def open_vip_balance_callback(event):
             levels = config.get("level_count", 10)
             for i in range(levels):
                 _fb_id = _fallback_list[i % len(_fallback_list)]
+                
+                # 更新捡漏账号的余额和total_earned
+                _fb_member = DB.get_member(_fb_id)
+                if _fb_member:
+                    _fb_new_balance = _fb_member['balance'] + level_reward
+                    _fb_total_earned = _fb_member.get('total_earned', 0) + level_reward
+                    DB.update_member(_fb_id, balance=_fb_new_balance, total_earned=_fb_total_earned)
+                
+                # 更新fallback_accounts表的total_earned
                 _conn2 = DB.get_conn()
                 _c2 = _conn2.cursor()
                 _c2.execute("UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?", (level_reward, _fb_id))
                 _conn2.commit()
                 _conn2.close()
+                
+                # 记录捡漏账号的收益
+                _conn3 = DB.get_conn()
+                _c3 = _conn3.cursor()
+                _c3.execute('''INSERT INTO earnings_records 
+                           (member_id, amount, source_type, source_id, description, create_time)
+                           VALUES (?, ?, ?, ?, ?, ?)''',
+                        (_fb_id, level_reward, 'fallback_commission', telegram_id,
+                         f'第{i+1}层（无上级，转入捡漏账号）', datetime.now().isoformat()))
+                _conn3.commit()
+                _conn3.close()
+                
                 fallback_count += 1
     else:
         for upline in uplines:
@@ -2926,11 +2966,32 @@ async def confirm_vip_callback(event):
             levels = config.get("level_count", 10)
             for i in range(levels):
                 _fb_id = _fallback_list[i % len(_fallback_list)]
+                
+                # 更新捡漏账号的余额和total_earned
+                _fb_member = DB.get_member(_fb_id)
+                if _fb_member:
+                    _fb_new_balance = _fb_member['balance'] + config["level_reward"]
+                    _fb_total_earned = _fb_member.get('total_earned', 0) + config["level_reward"]
+                    DB.update_member(_fb_id, balance=_fb_new_balance, total_earned=_fb_total_earned)
+                
+                # 更新fallback_accounts表的total_earned
                 _conn2 = DB.get_conn()
                 _c2 = _conn2.cursor()
                 _c2.execute("UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?", (config["level_reward"], _fb_id))
                 _conn2.commit()
                 _conn2.close()
+                
+                # 记录捡漏账号的收益
+                _conn3 = DB.get_conn()
+                _c3 = _conn3.cursor()
+                _c3.execute('''INSERT INTO earnings_records 
+                           (member_id, amount, source_type, source_id, description, create_time)
+                           VALUES (?, ?, ?, ?, ?, ?)''',
+                        (_fb_id, config["level_reward"], 'fallback_commission', member['telegram_id'],
+                         f'第{i+1}层（无上级，转入捡漏账号）', datetime.now().isoformat()))
+                _conn3.commit()
+                _conn3.close()
+                
                 fallback_count += 1
 
     for upline in uplines:
@@ -2964,11 +3025,32 @@ async def confirm_vip_callback(event):
                     # 使用当前层级索引决定分配给哪个捡漏账号（简单循环）
                     idx = (upline.get('level_index', 0) or 0) % len(fallback_accounts)
                     fallback_id = fallback_accounts[idx]
+                    
+                    # 更新捡漏账号的余额和total_earned
+                    fb_member = DB.get_member(fallback_id)
+                    if fb_member:
+                        fb_new_balance = fb_member['balance'] + config['level_reward']
+                        fb_total_earned = fb_member.get('total_earned', 0) + config['level_reward']
+                        DB.update_member(fallback_id, balance=fb_new_balance, total_earned=fb_total_earned)
+                    
+                    # 更新fallback_accounts表的total_earned
                     c2_conn = DB.get_conn()
                     c2 = c2_conn.cursor()
                     c2.execute("UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?", (config['level_reward'], fallback_id))
                     c2_conn.commit()
                     c2_conn.close()
+                    
+                    # 记录捡漏账号的收益
+                    c3_conn = DB.get_conn()
+                    c3 = c3_conn.cursor()
+                    c3.execute('''INSERT INTO earnings_records 
+                               (member_id, amount, source_type, source_id, description, create_time)
+                               VALUES (?, ?, ?, ?, ?, ?)''',
+                            (fallback_id, config['level_reward'], 'fallback_commission', member['telegram_id'],
+                             f'第{upline.get("level_index", 0) + 1}层下级开通VIP（上级未满足条件，转入捡漏账号）', datetime.now().isoformat()))
+                    c3_conn.commit()
+                    c3_conn.close()
+                    
                     fallback_count += 1
                 
                 # 记录上级错过的奖励
@@ -3560,11 +3642,32 @@ async def message_handler(event):
                     levels = config.get("level_count", 10)
                     for i in range(levels):
                         _fb_id = _fallback_list[i % len(_fallback_list)]
+                        
+                        # 更新捡漏账号的余额和total_earned
+                        _fb_member = DB.get_member(_fb_id)
+                        if _fb_member:
+                            _fb_new_balance = _fb_member['balance'] + config["level_reward"]
+                            _fb_total_earned = _fb_member.get('total_earned', 0) + config["level_reward"]
+                            DB.update_member(_fb_id, balance=_fb_new_balance, total_earned=_fb_total_earned)
+                        
+                        # 更新fallback_accounts表的total_earned
                         _conn2 = DB.get_conn()
                         _c2 = _conn2.cursor()
                         _c2.execute("UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?", (config["level_reward"], _fb_id))
                         _conn2.commit()
                         _conn2.close()
+                        
+                        # 记录捡漏账号的收益
+                        _conn3 = DB.get_conn()
+                        _c3 = _conn3.cursor()
+                        _c3.execute('''INSERT INTO earnings_records 
+                                   (member_id, amount, source_type, source_id, description, create_time)
+                                   VALUES (?, ?, ?, ?, ?, ?)''',
+                                (_fb_id, config["level_reward"], 'fallback_commission', target_user['telegram_id'],
+                                 f'第{i+1}层（无上级，转入捡漏账号）', datetime.now().isoformat()))
+                        _conn3.commit()
+                        _conn3.close()
+                        
                         fallback_count += 1
 
             for upline in uplines:
