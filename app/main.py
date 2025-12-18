@@ -847,7 +847,29 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                 # 逐层检查并分配分红
                 for level, upline_id in upline_chain:
                     up_member = DB.get_member(upline_id)
+                    
+                    # 检查是否是捡漏账号（在fallback_accounts表中）
+                    conn_check = DB.get_conn()
+                    c_check = conn_check.cursor()
+                    c_check.execute('SELECT id FROM fallback_accounts WHERE telegram_id = ? AND is_active = 1', (upline_id,))
+                    is_fallback = c_check.fetchone() is not None
+                    conn_check.close()
+                    
+                    # 如果是捡漏账号但不在members表中，需要先创建会员记录
+                    if is_fallback and not up_member:
+                        # 从fallback_accounts表获取用户名
+                        conn_fb = DB.get_conn()
+                        c_fb = conn_fb.cursor()
+                        c_fb.execute('SELECT username FROM fallback_accounts WHERE telegram_id = ?', (upline_id,))
+                        fb_row = c_fb.fetchone()
+                        conn_fb.close()
+                        fb_username = fb_row[0] if fb_row and fb_row[0] else f'fallback_{upline_id}'
+                        # 创建会员记录
+                        DB.create_member(upline_id, fb_username, referrer_id=None)
+                        up_member = DB.get_member(upline_id)
+                    
                     if not up_member:
+                        # 如果仍然不存在，跳过
                         continue
                     
                     # 检查上级是否满足所有条件
@@ -887,23 +909,40 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                             pass
                     else:
                         # 上级未满足条件，分红转入捡漏账号
-                        fallback_id = get_fallback_account(level)
-                        if fallback_id:
-                            fb_member = DB.get_member(fallback_id)
+                        # 如果当前就是捡漏账号，直接给这个捡漏账号
+                        if is_fallback:
+                            fb_id = upline_id
+                        else:
+                            fb_id = get_fallback_account(level)
+                        
+                        if fb_id:
+                            fb_member = DB.get_member(fb_id)
+                            # 如果捡漏账号不在members表中，创建记录
+                            if not fb_member:
+                                conn_fb = DB.get_conn()
+                                c_fb = conn_fb.cursor()
+                                c_fb.execute('SELECT username FROM fallback_accounts WHERE telegram_id = ?', (fb_id,))
+                                fb_row = c_fb.fetchone()
+                                conn_fb.close()
+                                fb_username = fb_row[0] if fb_row and fb_row[0] else f'fallback_{fb_id}'
+                                DB.create_member(fb_id, fb_username, referrer_id=None)
+                                fb_member = DB.get_member(fb_id)
+                            
                             if fb_member:
                                 fb_new_balance = fb_member['balance'] + config['level_reward']
                                 fb_total_earned = fb_member.get('total_earned', 0) + config['level_reward']
-                                DB.update_member(fallback_id, balance=fb_new_balance, total_earned=fb_total_earned)
+                                DB.update_member(fb_id, balance=fb_new_balance, total_earned=fb_total_earned)
                                 fallback_count += 1
                                 
                                 # 记录捡漏账号的收益
                                 conn = DB.get_conn()
                                 c = conn.cursor()
+                                desc = f'第{level}层下级开通VIP（转入捡漏账号）' if not is_fallback else f'第{level}层下级开通VIP（无上级，转入捡漏账号）'
                                 c.execute('''INSERT INTO earnings_records 
                                            (member_id, amount, source_type, source_id, description, create_time)
                                            VALUES (?, ?, ?, ?, ?, ?)''',
-                                        (fallback_id, config['level_reward'], 'fallback_commission', telegram_id,
-                                         f'第{level}层下级开通VIP（上级未满足条件，转入捡漏账号）', datetime.now().isoformat()))
+                                        (fb_id, config['level_reward'], 'fallback_commission', telegram_id,
+                                         desc, datetime.now().isoformat()))
                                 conn.commit()
                                 conn.close()
                                 
@@ -911,12 +950,12 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                                 conn = DB.get_conn()
                                 c = conn.cursor()
                                 c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?', 
-                                         (config['level_reward'], fallback_id))
+                                         (config['level_reward'], fb_id))
                                 conn.commit()
                                 conn.close()
                         
                         # 记录错过的金额（如果上级是VIP但未完成其他条件）
-                        if up_member['is_vip'] and conditions:
+                        if up_member and up_member['is_vip'] and conditions:
                             new_missed = up_member['missed_balance'] + config['level_reward']
                             DB.update_member(upline_id, missed_balance=new_missed)
                             
@@ -1716,21 +1755,20 @@ async def fission_handler(event):
             except Exception as e:
                 print(f"[fission_handler] 检查上级条件失败: {e}")
         
-        # 只有当上级是“正常”（符合条件且VIP）时，才使用上级自己的群；否则走捡漏推荐群
+        # 只有当上级是"正常"（符合条件且VIP）时，才使用上级自己的群；否则走捡漏推荐群
+        from telethon import Button
+        buttons = []
+        text = ""
+        
         if referrer and referrer_ok and referrer.get('group_link'):
             groups = referrer.get('group_link', '').split('\n')
             valid_groups = [g.strip() for g in groups[:10] if g.strip()]
             
             if valid_groups:
-                # 获取每个群的名称
-                from telethon import Button
-                
                 # 构建消息文本
                 text = f"加入您上层1-{len(valid_groups)}级群{len(valid_groups)}个群\n\n"
                 text += "上级群    点击加入群\n"
                 text += "━━━━━━━━━━━━━━━━\n\n"
-                
-                buttons = []
                 
                 # 从第10层到上级（第1层）倒序显示
                 for idx in range(len(valid_groups) - 1, -1, -1):
@@ -1758,46 +1796,39 @@ async def fission_handler(event):
                     
                     # 添加文本行（使用Markdown超链接）
                     text += f"{level_text:>3}    [{group_name}]({group_link})\n"
-                
-                # 添加验证未加群按钮
-                buttons.append([Button.inline('🔍 验证未加群', f'verify_groups_{telegram_id}'.encode())])
-                
-                await event.respond(text, buttons=buttons, parse_mode='markdown')
-                return
-    
-    # 无上级或上级没有群，显示推荐群组（新格式）
-    fb_groups = get_fallback_resource('group')
-    if fb_groups:
-        groups = fb_groups.split('\n')
-        valid_groups = [g.strip() for g in groups[:10] if g.strip()]
         
-        if valid_groups:
-            from telethon import Button
+        # 始终显示推荐群组（在上级群组下方）
+        fb_groups = get_fallback_resource('group')
+        if fb_groups:
+            groups = fb_groups.split('\n')
+            valid_fb_groups = [g.strip() for g in groups[:10] if g.strip()]
             
-            text = f"加入推荐群组{len(valid_groups)}个群\n\n"
-            text += "推荐群    点击加入群\n"
-            text += "━━━━━━━━━━━━━━━━\n\n"
-            
-            buttons = []
-            
-            for idx, group_link in enumerate(valid_groups, 1):
-                # 获取群名称
-                group_name = "未知群组"
-                try:
-                    if 't.me/' in group_link:
-                        group_username = group_link.split('t.me/')[-1].replace('+', '')
-                        try:
-                            group_entity = await bot.get_entity(group_username)
-                            group_name = group_entity.title if hasattr(group_entity, 'title') else group_username
-                        except:
-                            group_name = group_username
-                except:
-                    group_name = f"群{idx}"
+            if valid_fb_groups:
+                if text:
+                    text += "\n"
+                text += f"加入推荐群组{len(valid_fb_groups)}个群\n\n"
+                text += "推荐群    点击加入群\n"
+                text += "━━━━━━━━━━━━━━━━\n\n"
                 
-                text += f"{idx:>3}    [{group_name}]({group_link})\n"
-            
+                for idx, group_link in enumerate(valid_fb_groups, 1):
+                    # 获取群名称
+                    group_name = "未知群组"
+                    try:
+                        if 't.me/' in group_link:
+                            group_username = group_link.split('t.me/')[-1].replace('+', '')
+                            try:
+                                group_entity = await bot.get_entity(group_username)
+                                group_name = group_entity.title if hasattr(group_entity, 'title') else group_username
+                            except:
+                                group_name = group_username
+                    except:
+                        group_name = f"群{idx}"
+                    
+                    text += f"{idx:>3}    [{group_name}]({group_link})\n"
+        
+        if text:
+            # 添加验证未加群按钮
             buttons.append([Button.inline('🔍 验证未加群', f'verify_groups_{telegram_id}'.encode())])
-            
             await event.respond(text, buttons=buttons, parse_mode='markdown')
         else:
             await event.respond("❌ 暂无可用群组")
