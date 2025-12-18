@@ -4318,15 +4318,16 @@ class WebDB:
         c = conn.cursor()
         
         c.execute('SELECT COUNT(*) FROM members')
-        total_members = c.fetchone()[0]
+        total_members = c.fetchone()[0] or 0
         
         c.execute('SELECT COUNT(*) FROM members WHERE is_vip = 1')
-        vip_members = c.fetchone()[0]
+        vip_members = c.fetchone()[0] or 0
         
-        c.execute('SELECT SUM(balance) FROM members')
+        # 使用COALESCE确保NULL值返回0
+        c.execute('SELECT COALESCE(SUM(balance), 0) FROM members')
         total_balance = c.fetchone()[0] or 0
         
-        c.execute('SELECT SUM(missed_balance) FROM members')
+        c.execute('SELECT COALESCE(SUM(missed_balance), 0) FROM members')
         total_missed = c.fetchone()[0] or 0
         
         conn.close()
