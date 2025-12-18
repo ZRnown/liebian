@@ -4058,8 +4058,9 @@ class WebDB:
                 conditions.append('username LIKE ?')
                 params.append(f'%{search}%')
         
-        # 始终在会员列表中排除捡漏账号（只在“捡漏账号”页面管理）
-        conditions.append('telegram_id NOT IN (SELECT telegram_id FROM fallback_accounts)')
+        # 可选：在会员列表中排除捡漏账号（只在"捡漏账号"页面管理）
+        # 如果希望会员管理页面也显示捡漏账号，可以注释掉下面这行
+        # conditions.append('telegram_id NOT IN (SELECT telegram_id FROM fallback_accounts)')
         
         # 组合WHERE条件
         search_condition = 'WHERE ' + ' AND '.join(conditions) if conditions else ''
