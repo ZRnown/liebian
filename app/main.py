@@ -5857,21 +5857,38 @@ def api_get_earnings():
         for row in c.fetchall():
             member_id = row[1]
             username = row[2] or ''
-            # 如果用户名还是空的，尝试从fallback_accounts表获取
-            if not username and member_id:
+            
+            # 如果member_id存在但username为空，尝试从fallback_accounts表获取
+            if member_id and not username:
                 c2 = conn.cursor()
-                c2.execute('SELECT username FROM fallback_accounts WHERE telegram_id = ?', (member_id,))
+                c2.execute('SELECT username, telegram_id FROM fallback_accounts WHERE telegram_id = ?', (member_id,))
                 fb_row = c2.fetchone()
-                if fb_row and fb_row[0]:
-                    username = fb_row[0]
-                # 如果还是空的，使用telegram_id作为显示
-                if not username:
-                    username = str(member_id)
+                if fb_row:
+                    username = fb_row[0] or ''
+                    # 如果username还是空的，使用telegram_id作为显示
+                    if not username:
+                        username = str(fb_row[1]) if fb_row[1] else str(member_id)
+                else:
+                    # 如果不在fallback_accounts表中，尝试从members表获取
+                    c2.execute('SELECT username FROM members WHERE telegram_id = ?', (member_id,))
+                    m_row = c2.fetchone()
+                    if m_row and m_row[0]:
+                        username = m_row[0]
+                    else:
+                        # 如果都不存在，使用telegram_id作为显示
+                        username = str(member_id)
+            
+            # 如果member_id是NULL，尝试从description中提取信息（fallback_commission类型）
+            if not member_id and row[4] == 'fallback_commission':
+                # 对于fallback_commission类型的记录，member_id应该总是存在的
+                # 如果不存在，可能是数据问题，显示为未知
+                username = username or '未知账号'
+                member_id = 0
             
             records.append({
                 'id': row[0],
                 'member_id': member_id if member_id is not None else 0,
-                'username': username,
+                'username': username or (str(member_id) if member_id else 'N/A'),
                 'amount': row[3],
                 'source_type': row[4] or '',
                 'description': row[5] or '',
@@ -5963,12 +5980,29 @@ def api_fallback_accounts():
         ''')
         accounts = []
         for row in c.fetchall():
+            telegram_id = row[1]
+            # 从earnings_records表重新计算累计收益（确保数据准确）
+            c.execute('''
+                SELECT COALESCE(SUM(amount), 0) 
+                FROM earnings_records 
+                WHERE member_id = ? AND source_type = 'fallback_commission'
+            ''', (telegram_id,))
+            calculated_total = c.fetchone()[0] or 0
+            
+            # 如果计算出的收益与数据库中的不一致，更新数据库
+            stored_total = row[4] or 0
+            if abs(calculated_total - stored_total) > 0.01:  # 允许0.01的误差
+                c.execute('UPDATE fallback_accounts SET total_earned = ? WHERE telegram_id = ?', 
+                         (calculated_total, telegram_id))
+                conn.commit()
+                stored_total = calculated_total
+            
             accounts.append({
                 'id': row[0],
-                'telegram_id': row[1],
-                'username': row[2] or '',
+                'telegram_id': telegram_id,
+                'username': row[2] or str(telegram_id),
                 'group_link': row[3] or '',
-                'total_earned': row[4] or 0,
+                'total_earned': stored_total,
                 'is_active': row[5] if row[5] is not None else 1,
                 'is_vip': row[6] if row[6] is not None else 0,
                 'balance': row[7] if row[7] is not None else 0
