@@ -374,17 +374,7 @@ function displayMembers(members) {
         <td class="py-1 text-center" style="padding-left:4px;padding-right:4px;">
             <div class="border border-slate-200 rounded px-1.5 py-1 text-[11px] leading-tight space-y-1">
                 <div class="flex justify-between"><span>拉群</span><span>${yesNo(m.is_group_bound)}</span></div>
-                <div class="border-t border-slate-100 pt-1 flex justify-between items-center">
-                    <span>群管</span>
-                    <div class="flex items-center gap-1">
-                        <span>${yesNo(m.is_bot_admin)}</span>
-                        <button onclick="toggleBotAdmin(${m.telegram_id}, ${m.is_bot_admin ? 0 : 1})" 
-                            class="px-1 py-0.5 text-[10px] rounded ${m.is_bot_admin ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-green-50 text-green-600 hover:bg-green-100'}" 
-                            title="点击切换群管状态">
-                            ${m.is_bot_admin ? '设为否' : '设为是'}
-                        </button>
-                    </div>
-                </div>
+                <div class="border-t border-slate-100 pt-1 flex justify-between"><span>群管</span><span>${yesNo(m.is_bot_admin)}</span></div>
                 <div class="border-t border-slate-100 pt-1 flex justify-between"><span>加群</span><span>${yesNo(m.is_joined_upline)}</span></div>
             </div>
         </td>
@@ -815,28 +805,6 @@ async function deleteMember(telegramId, username) {
         }
     } catch (error) {
         showToast('删除失败', error.message, 'error');
-    }
-}
-
-async function toggleBotAdmin(telegramId, newStatus) {
-    const statusText = newStatus ? '是' : '否';
-    if (!confirm(`确定要将该会员的群管状态设置为"${statusText}"吗？`)) return;
-    
-    try {
-        const response = await fetch(`/api/member/${telegramId}/bot-admin`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ is_bot_admin: newStatus })
-        });
-        const result = await response.json();
-        if (result.success) {
-            showToast('更新成功', `群管状态已设置为"${statusText}"`);
-            loadMembers(currentPage);
-        } else {
-            showToast('更新失败', result.message || '操作失败', 'error');
-        }
-    } catch (error) {
-        showToast('更新失败', error.message, 'error');
     }
 }
 

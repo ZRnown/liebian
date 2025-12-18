@@ -4733,31 +4733,6 @@ def api_member_detail(telegram_id):
         return jsonify(member)
     return jsonify({'error': '会员不存在'}), 404
 
-@app.route('/api/member/<int:telegram_id>/bot-admin', methods=['PUT'])
-@login_required
-def api_update_bot_admin(telegram_id):
-    """快速更新会员群管理状态"""
-    try:
-        data = request.json
-        is_bot_admin = data.get('is_bot_admin', 0)
-        
-        conn = DB.get_conn()
-        c = conn.cursor()
-        c.execute('UPDATE members SET is_bot_admin = ? WHERE telegram_id = ?', (is_bot_admin, telegram_id))
-        conn.commit()
-        
-        # 同时更新 member_groups 表
-        try:
-            c.execute('UPDATE member_groups SET is_bot_admin = ? WHERE telegram_id = ?', (is_bot_admin, telegram_id))
-            conn.commit()
-        except Exception as e:
-            print(f'[更新member_groups群管状态失败] {e}')
-        
-        conn.close()
-        return jsonify({'success': True, 'message': '群管状态已更新'})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
 @app.route('/api/member/<int:telegram_id>', methods=['PUT'])
 @login_required
 def api_update_member(telegram_id):
