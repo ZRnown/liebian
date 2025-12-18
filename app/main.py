@@ -868,6 +868,39 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                         DB.create_member(upline_id, fb_username, referrer_id=None)
                         up_member = DB.get_member(upline_id)
                     
+                    # 如果是捡漏账号，直接分配收益（不需要检查条件）
+                    if is_fallback:
+                        if not up_member:
+                            # 如果仍然不存在，跳过
+                            continue
+                        
+                        # 捡漏账号直接获得收益
+                        fb_new_balance = up_member.get('balance', 0) + config['level_reward']
+                        fb_total_earned = up_member.get('total_earned', 0) + config['level_reward']
+                        DB.update_member(upline_id, balance=fb_new_balance, total_earned=fb_total_earned)
+                        fallback_count += 1
+                        
+                        # 记录捡漏账号的收益
+                        conn = DB.get_conn()
+                        c = conn.cursor()
+                        c.execute('''INSERT INTO earnings_records 
+                                   (member_id, amount, source_type, source_id, description, create_time)
+                                   VALUES (?, ?, ?, ?, ?, ?)''',
+                                (upline_id, config['level_reward'], 'fallback_commission', telegram_id,
+                                 f'第{level}层（无上级，转入捡漏账号）', datetime.now().isoformat()))
+                        conn.commit()
+                        conn.close()
+                        
+                        # 同时更新fallback_accounts表的total_earned
+                        conn = DB.get_conn()
+                        c = conn.cursor()
+                        c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?', 
+                                 (config['level_reward'], upline_id))
+                        conn.commit()
+                        conn.close()
+                        continue  # 捡漏账号处理完毕，继续下一层
+                    
+                    # 非捡漏账号，需要检查条件
                     if not up_member:
                         # 如果仍然不存在，跳过
                         continue
@@ -909,11 +942,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                             pass
                     else:
                         # 上级未满足条件，分红转入捡漏账号
-                        # 如果当前就是捡漏账号，直接给这个捡漏账号
-                        if is_fallback:
-                            fb_id = upline_id
-                        else:
-                            fb_id = get_fallback_account(level)
+                        fb_id = get_fallback_account(level)
                         
                         if fb_id:
                             fb_member = DB.get_member(fb_id)
@@ -937,7 +966,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                                 # 记录捡漏账号的收益
                                 conn = DB.get_conn()
                                 c = conn.cursor()
-                                desc = f'第{level}层下级开通VIP（转入捡漏账号）' if not is_fallback else f'第{level}层下级开通VIP（无上级，转入捡漏账号）'
+                                desc = f'第{level}层下级开通VIP（上级未满足条件，转入捡漏账号）'
                                 c.execute('''INSERT INTO earnings_records 
                                            (member_id, amount, source_type, source_id, description, create_time)
                                            VALUES (?, ?, ?, ?, ?, ?)''',
