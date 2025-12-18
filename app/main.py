@@ -4268,13 +4268,47 @@ class WebDB:
 
     @staticmethod
     def delete_member(telegram_id):
-        """删除会员"""
+        """删除会员（完整清理所有关联数据）"""
         conn = DB.get_conn()
         c = conn.cursor()
-        c.execute('DELETE FROM members WHERE telegram_id = ?', (telegram_id,))
-        conn.commit()
-        conn.close()
-        return True
+        try:
+            # 1. 删除会员群组记录
+            c.execute('DELETE FROM member_groups WHERE telegram_id = ?', (telegram_id,))
+            
+            # 2. 删除充值记录
+            c.execute('DELETE FROM recharge_records WHERE member_id = ?', (telegram_id,))
+            
+            # 3. 删除收益记录
+            c.execute('DELETE FROM earnings_records WHERE member_id = ?', (telegram_id,))
+            
+            # 4. 删除提现记录
+            c.execute('DELETE FROM withdrawals WHERE member_id = ?', (telegram_id,))
+            
+            # 5. 删除捡漏账号记录（如果存在）
+            # 同时清理其他捡漏账号的 main_account_id 如果指向这个ID
+            c.execute('UPDATE fallback_accounts SET main_account_id = NULL WHERE main_account_id = ?', (telegram_id,))
+            c.execute('DELETE FROM fallback_accounts WHERE telegram_id = ?', (telegram_id,))
+            
+            # 6. 清理其他会员的备用号绑定（如果指向这个ID）
+            # 需要同时检查ID和用户名格式
+            c.execute('UPDATE members SET backup_account = NULL WHERE backup_account = ? OR backup_account = ?', 
+                     (str(telegram_id), f'@{telegram_id}'))
+            
+            # 7. 清理下级会员的推荐人关系（将referrer_id设为NULL）
+            c.execute('UPDATE members SET referrer_id = NULL WHERE referrer_id = ?', (telegram_id,))
+            
+            # 8. 最后删除会员记录本身
+            c.execute('DELETE FROM members WHERE telegram_id = ?', (telegram_id,))
+            
+            conn.commit()
+            conn.close()
+            print(f"[删除会员] 已完整清理账号 {telegram_id} 的所有关联数据")
+            return True
+        except Exception as e:
+            print(f"[删除会员失败] {e}")
+            conn.rollback()
+            conn.close()
+            return False
     
     @staticmethod
     def get_statistics():
