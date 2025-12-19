@@ -5,6 +5,7 @@
 import sqlite3
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
 from telethon.tl.functions.channels import GetParticipantRequest
 from telethon.tl.types import ChannelParticipantAdmin, ChannelParticipantCreator
@@ -13,6 +14,89 @@ from telethon.tl.types import ChannelParticipantAdmin, ChannelParticipantCreator
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 from app.config import DB_PATH
+
+# 定义中国时区
+CN_TIMEZONE = timezone(timedelta(hours=8))
+
+def get_cn_time():
+    """获取中国时间字符串"""
+    return datetime.now(CN_TIMEZONE).isoformat()
+
+async def verify_group_link(bot, link):
+    """验证群链接，检查机器人是否在群内且为管理员
+    
+    支持：
+    - http://t.me/群用户名 / https://t.me/群用户名 （公开群，支持自动检测管理员）
+    - http://t.me/+xxxx / https://t.me/+xxxx / https://t.me/joinchat/xxxx （私有邀请链接，只能记录，无法自动检测管理员）
+    
+    返回示例：
+    - {'success': True, 'message': 'xxx', 'admin_checked': True/False}
+    """
+    try:
+        # 必须是 http(s)://t.me/ 开头
+        if link.startswith('http://t.me/'):
+            tail = link.replace('http://t.me/', '').split('?')[0]
+        elif link.startswith('https://t.me/'):
+            tail = link.replace('https://t.me/', '').split('?')[0]
+        else:
+            return {'success': False, 'message': '链接格式不正确，请使用 http://t.me/ 开头的链接', 'admin_checked': False}
+        
+        # 1) 私有邀请链接: +hash 或 joinchat/hash -> 无法用 Bot 检测管理员，只能记录
+        if tail.startswith('+') or tail.startswith('joinchat/'):
+            return {
+                'success': True,
+                'message': '私有邀请链接已记录，Telegram 限制无法自动检测管理员，请确保机器人已在群且为管理员',
+                'admin_checked': False
+            }
+        
+        # 2) 普通公开群用户名：可以检测是否为管理员
+        username = tail
+        try:
+            # 尝试获取实体
+            entity = await bot.get_entity(username)
+        except Exception as e:
+            print(f'获取实体失败: {e}')
+            return {'success': False, 'message': '无法访问该群，可能是私有群 or 链接无效', 'admin_checked': False}
+        
+        # 检查是否是群组或超级群
+        if not hasattr(entity, 'broadcast') or entity.broadcast:
+            return {'success': False, 'message': '这不是一个群组链接', 'admin_checked': False}
+            
+        # 获取机器人在群内的权限
+        try:
+            me = await bot.get_me()
+            participant = await bot(GetParticipantRequest(
+                channel=entity,
+                participant=me.id
+            ))
+            
+            # 检查是否为管理员
+            from telethon.tl.types import (
+                ChatParticipantAdmin,
+                ChatParticipantCreator,
+                ChannelParticipantAdmin,
+                ChannelParticipantCreator
+            )
+            
+            is_admin = isinstance(participant.participant, (
+                ChatParticipantAdmin,
+                ChatParticipantCreator,
+                ChannelParticipantAdmin,
+                ChannelParticipantCreator
+            ))
+            
+            if not is_admin:
+                return {'success': False, 'message': '机器人不是群管理员', 'admin_checked': True}
+            
+            return {'success': True, 'message': '验证成功', 'admin_checked': True}
+        
+        except Exception as e:
+            print(f'获取权限失败: {e}')
+            return {'success': False, 'message': '机器人不在该群内或无法获取权限', 'admin_checked': True}
+            
+    except Exception as e:
+        print(f'验证群链接失败: {e}')
+        return {'success': False, 'message': f'验证失败: {str(e)}', 'admin_checked': False}
 
 
 async def check_user_in_group(bot, user_id, group_link):
@@ -74,14 +158,14 @@ async def check_bot_is_admin(bot, bot_id, group_link):
 
 def get_upline_chain(telegram_id, max_level=10):
     """
-    获取用户的上级链（向上N层）
+    获取用户的上级链（向上N层），如果上级不足，自动用捡漏账号补齐
     
     Args:
         telegram_id: 用户Telegram ID
         max_level: 最大层级数
     
     Returns:
-        list: 上级链列表，按层级从近到远排序 [(层级, telegram_id), ...]
+        list: 上级链列表，格式: [{'level': 层级, 'id': telegram_id, 'is_fallback': bool}, ...]
     """
     import sys
     import os
@@ -90,41 +174,37 @@ def get_upline_chain(telegram_id, max_level=10):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    upline_chain = []
+    upline_chain = []  # 格式: [{'level': 层级, 'id': telegram_id, 'is_fallback': bool}]
     current_id = telegram_id
-    level = 1
     
-    while level <= max_level:
-        # 查询当前用户的推荐人
+    # 1. 先找真实的推荐人链条
+    for level in range(1, max_level + 1):
         c.execute('SELECT referrer_id FROM members WHERE telegram_id = ?', (current_id,))
         row = c.fetchone()
         
-        if not row or not row[0]:
-            # 没有上级了，用捡漏账号补足
-            break
-        
-        referrer_id = row[0]
-        upline_chain.append((level, referrer_id))
-        current_id = referrer_id
-        level += 1
-    
-    # 如果不足max_level层，用捡漏账号补足
-    if len(upline_chain) < max_level:
-        needed_count = max_level - len(upline_chain)
-        c.execute('SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id LIMIT ?',
-                 (needed_count,))
-        fallback_ids = c.fetchall()
-        
-        if not fallback_ids:
-            print(f'[get_upline_chain] 警告: 没有激活的捡漏账号，无法补足 {needed_count} 层')
+        if row and row[0]:
+            upline_chain.append({'level': level, 'id': row[0], 'is_fallback': False})
+            current_id = row[0]
         else:
-            # 如果捡漏账号数量不足，循环使用
+            break
+    
+    # 2. 如果层数不足，用捡漏账号补齐
+    needed_count = max_level - len(upline_chain)
+    if needed_count > 0:
+        # 获取所有激活的捡漏账号，按ID排序
+        c.execute('SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id ASC')
+        fallback_rows = c.fetchall()
+        fallback_ids = [r[0] for r in fallback_rows]
+        
+        if fallback_ids:
+            start_level = len(upline_chain) + 1
             for i in range(needed_count):
-                fb_id = fallback_ids[i % len(fallback_ids)][0]
+                # 循环使用捡漏账号: 第1个补位用第1个账号，第2个用第2个...
+                fb_id = fallback_ids[i % len(fallback_ids)]
                 if fb_id:  # 确保 fb_id 不为 None
-                    upline_chain.append((len(upline_chain) + 1, fb_id))
-                else:
-                    print(f'[get_upline_chain] 警告: 捡漏账号ID为None，跳过')
+                    upline_chain.append({'level': start_level + i, 'id': fb_id, 'is_fallback': True})
+        else:
+            print(f'[get_upline_chain] 警告: 没有激活的捡漏账号，无法补足 {needed_count} 层')
     
     conn.close()
     return upline_chain
@@ -333,3 +413,156 @@ def get_fallback_account(level):
     conn.close()
     
     return row[0] if row else None
+
+
+async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
+    """
+    统一处理VIP开通后的分红逻辑
+    
+    :param bot: 机器人客户端
+    :param telegram_id: 开通VIP的用户ID
+    :param pay_amount: 支付金额（用于日志）
+    :param config: 系统配置字典
+    :return: dict {'real': 真实上级获得奖励数, 'fallback': 捡漏账号获得奖励数}
+    """
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from app.config import DB_PATH
+    
+    level_count = int(config.get('level_count', 10))
+    reward_amount = float(config.get('level_reward', 1))
+    
+    # 获取完整的上级链（包含自动补位的捡漏账号）
+    chain = get_upline_chain(telegram_id, level_count)
+    
+    # 获取开通者信息用于通知
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT username FROM members WHERE telegram_id = ?', (telegram_id,))
+    user_row = c.fetchone()
+    source_username = user_row[0] if user_row else str(telegram_id)
+    conn.close()
+    
+    reward_stats = {'real': 0, 'fallback': 0}
+    
+    for item in chain:
+        level = item['level']
+        upline_id = item['id']
+        is_fallback = item['is_fallback']
+        
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        c = conn.cursor()
+        
+        try:
+            if is_fallback:
+                # --- 捡漏账号逻辑 ---
+                # 1. 确保捡漏账号在 members 表存在（为了收益能显示）
+                c.execute('SELECT id FROM members WHERE telegram_id = ?', (upline_id,))
+                if not c.fetchone():
+                    # 获取用户名
+                    c.execute('SELECT username FROM fallback_accounts WHERE telegram_id = ?', (upline_id,))
+                    fb_row = c.fetchone()
+                    fb_name = fb_row[0] if fb_row and fb_row[0] else f'fallback_{upline_id}'
+                    # 插入members表，标记为VIP
+                    c.execute('''INSERT OR IGNORE INTO members (telegram_id, username, is_vip, register_time) 
+                                 VALUES (?, ?, 1, ?)''', (upline_id, fb_name, get_cn_time()))
+                
+                # 2. 发放奖励
+                c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?', 
+                         (reward_amount, reward_amount, upline_id))
+                
+                # 3. 更新 fallback_accounts 表统计
+                c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?',
+                         (reward_amount, upline_id))
+                
+                # 4. 记录日志
+                c.execute('''INSERT INTO earnings_records 
+                           (member_id, amount, source_type, source_id, description, create_time)
+                           VALUES (?, ?, ?, ?, ?, ?)''',
+                        (upline_id, reward_amount, 'fallback_commission', telegram_id,
+                         f'第{level}层（无上级，转入捡漏账号）', get_cn_time()))
+                
+                reward_stats['fallback'] += 1
+                
+            else:
+                # --- 真实上级逻辑 ---
+                # 检查条件
+                c.execute('SELECT is_vip, is_group_bound, is_bot_admin, is_joined_upline FROM members WHERE telegram_id = ?', (upline_id,))
+                row = c.fetchone()
+                
+                should_reward = False
+                if row:
+                    is_vip, is_bound, is_admin, is_joined = row
+                    # 核心判断：必须全部满足
+                    if is_vip and is_bound and is_admin and is_joined:
+                        should_reward = True
+                
+                if should_reward:
+                    # 发放奖励
+                    c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?', 
+                             (reward_amount, reward_amount, upline_id))
+                    
+                    # 记录日志
+                    c.execute('''INSERT INTO earnings_records 
+                               (member_id, amount, source_type, source_id, description, create_time)
+                               VALUES (?, ?, ?, ?, ?, ?)''',
+                            (upline_id, reward_amount, 'vip_commission', telegram_id,
+                             f'第{level}层下级开通VIP', get_cn_time()))
+                    
+                    reward_stats['real'] += 1
+                    
+                    # 发送通知
+                    try:
+                        await bot.send_message(upline_id, 
+                            f'🎉 获得 {reward_amount} U 奖励\n来源：第 {level} 层下级 @{source_username} 开通VIP')
+                    except: 
+                        pass
+                else:
+                    # 不满足条件 -> 烧伤/错过
+                    c.execute('UPDATE members SET missed_balance = missed_balance + ? WHERE telegram_id = ?',
+                             (reward_amount, upline_id))
+                    
+                    # 资金转给捡漏账号（当前层的捡漏号）
+                    # 重新获取该层对应的捡漏号
+                    c.execute('SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id ASC')
+                    fbs = c.fetchall()
+                    if fbs:
+                        # 使用 (level-1) % len 来确定分配给谁
+                        backup_fb_id = fbs[(level - 1) % len(fbs)][0]
+                        
+                        # 确保捡漏账号在members表存在
+                        c.execute('SELECT id FROM members WHERE telegram_id = ?', (backup_fb_id,))
+                        if not c.fetchone():
+                            c.execute('SELECT username FROM fallback_accounts WHERE telegram_id = ?', (backup_fb_id,))
+                            fb_row = c.fetchone()
+                            fb_name = fb_row[0] if fb_row and fb_row[0] else f'fallback_{backup_fb_id}'
+                            c.execute('''INSERT OR IGNORE INTO members (telegram_id, username, is_vip, register_time) 
+                                         VALUES (?, ?, 1, ?)''', (backup_fb_id, fb_name, get_cn_time()))
+                        
+                        c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?',
+                                 (reward_amount, reward_amount, backup_fb_id))
+                        c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?',
+                                 (reward_amount, backup_fb_id))
+                        c.execute('''INSERT INTO earnings_records 
+                                   (member_id, amount, source_type, source_id, description, create_time)
+                                   VALUES (?, ?, ?, ?, ?, ?)''',
+                                (backup_fb_id, reward_amount, 'fallback_commission', telegram_id,
+                                 f'第{level}层（上级不满足条件，转入捡漏）', get_cn_time()))
+                        reward_stats['fallback'] += 1
+                    
+                    try:
+                        await bot.send_message(upline_id, 
+                            f'⚠️ 错过 {reward_amount} U 奖励\n原因：未满足VIP分红条件\n来源：第 {level} 层下级')
+                    except: 
+                        pass
+
+            conn.commit()
+        except Exception as e:
+            print(f"[分红分配错误] Level {level}: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            conn.close()
+            
+    return reward_stats
