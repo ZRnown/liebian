@@ -292,35 +292,7 @@ def internal_notify():
         print(f"内部API失败: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
-# ==================== 整合路由函数 ====================
-# 从 complete_all_features.py 和 missing_routes.py 导入并注册路由
-
-def register_all_routes():
-    """注册所有路由（整合 complete_all_features 和 missing_routes）"""
-    
-    # 从 complete_all_features 导入路由（避免冲突）
-    try:
-        from complete_all_features import add_new_routes_to_app
-        # 注意：这里只注册 complete_all_features 中不冲突的路由
-        # member-groups 和 fallback-accounts 的页面路由已在上面定义
-        # 只注册API路由
-        add_new_routes_to_app(app, DB, login_required, jsonify, request, render_template)
-        print("✅ 已加载 complete_all_features 路由")
-    except Exception as e:
-        print(f"⚠️ 加载 complete_all_features 路由失败: {e}")
-    
-    # 从 missing_routes 导入路由
-    try:
-        from missing_routes import add_missing_routes
-        add_missing_routes(app, DB, login_required, jsonify, request, render_template, pending_broadcasts)
-        print("✅ 已加载 missing_routes 路由")
-    except Exception as e:
-        print(f"⚠️ 加载 missing_routes 路由失败: {e}")
-
-# 注册所有路由
-register_all_routes()
-
-# ==================== 关键API路由（从main.py迁移）====================
+# ==================== 关键API路由 =====================
 
 @app.route('/api/members')
 @login_required
