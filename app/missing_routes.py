@@ -14,12 +14,12 @@ def add_missing_routes(app, DB, login_required, jsonify, request, render_templat
     """添加所有缺失的路由"""
     
     # ==================== 群发管理 ====================
-    
-    @app.route('/broadcast')
-    @login_required
-    def broadcast_page():
-        """群发管理页面"""
-        return render_template('broadcast.html', active_page='broadcast')
+    # 注意：/broadcast 路由已在 web_app.py 中定义，这里跳过以避免冲突
+    # @app.route('/broadcast')
+    # @login_required
+    # def broadcast_page():
+    #     """群发管理页面"""
+    #     return render_template('broadcast.html', active_page='broadcast')
     
 
     # 文件上传API

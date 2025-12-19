@@ -569,6 +569,348 @@ class AdminUser(UserMixin):
         self.username = username
         self.password_hash = password_hash
 
+class WebDB:
+    """Web管理后台数据库操作"""
+    
+    @staticmethod
+    def get_user_by_username(username):
+        """根据用户名获取用户"""
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('SELECT id, username, password_hash FROM admin_users WHERE username = ?', (username,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return AdminUser(row[0], row[1], row[2])
+        return None
+    
+    @staticmethod
+    def get_user_by_id(user_id):
+        """根据ID获取用户"""
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('SELECT id, username, password_hash FROM admin_users WHERE id = ?', (user_id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return AdminUser(row[0], row[1], row[2])
+        return None
+    
+    @staticmethod
+    def update_password(user_id, new_password):
+        """更新密码"""
+        from werkzeug.security import generate_password_hash
+        conn = get_db_conn()
+        c = conn.cursor()
+        password_hash = generate_password_hash(new_password)
+        c.execute('UPDATE admin_users SET password_hash = ? WHERE id = ?', (password_hash, user_id))
+        conn.commit()
+        conn.close()
+    
+    @staticmethod
+    def get_statistics():
+        """获取统计数据"""
+        conn = get_db_conn()
+        c = conn.cursor()
+        
+        c.execute('SELECT COUNT(*) FROM members')
+        total_members = c.fetchone()[0] or 0
+        
+        c.execute('SELECT COUNT(*) FROM members WHERE is_vip = 1')
+        vip_members = c.fetchone()[0] or 0
+        
+        c.execute('SELECT COALESCE(SUM(balance), 0) FROM members')
+        total_balance = c.fetchone()[0] or 0
+        
+        c.execute('SELECT COALESCE(SUM(missed_balance), 0) FROM members')
+        total_missed = c.fetchone()[0] or 0
+        
+        conn.close()
+        
+        return {
+            'total_members': total_members,
+            'vip_members': vip_members,
+            'total_balance': total_balance,
+            'total_missed': total_missed
+        }
+    
+    @staticmethod
+    def get_chart_data():
+        """获取图表统计数据"""
+        conn = get_db_conn()
+        c = conn.cursor()
+        
+        # 获取近7天的注册趋势
+        from datetime import datetime, timedelta
+        today = datetime.now().date()
+        dates = []
+        counts = []
+        
+        for i in range(6, -1, -1):
+            date = today - timedelta(days=i)
+            date_str = date.strftime('%Y-%m-%d')
+            dates.append(date.strftime('%m-%d'))
+            
+            c.execute("SELECT COUNT(*) FROM members WHERE register_time LIKE ?", (f"{date_str}%",))
+            count = c.fetchone()[0]
+            counts.append(count)
+            
+        # 获取VIP比例
+        c.execute('SELECT COUNT(*) FROM members WHERE is_vip = 1')
+        vip_count = c.fetchone()[0]
+        c.execute('SELECT COUNT(*) FROM members WHERE is_vip = 0')
+        normal_count = c.fetchone()[0]
+        
+        conn.close()
+        
+        return {
+            'growth': {'labels': dates, 'data': counts},
+            'composition': {'vip': vip_count, 'normal': normal_count}
+        }
+    
+    @staticmethod
+    def get_withdrawals(page=1, per_page=20, status='all', search=''):
+        """获取提现列表"""
+        conn = get_db_conn()
+        c = conn.cursor()
+        offset = (page - 1) * per_page
+        
+        try:
+            search_term = search.lstrip('@').strip() if search else ''
+            
+            if status != 'all':
+                c.execute('SELECT id, member_id, amount, usdt_address, status, create_time, process_time FROM withdrawals WHERE status = ? ORDER BY id DESC', (status,))
+            else:
+                c.execute('SELECT id, member_id, amount, usdt_address, status, create_time, process_time FROM withdrawals ORDER BY id DESC')
+            
+            all_rows = c.fetchall()
+            
+            results = []
+            for row in all_rows:
+                member_id = row[1]
+                c.execute('SELECT username FROM members WHERE telegram_id = ?', (member_id,))
+                user_row = c.fetchone()
+                username = user_row[0] if user_row else str(member_id)
+                
+                if search_term:
+                    if search_term.lower() not in username.lower() and search_term not in str(member_id):
+                        continue
+                
+                results.append({
+                    'id': row[0],
+                    'member_id': row[1],
+                    'amount': row[2],
+                    'usdt_address': row[3],
+                    'status': row[4],
+                    'create_time': row[5],
+                    'process_time': row[6],
+                    'username': username
+                })
+            
+            total = len(results)
+            withdrawals = results[offset:offset + per_page]
+            
+            return {
+                'withdrawals': withdrawals,
+                'total': total,
+                'page': page,
+                'pages': (total + per_page - 1) // per_page if total > 0 else 1,
+                'per_page': per_page
+            }
+        except Exception as e:
+            print(f"get_withdrawals error: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'withdrawals': [], 'total': 0, 'page': 1, 'pages': 1, 'per_page': per_page}
+        finally:
+            conn.close()
+    
+    @staticmethod
+    def process_withdrawal(withdrawal_id, action):
+        """处理提现请求"""
+        conn = get_db_conn()
+        c = conn.cursor()
+        
+        try:
+            c.execute('SELECT member_id, amount, status FROM withdrawals WHERE id = ?', (withdrawal_id,))
+            row = c.fetchone()
+            
+            if not row:
+                return False, "记录不存在"
+                
+            member_id, amount, status = row
+            
+            from datetime import datetime
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            if action == 'approve':
+                if status == 'rejected':
+                    c.execute('UPDATE members SET balance = balance - ? WHERE telegram_id = ?', 
+                             (amount, member_id))
+                
+                c.execute('UPDATE withdrawals SET status = ?, process_time = ? WHERE id = ?', 
+                         ('approved', now, withdrawal_id))
+                
+            elif action == 'reject':
+                if status != 'pending':
+                    return False, "只能拒绝待处理的提现"
+                
+                c.execute('UPDATE withdrawals SET status = ?, process_time = ? WHERE id = ?', 
+                         ('rejected', now, withdrawal_id))
+                c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?', 
+                         (amount, member_id))
+            else:
+                return False, "无效操作"
+                
+            conn.commit()
+            
+            # 发送BOT通知
+            try:
+                import requests
+                if action == 'approve':
+                    msg = f"✅ 提现审核通过\n\n💰 金额: {amount} USDT\n📝 订单号: #{withdrawal_id}\n⏰ 时间: {now}\n\n请注意查收，感谢您的耐心等待！"
+                else:
+                    msg = f"❌ 提现申请被拒绝\n\n💰 金额: {amount} USDT\n📝 订单号: #{withdrawal_id}\n⏰ 时间: {now}\n\n余额已退回账户，如有疑问请联系客服。"
+                
+                requests.post("http://127.0.0.1:5051/internal/notify", json={
+                    'member_id': member_id, 'message': msg
+                }, timeout=1)
+            except:
+                pass
+            
+            return True, "操作成功"
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+    
+    @staticmethod
+    def get_all_members(page=1, per_page=20, search='', filter_type='all'):
+        """获取会员列表"""
+        conn = get_db_conn()
+        c = conn.cursor()
+        offset = (page - 1) * per_page
+        
+        search_term = search.lstrip('@').strip() if search else ''
+        
+        # 构建查询条件
+        where_clauses = []
+        params = []
+        
+        if filter_type == 'vip':
+            where_clauses.append('is_vip = 1')
+        elif filter_type == 'normal':
+            where_clauses.append('is_vip = 0')
+        
+        if search_term:
+            where_clauses.append('(username LIKE ? OR telegram_id LIKE ?)')
+            params.extend([f'%{search_term}%', f'%{search_term}%'])
+        
+        where_sql = ' AND '.join(where_clauses) if where_clauses else '1=1'
+        
+        # 获取总数
+        c.execute(f'SELECT COUNT(*) FROM members WHERE {where_sql}', params)
+        total = c.fetchone()[0]
+        
+        # 获取分页数据
+        c.execute(f'''
+            SELECT telegram_id, username, balance, is_vip, register_time, vip_time, 
+                   referrer_id, group_link, missed_balance, total_earned
+            FROM members 
+            WHERE {where_sql}
+            ORDER BY id DESC
+            LIMIT ? OFFSET ?
+        ''', params + [per_page, offset])
+        
+        rows = c.fetchall()
+        members = []
+        for row in rows:
+            members.append({
+                'telegram_id': row[0],
+                'username': row[1] or '',
+                'balance': row[2] or 0,
+                'is_vip': bool(row[3]),
+                'register_time': row[4][:19] if row[4] else '',
+                'vip_time': row[5][:19] if row[5] else '',
+                'referrer_id': row[6],
+                'group_link': row[7] or '',
+                'missed_balance': row[8] or 0,
+                'total_earned': row[9] or 0
+            })
+        
+        conn.close()
+        
+        return {
+            'members': members,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'pages': (total + per_page - 1) // per_page
+        }
+    
+    @staticmethod
+    def get_member_detail(telegram_id):
+        """获取会员详情"""
+        conn = get_db_conn()
+        c = conn.cursor()
+        
+        c.execute('''
+            SELECT telegram_id, username, balance, is_vip, register_time, vip_time,
+                   referrer_id, group_link, missed_balance, total_earned, backup_account
+            FROM members WHERE telegram_id = ?
+        ''', (telegram_id,))
+        
+        row = c.fetchone()
+        conn.close()
+        
+        if not row:
+            return None
+        
+        return {
+            'telegram_id': row[0],
+            'username': row[1] or '',
+            'balance': row[2] or 0,
+            'is_vip': bool(row[3]),
+            'register_time': row[4][:19] if row[4] else '',
+            'vip_time': row[5][:19] if row[5] else '',
+            'referrer_id': row[6],
+            'group_link': row[7] or '',
+            'missed_balance': row[8] or 0,
+            'total_earned': row[9] or 0,
+            'backup_account': row[10] or ''
+        }
+    
+    @staticmethod
+    def update_member(telegram_id, data):
+        """更新会员信息"""
+        conn = get_db_conn()
+        c = conn.cursor()
+        
+        allowed_fields = ['username', 'balance', 'is_vip', 'group_link', 'missed_balance', 'total_earned']
+        updates = []
+        params = []
+        
+        for field in allowed_fields:
+            if field in data:
+                updates.append(f'{field} = ?')
+                params.append(data[field])
+        
+        if updates:
+            params.append(telegram_id)
+            c.execute(f'UPDATE members SET {", ".join(updates)} WHERE telegram_id = ?', params)
+            conn.commit()
+        
+        conn.close()
+    
+    @staticmethod
+    def delete_member(telegram_id):
+        """删除会员"""
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('DELETE FROM members WHERE telegram_id = ?', (telegram_id,))
+        conn.commit()
+        conn.close()
+
 # ==================== 数据库升级函数 ====================
 
 def upgrade_members_table():
