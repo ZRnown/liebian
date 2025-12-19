@@ -1,6 +1,6 @@
 """
 Web后台层 - 统一管理所有Flask路由
-整合 complete_all_features.py 和 missing_routes.py 的路由，避免冲突
+所有路由都在此文件中直接定义，不再依赖外部路由文件
 """
 import os
 import uuid
@@ -1087,29 +1087,6 @@ def api_update_settings():
         return jsonify({'success': True, 'message': '设置已更新'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
-
-@app.route('/api/withdrawals')
-@login_required
-def api_withdrawals():
-    """获取提现列表API"""
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 20, type=int)
-    status = request.args.get('status', 'all')
-    search = request.args.get('search', '').strip()
-    data = WebDB.get_withdrawals(page, per_page, status, search)
-    return jsonify(data)
-
-@app.route('/api/withdrawals/<int:id>/process', methods=['POST'])
-@login_required
-def api_process_withdrawal(id):
-    """处理提现API"""
-    data = request.json
-    action = data.get('action')
-    
-    success, message = WebDB.process_withdrawal(id, action)
-    if success:
-        return jsonify({'success': True, 'message': message})
-    return jsonify({'success': False, 'message': message}), 400
 
 # ==================== 管理员手动开通VIP API ====================
 
