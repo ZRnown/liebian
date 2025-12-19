@@ -688,18 +688,37 @@ async def profile_handler(event):
     
     backup_display = format_backup_account_display(member.get("backup_account"))
     
-    await event.respond(
-        f'👤 个人中心 (已同步主账号)\n\n'
-        f'🆔 主账号ID: `{member["telegram_id"]}`\n'
-        f'👤 主账号名: @{member["username"]}\n'
-        f'💎 VIP状态: {"✅ 已开通" if member["is_vip"] else "❌ 未开通"}\n'
-        f'💰 余额: {member["balance"]} U\n'
-        f'📉 错过余额: {member["missed_balance"]} U\n'
-        f'🔗 群链接: {member["group_link"] or "未设置"}\n'
-        f'📱 绑定备用号: {backup_display}\n'
-        f'📅 注册时间: {member["register_time"][:10] if member["register_time"] else "未知"}',
-        buttons=buttons
-    )
+    # 获取推荐人信息
+    referrer_info = ""
+    if member.get("referrer_id"):
+        referrer = DB.get_member(member["referrer_id"])
+        if referrer:
+            referrer_username = referrer.get("username", "")
+            referrer_info = f'👥 推荐人: @{referrer_username} ({member["referrer_id"]})' if referrer_username else f'👥 推荐人ID: {member["referrer_id"]}'
+        else:
+            referrer_info = f'👥 推荐人ID: {member["referrer_id"]}'
+    
+    # 获取状态信息
+    is_group_bound = member.get("is_group_bound", 0)
+    is_bot_admin = member.get("is_bot_admin", 0)
+    is_joined_upline = member.get("is_joined_upline", 0)
+    
+    status_info = f'\n拉群: {"是" if is_group_bound else "否"}\n群管: {"是" if is_bot_admin else "否"}\n加群: {"是" if is_joined_upline else "否"}'
+    
+    text = f'👤 个人中心 (已同步主账号)\n\n'
+    text += f'🆔 主账号ID: `{member["telegram_id"]}`\n'
+    text += f'👤 主账号名: @{member["username"]}\n'
+    if referrer_info:
+        text += f'{referrer_info}\n'
+    text += f'💎 VIP状态: {"✅ 已开通" if member["is_vip"] else "❌ 未开通"}\n'
+    text += f'💰 余额: {member["balance"]} U\n'
+    text += f'📉 错过余额: {member["missed_balance"]} U\n'
+    text += f'🔗 群链接: {member["group_link"] or "未设置"}\n'
+    text += f'📱 绑定备用号: {backup_display}\n'
+    text += status_info
+    text += f'\n📅 注册时间: {member["register_time"][:10] if member["register_time"] else "未知"}'
+    
+    await event.respond(text, buttons=buttons)
 
 # ==================== 个人中心按钮回调处理 ====================
 
@@ -978,24 +997,19 @@ async def recharge_for_vip_callback(event):
         await event.answer("❌ 用户信息不存在", alert=True)
         return
     
-    # 设置用户状态为等待输入充值金额
-    waiting_for_recharge_amount[telegram_id] = True
+    # 获取VIP价格，计算需要充值的金额
+    config = get_system_config()
+    vip_price = config.get('vip_price', 10)
+    user_balance = member.get('balance', 0)
+    need_recharge = vip_price - user_balance
     
-    text = """💰 充值余额
-
-请输入您要充值的金额（USDT）
-
-例如: 200
-
-⚠️ 注意:
-• 仅支持TRC-20网络USDT
-• 最低充值金额: 10 USDT
-• 充值后自动到账"""
+    if need_recharge <= 0:
+        await event.answer("✅ 余额充足，可以直接开通VIP", alert=True)
+        return
     
-    try:
-        await event.edit(text)
-    except:
-        await event.respond(text)
+    # 调用充值订单创建函数（传入bot参数）
+    from payment import create_recharge_order
+    await create_recharge_order(bot, event, need_recharge, is_vip_order=True)
     await event.answer()
 
 @bot.on(events.NewMessage(pattern='/bind_group'))
