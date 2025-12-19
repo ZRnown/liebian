@@ -195,20 +195,27 @@ def get_fallback_resource(resource_type='group'):
         conn = get_db_conn()
         c = conn.cursor()
         if resource_type == 'group':
-            c.execute("SELECT group_link FROM fallback_accounts WHERE is_active = 1 AND group_link IS NOT NULL AND group_link != ''")
+            # 返回包含群组名称和链接的列表
+            c.execute("SELECT username, group_link FROM fallback_accounts WHERE is_active = 1 AND group_link IS NOT NULL AND group_link != '' ORDER BY id ASC")
             results = c.fetchall()
             conn.close()
             if results:
-                links = []
+                groups = []
                 seen = set()
-                for r in results:
-                    g_links = r[0].split('\n')
-                    for l in g_links:
-                        l = l.strip()
-                        if l and l not in seen:
-                            links.append(l)
-                            seen.add(l)
-                return '\n'.join(links) if links else None
+                for username, group_link in results:
+                    if not group_link:
+                        continue
+                    g_links = group_link.split('\n')
+                    for link in g_links:
+                        link = link.strip()
+                        if link and link not in seen:
+                            groups.append({
+                                'username': username or '',
+                                'link': link,
+                                'name': username or link.split('/')[-1]  # 使用用户名作为群组名称，如果没有则使用链接最后一部分
+                            })
+                            seen.add(link)
+                return groups if groups else None
         elif resource_type == 'account':
             c.execute("SELECT telegram_id, username FROM fallback_accounts WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1")
             result = c.fetchone()
@@ -633,28 +640,15 @@ async def fission_handler(event):
         text += "\n"
         has_groups = True
         
-    # 获取捡漏群
-    fb_groups_text = get_fallback_resource('group')
-    if fb_groups_text:
+    # 获取捡漏群（现在返回字典列表）
+    fb_groups = get_fallback_resource('group')
+    if fb_groups:
         text += "🔥 **推荐加入的群组：**\n"
-        fb_list = [g.strip() for g in fb_groups_text.split('\n') if g.strip()]
-        for idx, link in enumerate(fb_list, 1):
-            # 尝试提取群名
-            group_name = link.split('/')[-1].replace('+', '')
-            if 't.me' in link:
-                # 从链接中提取群名（例如：https://t.me/groupname -> groupname）
-                parts = link.split('/')
-                if len(parts) > 0:
-                    last_part = parts[-1]
-                    if '+' in last_part:
-                        group_name = last_part.split('+')[0]
-                    else:
-                        group_name = last_part
-                # 如果没有提取到，使用默认名称
-                if not group_name or group_name == link:
-                    group_name = f"推荐群组 {idx}"
-            
-            text += f"{idx}. [{group_name}]({link})\n"
+        for idx, group_info in enumerate(fb_groups, 1):
+            group_name = group_info.get('name', group_info.get('username', f'推荐群组 {idx}'))
+            group_link = group_info.get('link', '')
+            if group_link:
+                text += f"{idx}. [{group_name}]({group_link})\n"
         has_groups = True
     
     if not has_groups:
@@ -698,13 +692,6 @@ async def profile_handler(event):
         else:
             referrer_info = f'👥 推荐人ID: {member["referrer_id"]}'
     
-    # 获取状态信息
-    is_group_bound = member.get("is_group_bound", 0)
-    is_bot_admin = member.get("is_bot_admin", 0)
-    is_joined_upline = member.get("is_joined_upline", 0)
-    
-    status_info = f'\n拉群: {"是" if is_group_bound else "否"}\n群管: {"是" if is_bot_admin else "否"}\n加群: {"是" if is_joined_upline else "否"}'
-    
     text = f'👤 个人中心 (已同步主账号)\n\n'
     text += f'🆔 主账号ID: `{member["telegram_id"]}`\n'
     text += f'👤 主账号名: @{member["username"]}\n'
@@ -715,7 +702,6 @@ async def profile_handler(event):
     text += f'📉 错过余额: {member["missed_balance"]} U\n'
     text += f'🔗 群链接: {member["group_link"] or "未设置"}\n'
     text += f'📱 绑定备用号: {backup_display}\n'
-    text += status_info
     text += f'\n📅 注册时间: {member["register_time"][:10] if member["register_time"] else "未知"}'
     
     await event.respond(text, buttons=buttons)
@@ -1082,9 +1068,11 @@ async def view_fission_handler(event):
         text += f'✅ 获得下级开通VIP的奖励\n'
         text += f'✅ 加入上级群组\n\n'
         text += f'💰 VIP价格: {config["vip_price"]} U'
-        _fb_group = get_fallback_resource("group")
-        if _fb_group:
-            text += f"\n\n💡 推荐群组:\n{_fb_group}"
+        _fb_groups = get_fallback_resource("group")
+        if _fb_groups:
+            fb_links = '\n'.join([g.get('link', '') for g in _fb_groups if g.get('link')])
+            if fb_links:
+                text += f"\n\n💡 推荐群组:\n{fb_links}"
         await event.respond(text)
         return
 
@@ -1336,7 +1324,7 @@ async def vip_handler(event):
             f'✅ 加入上级群组\n'
             f'✅ 推广赚钱功能\n\n'
             f'❌ 余额不足，请先充值',
-            buttons=[[Button.inline(f'💰 充值 {config["vip_price"]} U 开通VIP', b'recharge_vip')]]
+            buttons=[[Button.inline(f'💰 充值 {config["vip_price"]} U 开通VIP', b'recharge_for_vip')]]
         )
 
 @bot.on(events.NewMessage(pattern=BTN_MY_PROMOTE))

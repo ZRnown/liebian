@@ -713,33 +713,40 @@ class WebDB:
         
         search_term = search.lstrip('@').strip() if search else ''
         
-        # 构建查询条件
+        # 构建查询条件（使用表别名 m）
         where_clauses = []
         params = []
         
         if filter_type == 'vip':
-            where_clauses.append('is_vip = 1')
+            where_clauses.append('m.is_vip = 1')
         elif filter_type == 'normal':
-            where_clauses.append('is_vip = 0')
+            where_clauses.append('m.is_vip = 0')
         
         if search_term:
-            where_clauses.append('(username LIKE ? OR telegram_id LIKE ?)')
+            where_clauses.append('(m.username LIKE ? OR m.telegram_id LIKE ?)')
             params.extend([f'%{search_term}%', f'%{search_term}%'])
         
         where_sql = ' AND '.join(where_clauses) if where_clauses else '1=1'
         
-        # 获取总数
-        c.execute(f'SELECT COUNT(*) FROM members WHERE {where_sql}', params)
+        # 获取总数（使用JOIN以保持一致性）
+        c.execute(f'''
+            SELECT COUNT(*) 
+            FROM members m
+            LEFT JOIN members r ON m.referrer_id = r.telegram_id
+            WHERE {where_sql}
+        ''', params)
         total = c.fetchone()[0]
         
         # 获取分页数据（包含所有必要字段）
         c.execute(f'''
-            SELECT telegram_id, username, balance, is_vip, register_time, vip_time, 
-                   referrer_id, group_link, missed_balance, total_earned,
-                   is_group_bound, is_bot_admin, is_joined_upline, backup_account
-            FROM members 
+            SELECT m.id, m.telegram_id, m.username, m.balance, m.is_vip, m.register_time, m.vip_time, 
+                   m.referrer_id, m.group_link, m.missed_balance, m.total_earned,
+                   m.is_group_bound, m.is_bot_admin, m.is_joined_upline, m.backup_account,
+                   r.username as referrer_username
+            FROM members m
+            LEFT JOIN members r ON m.referrer_id = r.telegram_id
             WHERE {where_sql}
-            ORDER BY id DESC
+            ORDER BY m.id DESC
             LIMIT ? OFFSET ?
         ''', params + [per_page, offset])
         
@@ -747,16 +754,21 @@ class WebDB:
         members = []
         for row in rows:
             members.append({
-                'telegram_id': row[0],
-                'username': row[1] or '',
-                'balance': row[2] or 0,
-                'is_vip': bool(row[3]),
-                'register_time': row[4][:19] if row[4] else '',
-                'vip_time': row[5][:19] if row[5] else '',
-                'referrer_id': row[6],
-                'group_link': row[7] or '',
-                'missed_balance': row[8] or 0,
-                'total_earned': row[9] or 0
+                'id': row[0],  # 添加ID字段
+                'telegram_id': row[1],
+                'username': row[2] or '',
+                'balance': row[3] or 0,
+                'is_vip': bool(row[4]),
+                'register_time': row[5][:19] if row[5] else '',
+                'vip_time': row[6][:19] if row[6] else '',
+                'referrer_id': row[7],
+                'referrer_username': row[15] or '',  # 添加推荐人用户名
+                'group_link': row[8] or '',
+                'missed_balance': row[9] or 0,
+                'total_earned': row[10] or 0,
+                'is_group_bound': bool(row[11]),  # 添加群状态字段
+                'is_bot_admin': bool(row[12]),
+                'is_joined_upline': bool(row[13])
             })
         
         conn.close()
