@@ -3,10 +3,25 @@
 """
 import sqlite3
 import time
+import os
+import sys
 from datetime import datetime, timedelta, timezone
 from werkzeug.security import generate_password_hash
 from flask_login import UserMixin
-from config import DB_PATH
+
+# 兼容不同导入方式
+try:
+    # 优先尝试从 app.config 导入（当作为模块导入时）
+    from app.config import DB_PATH
+except ImportError:
+    try:
+        # 尝试从 config 导入（当在 app 目录下直接运行时）
+        from config import DB_PATH
+    except ImportError:
+        # 如果都失败，使用相对路径计算
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        DATA_DIR = os.path.join(BASE_DIR, 'data')
+        DB_PATH = os.path.join(DATA_DIR, 'bot.db')
 
 # 定义中国时区
 CN_TIMEZONE = timezone(timedelta(hours=8))

@@ -9,8 +9,11 @@ import sqlite3
 import shutil
 from datetime import datetime
 
-# 添加项目路径
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 添加项目路径到 sys.path
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
+
+# 确保可以导入 app 模块
 from app.config import DB_PATH, DATA_DIR
 from app.database import init_db, get_db_conn, get_cn_time
 

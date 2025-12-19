@@ -6,8 +6,11 @@ import os
 import sys
 import sqlite3
 
-# 添加项目路径
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 添加项目路径到 sys.path
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
+
+# 确保可以导入 app 模块
 from app.database import get_db_conn
 
 def add_fallback_accounts():
