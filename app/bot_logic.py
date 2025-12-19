@@ -630,64 +630,9 @@ async def fission_handler(event):
         await event.respond(text, buttons=buttons)
         return
     
-    # 已开通VIP，显示上级群和推荐群组
+    # 已开通VIP，只显示捡漏群组（不需要上级群）
     text = "🔗 **群裂变加入列表**\n━━━━━━━━━━━━━━━━\n\n"
-    has_groups = False
     
-    # 使用 get_upline_chain 获取完整的10层关系
-    chain = get_upline_chain(telegram_id, 10)
-    valid_upline_groups = []
-    
-    for item in chain:
-        if item.get('is_fallback'):
-            continue
-            
-        upline_id = item['id']
-        up_member = DB.get_member(upline_id)
-        if up_member and up_member.get('group_link'):
-            # 检查条件
-            conds = await check_user_conditions(bot, upline_id)
-            if conds and conds['all_conditions_met']:
-                group_links = up_member['group_link'].split('\n')
-                for link in group_links:
-                    if link.strip():
-                        # 尝试获取群组实际名称
-                        group_name = f"第{item['level']}层上级"  # 默认名称
-                        try:
-                            # 提取群组用户名
-                            if 't.me/' in link:
-                                group_username = link.split('t.me/')[-1].split('/')[0].split('?')[0]
-                            elif link.startswith('@'):
-                                group_username = link[1:]
-                            else:
-                                group_username = link
-                            
-                            # 跳过私有群链接
-                            if not group_username.startswith('+'):
-                                try:
-                                    group_entity = await bot.get_entity(group_username)
-                                    title = getattr(group_entity, 'title', None)
-                                    if title:
-                                        group_name = title
-                                except:
-                                    pass
-                        except:
-                            pass
-                        
-                        valid_upline_groups.append({
-                            'level': item['level'],
-                            'link': link.strip(),
-                            'name': group_name
-                        })
-                        break
-    
-    if valid_upline_groups:
-        text += "👥 **需要加入的上级群：**\n"
-        for g in valid_upline_groups:
-            text += f"{g['level']}. [{g['name']}]({g['link']})\n"
-        text += "\n"
-        has_groups = True
-        
     # 获取捡漏群（现在返回字典列表）
     fb_groups = get_fallback_resource('group')
     if fb_groups:
@@ -709,9 +654,7 @@ async def fission_handler(event):
                 pass  # 如果获取失败，使用默认名称
             
             text += f"{idx}. [{group_name}]({group_link})\n"
-        has_groups = True
-    
-    if not has_groups:
+    else:
         await event.respond("❌ 暂无可用群组，请联系管理员配置捡漏账号群链接。")
         return
         
@@ -1066,7 +1009,7 @@ async def recharge_for_vip_callback(event):
 
 @bot.on(events.CallbackQuery(pattern=rb'verify_groups_.*'))
 async def verify_groups_callback(event):
-    """验证用户是否加入所有需要加入的群组（上级群 + 捡漏群组，共10个）"""
+    """验证用户是否加入所有捡漏群组（必须10个全部加入）"""
     # 账号关联处理（备用号->主账号）
     try:
         original_sender_id = event.sender_id
@@ -1085,82 +1028,36 @@ async def verify_groups_callback(event):
     if member.get('is_joined_upline'):
         await event.answer("✅ 加群任务已完成（永久锁定）", alert=False)
         try:
-            await event.edit("✅ **加群任务已完成**\n\n🎉 您已完成加入所有需要加入的群组！\n\n您现在可以获得下级开通VIP的分红了！")
+            await event.edit("✅ **加群任务已完成**\n\n🎉 您已完成加入10个捡漏群组的任务！\n\n✅ 任务状态已永久锁定，即使退群也不会再检测。\n\n您现在可以获得下级开通VIP的分红了！")
         except:
             pass
         return
     
     await event.answer("🔍 正在检测群组加入情况，请稍候...", alert=False)
     
-    # 【核心修复】加群任务 = 必须加入上级群（如果存在）+ 捡漏群组（补足到10个）
+    # 【核心修复】加群任务 = 只需要加入捡漏账号的10个群组
     config = get_system_config()
     required_groups_count = min(config.get('level_count', 10), 10)
     
     groups_to_check = []
     
-    # 1. 先获取需要加入的上级群
-    from core_functions import get_upline_chain
-    chain = get_upline_chain(telegram_id, required_groups_count)
-    
-    for item in chain:
-        if item.get('is_fallback'):
-            continue
-            
-        upline_id = item['id']
-        up_member = DB.get_member(upline_id)
-        if up_member and up_member.get('group_link'):
-            # 检查条件
-            try:
-                conds = await check_user_conditions(bot, upline_id)
-                if conds and conds['all_conditions_met']:
-                    group_links = up_member.get('group_link', '').split('\n')
-                    for link in group_links:
-                        link = link.strip()
-                        if link and link not in [g['link'] for g in groups_to_check]:
-                            # 默认名称，后续会从Telegram API获取实际名称
-                            groups_to_check.append({
-                                'display_index': len(groups_to_check) + 1,
-                                'link': link,
-                                'level': item['level'],
-                                'type': 'upline',
-                                'group_name': f"第{item['level']}层上级"  # 默认名称，验证时会更新为实际名称
-                            })
-                            break
-            except Exception as e:
-                print(f"[验证加群] 检查上级条件失败: {e}")
-                continue
-    
-    # 2. 用捡漏群组补足到10个
+    # 只获取捡漏群组（必须10个）
     fb_groups = get_fallback_resource('group')
-    if fb_groups:
-        for group_info in fb_groups:
-            if len(groups_to_check) >= required_groups_count:
-                break
-            gl = group_info.get('link', '').strip()
-            if gl and gl not in [g['link'] for g in groups_to_check]:
-                groups_to_check.append({
-                    'display_index': len(groups_to_check) + 1,
-                    'link': gl,
-                    'type': 'fallback',
-                    'username': group_info.get('username', ''),
-                    'group_name': group_info.get('name', '')
-                })
+    if not fb_groups or len(fb_groups) < required_groups_count:
+        await event.respond(f"❌ 系统错误：捡漏群组不足{required_groups_count}个，请联系管理员配置")
+        return
     
-    # 如果不足10个，继续用捡漏群组补足
-    if len(groups_to_check) < required_groups_count:
-        if fb_groups:
-            for group_info in fb_groups:
-                if len(groups_to_check) >= required_groups_count:
-                    break
-                gl = group_info.get('link', '').strip()
-                if gl and gl not in [g['link'] for g in groups_to_check]:
-                    groups_to_check.append({
-                        'display_index': len(groups_to_check) + 1,
-                        'link': gl,
-                        'type': 'fallback',
-                        'username': group_info.get('username', ''),
-                        'group_name': group_info.get('name', '')
-                    })
+    # 只取前10个捡漏群组
+    for idx, group_info in enumerate(fb_groups[:required_groups_count], 1):
+        gl = group_info.get('link', '').strip()
+        if gl:
+            groups_to_check.append({
+                'display_index': idx,
+                'link': gl,
+                'type': 'fallback',
+                'username': group_info.get('username', ''),
+                'group_name': group_info.get('name', '')
+            })
     
     if not groups_to_check:
         await event.respond("❌ 没有可验证的群组")
