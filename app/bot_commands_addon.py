@@ -101,9 +101,14 @@ async def handle_join_upline(event, bot, DB, get_system_config):
         await event.respond('您没有上级，无需加群')
         return
     
-    # 获取上层群列表
+    # 获取上层群列表（新格式：字典列表）
     upline_groups = []
-    for level, upline_id in upline_chain:
+    for item in upline_chain:
+        if item.get('is_fallback'):
+            # 跳过捡漏账号
+            continue
+        upline_id = item['id']
+        level = item['level']
         up_member = DB.get_member(upline_id)
         if up_member and up_member['group_link']:
             upline_groups.append({

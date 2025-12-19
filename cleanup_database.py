@@ -23,12 +23,25 @@ def cleanup_database():
     try:
         # 1. 删除无效的幽灵用户
         print("\n1. 删除无效的幽灵用户...")
+        # 先查询一下有多少无效用户
+        c.execute("""
+            SELECT COUNT(*) FROM members 
+            WHERE telegram_id IS NULL 
+               OR telegram_id = 'None' 
+               OR CAST(telegram_id AS TEXT) = 'None'
+               OR username = 'fallback_None'
+               OR username LIKE 'fallback_%None%'
+        """)
+        count_before = c.fetchone()[0]
+        print(f"   发现 {count_before} 个可疑的无效用户")
+        
         c.execute("""
             DELETE FROM members 
             WHERE telegram_id IS NULL 
                OR telegram_id = 'None' 
                OR CAST(telegram_id AS TEXT) = 'None'
                OR username = 'fallback_None'
+               OR username LIKE 'fallback_%None%'
         """)
         deleted_members = c.rowcount
         print(f"   已删除 {deleted_members} 个无效用户")
@@ -57,14 +70,21 @@ def cleanup_database():
         
         # 4. 检查并清理无效的提现记录
         print("\n4. 检查无效的提现记录...")
-        c.execute("""
-            DELETE FROM withdrawal_records 
-            WHERE member_id IS NULL 
-               OR member_id = 'None'
-               OR CAST(member_id AS TEXT) = 'None'
-        """)
-        deleted_withdrawals = c.rowcount
-        print(f"   已删除 {deleted_withdrawals} 条无效提现记录")
+        # 检查表是否存在
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='withdrawals'")
+        table_exists = c.fetchone()
+        if table_exists:
+            c.execute("""
+                DELETE FROM withdrawals 
+                WHERE member_id IS NULL 
+                   OR member_id = 'None'
+                   OR CAST(member_id AS TEXT) = 'None'
+            """)
+            deleted_withdrawals = c.rowcount
+            print(f"   已删除 {deleted_withdrawals} 条无效提现记录")
+        else:
+            print("   表 'withdrawals' 不存在，跳过")
+            deleted_withdrawals = 0
         
         # 提交更改
         conn.commit()

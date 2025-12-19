@@ -812,10 +812,11 @@ class WebDB:
         c.execute(f'SELECT COUNT(*) FROM members WHERE {where_sql}', params)
         total = c.fetchone()[0]
         
-        # 获取分页数据
+        # 获取分页数据（包含所有必要字段）
         c.execute(f'''
             SELECT telegram_id, username, balance, is_vip, register_time, vip_time, 
-                   referrer_id, group_link, missed_balance, total_earned
+                   referrer_id, group_link, missed_balance, total_earned,
+                   is_group_bound, is_bot_admin, is_joined_upline, backup_account
             FROM members 
             WHERE {where_sql}
             ORDER BY id DESC

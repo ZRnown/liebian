@@ -442,7 +442,7 @@ async def send_recharge_notification(telegram_id, amount):
 
 💰 充值金额: {amount} USDT
 📝 订单状态: 已完成
-⏰ 到账时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+⏰ 到账时间: {get_cn_time()}
 
 您的余额已自动增加，可以在个人中心查看。"""
         
@@ -1657,7 +1657,7 @@ async def message_handler(event):
                     c.execute("UPDATE members SET balance = balance - ? WHERE telegram_id = ?", (amount, sender_id))
                     
                     # 插入提现记录
-                    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    now = get_cn_time()
                     
                     # 检查表是否有usdt_address字段
                     c.execute("PRAGMA table_info(withdrawals)")
