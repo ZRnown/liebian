@@ -1088,6 +1088,94 @@ def api_update_settings():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+# ==================== 补全遗漏的 API 路由 ====================
+
+@app.route('/api/settings/fallback-accounts')
+@login_required
+def api_settings_fallback_accounts():
+    """捡漏账号设置 API (兼容旧前端)"""
+    return api_fallback_accounts()
+
+@app.route('/api/customer_services')
+@login_required
+def api_get_customer_services():
+    """获取客服列表API"""
+    try:
+        services = DB.get_customer_services()
+        return jsonify({'success': True, 'services': services})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/payment-config', methods=['GET'])
+@login_required
+def api_get_payment_config():
+    """获取支付配置API"""
+    try:
+        return jsonify({
+            'success': True,
+            'config': {
+                'api_url': PAYMENT_CONFIG['api_url'],
+                'partner_id': PAYMENT_CONFIG['partner_id'],
+                'notify_url': PAYMENT_CONFIG['notify_url'],
+                'return_url': PAYMENT_CONFIG['return_url'],
+                'pay_type': PAYMENT_CONFIG['pay_type']
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/settings/bot-tokens')
+@login_required
+def api_bot_tokens_alias():
+    """Bot Token列表 (兼容旧前端)"""
+    return api_bot_configs()
+
+@app.route('/api/fallback-accounts/<int:id>', methods=['DELETE'])
+@login_required
+def api_delete_fallback_account(id):
+    """删除捡漏账号"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('DELETE FROM fallback_accounts WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '删除成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/fallback-accounts/<int:id>', methods=['PUT'])
+@login_required
+def api_update_fallback_account(id):
+    """更新捡漏账号"""
+    try:
+        data = request.json
+        conn = get_db_conn()
+        c = conn.cursor()
+        
+        updates = []
+        params = []
+        
+        if 'username' in data:
+            updates.append('username = ?')
+            params.append(data['username'])
+        if 'group_link' in data:
+            updates.append('group_link = ?')
+            params.append(data['group_link'])
+        if 'is_active' in data:
+            updates.append('is_active = ?')
+            params.append(1 if data['is_active'] else 0)
+        
+        if updates:
+            params.append(id)
+            c.execute(f'UPDATE fallback_accounts SET {", ".join(updates)} WHERE id = ?', params)
+            conn.commit()
+        
+        conn.close()
+        return jsonify({'success': True, 'message': '更新成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 # ==================== 管理员手动开通VIP API ====================
 
 @app.route('/api/member/<int:telegram_id>/manual-vip', methods=['POST'])

@@ -639,7 +639,22 @@ async def fission_handler(event):
         text += "🔥 **推荐加入的群组：**\n"
         fb_list = [g.strip() for g in fb_groups_text.split('\n') if g.strip()]
         for idx, link in enumerate(fb_list, 1):
-            text += f"{idx}. [推荐群组 {idx}]({link})\n"
+            # 尝试提取群名
+            group_name = link.split('/')[-1].replace('+', '')
+            if 't.me' in link:
+                # 从链接中提取群名（例如：https://t.me/groupname -> groupname）
+                parts = link.split('/')
+                if len(parts) > 0:
+                    last_part = parts[-1]
+                    if '+' in last_part:
+                        group_name = last_part.split('+')[0]
+                    else:
+                        group_name = last_part
+                # 如果没有提取到，使用默认名称
+                if not group_name or group_name == link:
+                    group_name = f"推荐群组 {idx}"
+            
+            text += f"{idx}. [{group_name}]({link})\n"
         has_groups = True
     
     if not has_groups:
@@ -685,6 +700,139 @@ async def profile_handler(event):
         f'📅 注册时间: {member["register_time"][:10] if member["register_time"] else "未知"}',
         buttons=buttons
     )
+
+# ==================== 个人中心按钮回调处理 ====================
+
+@bot.on(events.CallbackQuery(pattern=b'set_group'))
+async def set_group_callback(event):
+    """设置群链接回调"""
+    try:
+        original_id = event.sender_id
+        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    
+    waiting_for_group_link[event.sender_id] = True
+    await event.respond("🔗 请发送您的群组链接（例如 https://t.me/yourgroup）")
+    await event.answer()
+
+@bot.on(events.CallbackQuery(pattern=b'set_backup'))
+async def set_backup_callback(event):
+    """设置备用号回调"""
+    try:
+        original_id = event.sender_id
+        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    
+    waiting_for_backup[event.sender_id] = True
+    await event.respond("📱 请发送备用账号的 ID 或用户名（例如：123456789 或 @username）")
+    await event.answer()
+
+@bot.on(events.CallbackQuery(pattern=b'earnings_history'))
+async def earnings_history_callback(event):
+    """收益记录回调"""
+    try:
+        original_id = event.sender_id
+        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    
+    telegram_id = event.sender_id
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("SELECT amount, create_time, source_type, description FROM earnings_records WHERE member_id=? ORDER BY id DESC LIMIT 20", (telegram_id,))
+    rows = c.fetchall()
+    conn.close()
+    
+    if not rows:
+        await event.answer("暂无收益记录", alert=True)
+        return
+    
+    msg = "📊 **最近收益记录**\n━━━━━━━━━━━━━━━━\n\n"
+    total = 0
+    for r in rows:
+        amount = r[0] or 0
+        create_time = r[1] or ''
+        source_type = r[2] or 'unknown'
+        description = r[3] or ''
+        total += amount
+        
+        source_name = {
+            'referral_commission': '下级VIP奖励',
+            'fallback_commission': '捡漏奖励',
+            'recharge': '充值',
+            'withdraw': '提现',
+            'manual': '手动调整'
+        }.get(source_type, source_type)
+        
+        msg += f"💰 +{amount} U ({source_name})\n"
+        if description:
+            msg += f"   {description}\n"
+        msg += f"📅 {create_time[:19] if create_time else '未知'}\n\n"
+    
+    msg += f"━━━━━━━━━━━━━━━━\n"
+    msg += f"💰 累计收益: {total} U"
+    
+    await event.respond(msg, parse_mode='markdown')
+    await event.answer()
+
+@bot.on(events.CallbackQuery(pattern=b'withdraw'))
+async def withdraw_callback(event):
+    """提现回调"""
+    try:
+        original_id = event.sender_id
+        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    
+    telegram_id = event.sender_id
+    member = DB.get_member(telegram_id)
+    if not member:
+        await event.answer("❌ 用户信息不存在", alert=True)
+        return
+    
+    config = get_system_config()
+    threshold = config.get('withdraw_threshold', 50)
+    
+    if member['balance'] < threshold:
+        await event.answer(f"❌ 余额不足\n\n当前余额: {member['balance']} U\n提现门槛: {threshold} U", alert=True)
+        return
+    
+    waiting_for_withdraw_amount[telegram_id] = True
+    await event.respond(
+        f'💳 提现申请\n\n'
+        f'当前余额: {member["balance"]} U\n'
+        f'提现门槛: {threshold} U\n\n'
+        f'请输入提现金额（U）：'
+    )
+    await event.answer()
+
+@bot.on(events.CallbackQuery(pattern=b'do_recharge'))
+async def do_recharge_callback(event):
+    """充值回调"""
+    try:
+        original_id = event.sender_id
+        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    
+    waiting_for_recharge_amount[event.sender_id] = True
+    await event.respond("💰 充值\n\n请输入充值金额（U）：")
+    await event.answer()
+
+@bot.on(events.CallbackQuery(pattern=b'open_vip'))
+async def open_vip_callback(event):
+    """开通VIP回调 - 跳转到VIP处理"""
+    try:
+        original_id = event.sender_id
+        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    
+    # 调用VIP处理函数
+    await vip_handler(event)
+    await event.answer()
 
 @bot.on(events.NewMessage(pattern='/bind_group'))
 async def bind_group_cmd(event):
