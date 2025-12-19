@@ -706,132 +706,296 @@ async def profile_handler(event):
 @bot.on(events.CallbackQuery(pattern=b'set_group'))
 async def set_group_callback(event):
     """设置群链接回调"""
+    # 账号关联处理（备用号->主账号）
     try:
-        original_id = event.sender_id
-        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except:
         pass
+    member = DB.get_member(event.sender_id)
+    if not member:
+        await event.answer('请先发送 /start 注册')
+        return
     
+    # 切换到群链接输入时，清理备用号等待状态
+    waiting_for_backup.pop(event.sender_id, None)
     waiting_for_group_link[event.sender_id] = True
-    await event.respond("🔗 请发送您的群组链接（例如 https://t.me/yourgroup）")
+    await event.respond(
+        '🔗 设置群链接\n\n'
+        '请发送您的群链接 (格式: http://t.me/群用户名 或 https://t.me/群用户名)\n\n'
+        '发送 /cancel 取消操作'
+    )
     await event.answer()
 
 @bot.on(events.CallbackQuery(pattern=b'set_backup'))
 async def set_backup_callback(event):
     """设置备用号回调"""
+    # 账号关联处理（备用号->主账号）
     try:
-        original_id = event.sender_id
-        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except:
         pass
+    member = DB.get_member(event.sender_id)
+    if not member:
+        await event.answer('请先发送 /start 注册')
+        return
     
+    # 切换到备用号输入时，清理群链接等待状态
+    waiting_for_group_link.pop(event.sender_id, None)
     waiting_for_backup[event.sender_id] = True
-    await event.respond("📱 请发送备用账号的 ID 或用户名（例如：123456789 或 @username）")
+    await event.respond(
+        '✏️ 设置备用号\n\n'
+        '请发送您的备用飞机号 (不带@的用户名或ID)\n\n'
+        '发送 /cancel 取消操作'
+    )
     await event.answer()
 
 @bot.on(events.CallbackQuery(pattern=b'earnings_history'))
 async def earnings_history_callback(event):
-    """收益记录回调"""
+    """查看个人收益记录"""
+    # 账号关联处理（备用号->主账号）
     try:
-        original_id = event.sender_id
-        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except:
         pass
+    member = DB.get_member(event.sender_id)
     
-    telegram_id = event.sender_id
-    conn = get_db_conn()
-    c = conn.cursor()
-    c.execute("SELECT amount, create_time, source_type, description FROM earnings_records WHERE member_id=? ORDER BY id DESC LIMIT 20", (telegram_id,))
-    rows = c.fetchall()
-    conn.close()
-    
-    if not rows:
-        await event.answer("暂无收益记录", alert=True)
+    if not member:
+        await event.answer("❌ 用户信息不存在", alert=True)
         return
     
-    msg = "📊 **最近收益记录**\n━━━━━━━━━━━━━━━━\n\n"
-    total = 0
-    for r in rows:
-        amount = r[0] or 0
-        create_time = r[1] or ''
-        source_type = r[2] or 'unknown'
-        description = r[3] or ''
-        total += amount
-        
-        source_name = {
-            'referral_commission': '下级VIP奖励',
-            'fallback_commission': '捡漏奖励',
-            'recharge': '充值',
-            'withdraw': '提现',
-            'manual': '手动调整'
-        }.get(source_type, source_type)
-        
-        msg += f"💰 +{amount} U ({source_name})\n"
-        if description:
-            msg += f"   {description}\n"
-        msg += f"📅 {create_time[:19] if create_time else '未知'}\n\n"
+    conn = DB.get_conn()
+    c = conn.cursor()
+    c.execute('''
+        SELECT amount, source_type, description, create_time
+        FROM earnings_records
+        WHERE member_id = ?
+        ORDER BY create_time DESC
+        LIMIT 50
+    ''', (member["telegram_id"],))
+    records = c.fetchall()
+    conn.close()
     
-    msg += f"━━━━━━━━━━━━━━━━\n"
-    msg += f"💰 累计收益: {total} U"
+    if not records:
+        text = "📊 收益记录\n\n暂无收益记录"
+        buttons = [[Button.inline('🔙 返回', b'back_to_profile')]]
+    else:
+        total = sum(r[0] for r in records)
+        text = f"📊 收益记录\n\n"
+        text += f"💰 累计收益: {total} U\n"
+        text += f"📝 记录数: {len(records)} 条\n\n"
+        text += "最近收益记录:\n"
+        text += "━━━━━━━━━━━━━━\n"
+        
+        for i, (amount, source_type, desc, create_time) in enumerate(records[:20], 1):
+            time_str = create_time[:16] if create_time else "未知"
+            text += f"{i}. +{amount} U\n"
+            text += f"   {desc or source_type}\n"
+            text += f"   {time_str}\n\n"
+        
+        if len(records) > 20:
+            text += f"... 还有 {len(records) - 20} 条记录\n"
+        
+        buttons = [[Button.inline('🔙 返回', b'back_to_profile')]]
     
-    await event.respond(msg, parse_mode='markdown')
+    try:
+        await event.edit(text, buttons=buttons)
+    except:
+        await event.respond(text, buttons=buttons)
     await event.answer()
 
 @bot.on(events.CallbackQuery(pattern=b'withdraw'))
 async def withdraw_callback(event):
     """提现回调"""
-    try:
-        original_id = event.sender_id
-        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    
-    telegram_id = event.sender_id
-    member = DB.get_member(telegram_id)
-    if not member:
-        await event.answer("❌ 用户信息不存在", alert=True)
-        return
-    
     config = get_system_config()
-    threshold = config.get('withdraw_threshold', 50)
-    
-    if member['balance'] < threshold:
-        await event.answer(f"❌ 余额不足\n\n当前余额: {member['balance']} U\n提现门槛: {threshold} U", alert=True)
+    member = DB.get_member(event.sender_id)
+    if not member:
+        await event.answer('请先发送 /start 注册')
         return
-    
-    waiting_for_withdraw_amount[telegram_id] = True
-    await event.respond(
-        f'💳 提现申请\n\n'
-        f'当前余额: {member["balance"]} U\n'
-        f'提现门槛: {threshold} U\n\n'
-        f'请输入提现金额（U）：'
-    )
+
+    if member['balance'] < config['withdraw_threshold']:
+        await event.respond(
+            '💳 提现\n\n'
+            f'❌ 余额未达到提现门槛\n\n'
+            f'当前余额: {member["balance"]} U\n'
+            f'提现门槛: {config["withdraw_threshold"]} U\n'
+            f'还需: {config["withdraw_threshold"] - member["balance"]} U'
+        )
+    else:
+        waiting_for_withdraw_amount[event.sender_id] = True
+        await event.respond(
+            f'💳 提现申请\n\n'
+            f'当前余额: {member["balance"]} U\n'
+            f'提现门槛: {config["withdraw_threshold"]} U\n\n'
+            f'请输入提现金额：'
+        )
     await event.answer()
 
 @bot.on(events.CallbackQuery(pattern=b'do_recharge'))
 async def do_recharge_callback(event):
     """充值回调"""
+    # 账号关联处理（备用号->主账号）
     try:
-        original_id = event.sender_id
-        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except:
         pass
+    telegram_id = event.sender_id
+    member = DB.get_member(telegram_id)
     
-    waiting_for_recharge_amount[event.sender_id] = True
-    await event.respond("💰 充值\n\n请输入充值金额（U）：")
+    if not member:
+        await event.answer("❌ 用户信息不存在", alert=True)
+        return
+    
+    waiting_for_recharge_amount[telegram_id] = True
+    
+    text = """💰 充值余额
+
+请输入您要充值的金额（USDT）
+
+例如: 200
+
+⚠️ 注意:
+• 仅支持TRC-20网络USDT
+• 最低充值金额: 10 USDT
+• 充值后自动到账"""
+    
+    try:
+        await event.edit(text)
+    except:
+        await event.respond(text)
     await event.answer()
 
 @bot.on(events.CallbackQuery(pattern=b'open_vip'))
 async def open_vip_callback(event):
-    """开通VIP回调 - 跳转到VIP处理"""
+    """开通VIP"""
+    # 账号关联处理（备用号->主账号）
     try:
-        original_id = event.sender_id
-        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except:
         pass
+    telegram_id = event.sender_id
+    member = DB.get_member(telegram_id)
     
-    # 调用VIP处理函数
-    await vip_handler(event)
+    if not member:
+        await event.answer("❌ 用户信息不存在", alert=True)
+        return
+    
+    if member.get('is_vip'):
+        await event.answer("✅ 您已经是VIP会员", alert=True)
+        return
+    
+    config = get_system_config()
+    vip_price = config.get('vip_price', 10)
+    user_balance = member.get('balance', 0)
+    need_recharge = vip_price - user_balance
+    
+    text = f"""💎 开通VIP会员
+
+VIP价格: {vip_price} U
+当前余额: {user_balance} U
+还需充值: {need_recharge} U
+
+开通VIP后您将获得:
+✅ 查看裂变数据
+✅ 获得下级开通VIP的奖励
+✅ 加入上级群组
+✅ 推广赚钱功能"""
+    
+    if user_balance >= vip_price:
+        # 余额足够，显示余额开通按钮
+        buttons = [[Button.inline(f'💎 余额开通VIP', b'open_vip_balance')]]
+    else:
+        # 余额不足，显示充值按钮
+        text += f"\n\n❌ 余额不足，请先充值"
+        buttons = [[Button.inline(f'💰 充值{need_recharge}U开通VIP', b'recharge_for_vip')]]
+    
+    try:
+        await event.edit(text, buttons=buttons)
+    except:
+        await event.respond(text, buttons=buttons)
+    await event.answer()
+
+# 返回个人中心
+@bot.on(events.CallbackQuery(pattern=b'back_to_profile'))
+async def back_to_profile_callback(event):
+    """返回个人中心"""
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    member = DB.get_member(event.sender_id)
+    if not member:
+        await event.answer("❌ 用户信息不存在", alert=True)
+        return
+    
+    buttons = [
+        [Button.inline('🔗 设置群链接', b'set_group'), Button.inline('✏️ 设置备用号', b'set_backup')],
+        [Button.inline('📊 收益记录', b'earnings_history')],
+        [Button.inline('💳 提现', b'withdraw'), Button.inline('💰 充值', b'do_recharge'), Button.inline('💎 开通VIP', b'open_vip')],
+    ]
+    
+    # 格式化备用号显示（显示用户名而不是ID）
+    backup_display = format_backup_account_display(member.get("backup_account"))
+    
+    text = (
+        f'👤 个人中心\n\n'
+        f'🆔 ID: {member["telegram_id"]}\n'
+        f'👤 用户名: @{member["username"]}\n'
+        f'💎 VIP状态: {"✅ 已开通" if member["is_vip"] else "❌ 未开通"}\n'
+        f'💰 余额: {member["balance"]} U\n'
+        f'📉 错过余额: {member["missed_balance"]} U\n'
+        f'💵 累计收益: {member.get("total_earned", 0)} U\n'
+        f'🔗 群链接: {member["group_link"] or "未设置"}\n'
+        f'📱 备用号: {backup_display}\n'
+        f'📅 注册时间: {member["register_time"][:10] if member["register_time"] else "未知"}'
+    )
+    
+    try:
+        await event.edit(text, buttons=buttons)
+    except:
+        await event.respond(text, buttons=buttons)
+    await event.answer()
+
+@bot.on(events.CallbackQuery(data=b'recharge_for_vip'))
+async def recharge_for_vip_callback(event):
+    """充值开通VIP - 调用充值输入金额功能"""
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    telegram_id = event.sender_id
+    member = DB.get_member(telegram_id)
+    
+    if not member:
+        await event.answer("❌ 用户信息不存在", alert=True)
+        return
+    
+    # 设置用户状态为等待输入充值金额
+    waiting_for_recharge_amount[telegram_id] = True
+    
+    text = """💰 充值余额
+
+请输入您要充值的金额（USDT）
+
+例如: 200
+
+⚠️ 注意:
+• 仅支持TRC-20网络USDT
+• 最低充值金额: 10 USDT
+• 充值后自动到账"""
+    
+    try:
+        await event.edit(text)
+    except:
+        await event.respond(text)
     await event.answer()
 
 @bot.on(events.NewMessage(pattern='/bind_group'))
