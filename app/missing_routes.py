@@ -68,38 +68,39 @@ def add_missing_routes(app, DB, login_required, jsonify, request, render_templat
         except Exception as e:
             return jsonify({'success': False, 'message': str(e)})
 
-    @app.route('/api/broadcast/messages')
-    @login_required
-    def api_get_broadcast_messages():
-        """获取群发内容列表"""
-        try:
-            conn = DB.get_conn()
-            c = conn.cursor()
-            c.execute("""SELECT id, title, content, media_type, media_url, is_active, create_time,
-                        image_url, video_url, buttons, buttons_per_row, schedule_enabled, schedule_time
-                        FROM broadcast_messages ORDER BY id DESC""")
-            rows = c.fetchall()
-            messages = []
-            for row in rows:
-                messages.append({
-                    'id': row[0],
-                    'title': row[1],
-                    'content': row[2],
-                    'media_type': row[3],
-                    'media_url': row[4],
-                    'is_active': row[5],
-                    'create_time': row[6],
-                    'image_url': row[7] or '',
-                    'video_url': row[8] or '',
-                    'buttons': row[9] or '[]',
-                    'buttons_per_row': row[10] or 2,
-                    'schedule_enabled': row[11] or 0,
-                    'schedule_time': row[12] or ''
-                })
-            conn.close()
-            return jsonify({'messages': messages})
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+    # 注意：/api/broadcast/messages 路由已在 web_app.py 中定义，这里跳过以避免冲突
+    # @app.route('/api/broadcast/messages')
+    # @login_required
+    # def api_get_broadcast_messages():
+    #     """获取群发内容列表"""
+    #     try:
+    #         conn = DB.get_conn()
+    #         c = conn.cursor()
+    #         c.execute("""SELECT id, title, content, media_type, media_url, is_active, create_time,
+    #                     image_url, video_url, buttons, buttons_per_row, schedule_enabled, schedule_time
+    #                     FROM broadcast_messages ORDER BY id DESC""")
+    #         rows = c.fetchall()
+    #         messages = []
+    #         for row in rows:
+    #             messages.append({
+    #                 'id': row[0],
+    #                 'title': row[1],
+    #                 'content': row[2],
+    #                 'media_type': row[3],
+    #                 'media_url': row[4],
+    #                 'is_active': row[5],
+    #                 'create_time': row[6],
+    #                 'image_url': row[7] or '',
+    #                 'video_url': row[8] or '',
+    #                 'buttons': row[9] or '[]',
+    #                 'buttons_per_row': row[10] or 2,
+    #                 'schedule_enabled': row[11] or 0,
+    #                 'schedule_time': row[12] or ''
+    #             })
+    #         conn.close()
+    #         return jsonify({'messages': messages})
+    #     except Exception as e:
+    #         return jsonify({'error': str(e)}), 500
     
     @app.route('/api/broadcast/message/<int:msg_id>', methods=['GET'])
     @login_required
@@ -265,36 +266,38 @@ def add_missing_routes(app, DB, login_required, jsonify, request, render_templat
     
     # ==================== 机器人设置 ====================
     
-    @app.route('/bot-settings')
-    @login_required
-    def bot_settings_page():
-        """机器人设置页面"""
-        return render_template('bot_settings.html', active_page='bot_settings')
+    # 注意：/bot-settings 路由已在 web_app.py 中定义，这里跳过以避免冲突
+    # @app.route('/bot-settings')
+    # @login_required
+    # def bot_settings_page():
+    #     """机器人设置页面"""
+    #     return render_template('bot_settings.html', active_page='bot_settings')
     
-    @app.route('/api/bot-configs')
-    @login_required
-    def api_get_bot_configs():
-        """获取机器人配置列表"""
-        try:
-            conn = DB.get_conn()
-            c = conn.cursor()
-            c.execute('SELECT * FROM bot_configs ORDER BY id DESC')
-            rows = c.fetchall()
-            configs = []
-            for row in rows:
-                configs.append({
-                    'id': row[0],
-                    'bot_token': row[1],
-                    'bot_username': row[2],
-                    'is_active': row[3],
-                    'api_id': row[4],
-                    'api_hash': row[5],
-                    'create_time': row[6]
-                })
-            conn.close()
-            return jsonify({'configs': configs})
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+    # 注意：/api/bot-configs 路由已在 web_app.py 中定义，这里跳过以避免冲突
+    # @app.route('/api/bot-configs')
+    # @login_required
+    # def api_get_bot_configs():
+    #     """获取机器人配置列表"""
+    #     try:
+    #         conn = DB.get_conn()
+    #         c = conn.cursor()
+    #         c.execute('SELECT * FROM bot_configs ORDER BY id DESC')
+    #         rows = c.fetchall()
+    #         configs = []
+    #         for row in rows:
+    #             configs.append({
+    #                 'id': row[0],
+    #                 'bot_token': row[1],
+    #                 'bot_username': row[2],
+    #                 'is_active': row[3],
+    #                 'api_id': row[4],
+    #                 'api_hash': row[5],
+    #                 'create_time': row[6]
+    #             })
+    #         conn.close()
+    #         return jsonify({'configs': configs})
+    #     except Exception as e:
+    #         return jsonify({'error': str(e)}), 500
     
     @app.route('/api/bot-config', methods=['POST'])
     @login_required

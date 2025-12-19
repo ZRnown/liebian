@@ -14,50 +14,52 @@ def add_new_routes_to_app(app, DB, login_required, jsonify, request, render_temp
     
     # ==================== 会员群管理 ====================
     
-    @app.route('/member-groups')
-    @login_required
-    def member_groups_page():
-        """会员群管理页面"""
-        return render_template('member_groups.html', active_page='member_groups')
+    # 注意：/member-groups 路由已在 web_app.py 中定义，这里跳过以避免冲突
+    # @app.route('/member-groups')
+    # @login_required
+    # def member_groups_page():
+    #     """会员群管理页面"""
+    #     return render_template('member_groups.html', active_page='member_groups')
     
-    @app.route('/api/member-groups')
-    @login_required
-    def api_get_member_groups():
-        """获取会员群列表"""
-        try:
-            conn = DB.get_conn()
-            c = conn.cursor()
-            
-            c.execute('''
-                SELECT 
-                    mg.id, mg.telegram_id, mg.group_id, mg.group_name,
-                    mg.group_link, mg.member_count, mg.bot_id, mg.is_bot_admin,
-                    mg.create_time, m.username
-                FROM member_groups mg
-                LEFT JOIN members m ON mg.telegram_id = m.telegram_id
-                ORDER BY mg.id DESC
-            ''')
-            
-            rows = c.fetchall()
-            groups = []
-            for row in rows:
-                groups.append({
-                    'id': row[0],
-                    'telegram_id': row[1],
-                    'group_id': row[2],
-                    'group_name': row[3] or '',
-                    'group_link': row[4] or '',
-                    'member_count': row[5] or 0,
-                    'bot_id': row[6],
-                    'is_bot_admin': row[7],
-                    'create_time': row[8][:19] if row[8] else '',
-                    'owner_username': row[9] or ''
-                })
-            
-            conn.close()
-            return jsonify({'groups': groups})
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+    # 注意：/api/member-groups 路由已在 web_app.py 中定义，这里跳过以避免冲突
+    # @app.route('/api/member-groups')
+    # @login_required
+    # def api_get_member_groups():
+    #     """获取会员群列表"""
+    #     try:
+    #         conn = DB.get_conn()
+    #         c = conn.cursor()
+    #         
+    #         c.execute('''
+    #             SELECT 
+    #                 mg.id, mg.telegram_id, mg.group_id, mg.group_name,
+    #                 mg.group_link, mg.member_count, mg.bot_id, mg.is_bot_admin,
+    #                 mg.create_time, m.username
+    #             FROM member_groups mg
+    #             LEFT JOIN members m ON mg.telegram_id = m.telegram_id
+    #             ORDER BY mg.id DESC
+    #         ''')
+    #         
+    #         rows = c.fetchall()
+    #         groups = []
+    #         for row in rows:
+    #             groups.append({
+    #                 'id': row[0],
+    #                 'telegram_id': row[1],
+    #                 'group_id': row[2],
+    #                 'group_name': row[3] or '',
+    #                 'group_link': row[4] or '',
+    #                 'member_count': row[5] or 0,
+    #                 'bot_id': row[6],
+    #                 'is_bot_admin': row[7],
+    #                 'create_time': row[8][:19] if row[8] else '',
+    #                 'owner_username': row[9] or ''
+    #             })
+    #         
+    #         conn.close()
+    #         return jsonify({'groups': groups})
+    #     except Exception as e:
+    #         return jsonify({'error': str(e)}), 500
     
     @app.route('/api/member-groups', methods=['POST'])
     @login_required
