@@ -16,7 +16,7 @@ try:
 except ImportError:
     try:
         # 尝试从 config 导入（当在 app 目录下直接运行时）
-from config import DB_PATH
+        from config import DB_PATH
     except ImportError:
         # 如果都失败，使用相对路径计算
         BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
