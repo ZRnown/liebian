@@ -209,10 +209,12 @@ def get_fallback_resource(resource_type='group'):
                     for link in g_links:
                         link = link.strip()
                         if link and link not in seen:
+                            # 默认使用用户名，如果没有则使用链接最后一部分
+                            default_name = username or link.split('/')[-1].replace('+', '')
                             groups.append({
                                 'username': username or '',
                                 'link': link,
-                                'name': username or link.split('/')[-1]  # 使用用户名作为群组名称，如果没有则使用链接最后一部分
+                                'name': default_name  # 默认名称，后续可以通过Telegram API获取实际名称
                             })
                             seen.add(link)
                 return groups if groups else None
@@ -226,6 +228,29 @@ def get_fallback_resource(resource_type='group'):
     except Exception as e:
         print(f"[捡漏错误] {e}")
     return None
+
+async def get_group_title(bot, group_link):
+    """从Telegram API获取群组实际名称"""
+    try:
+        # 提取群组用户名
+        if 't.me/' in group_link:
+            group_username = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
+        elif group_link.startswith('@'):
+            group_username = group_link[1:]
+        else:
+            return None
+        
+        # 跳过私有群链接
+        if group_username.startswith('+'):
+            return None
+        
+        # 获取群组实体
+        group_entity = await bot.get_entity(group_username)
+        title = getattr(group_entity, 'title', None)
+        return title
+    except Exception as e:
+        print(f"[获取群组名称失败] {group_link}: {e}")
+        return None
 
 def get_main_keyboard(user_id=None):
     """主菜单键盘"""
@@ -645,10 +670,22 @@ async def fission_handler(event):
     if fb_groups:
         text += "🔥 **推荐加入的群组：**\n"
         for idx, group_info in enumerate(fb_groups, 1):
-            group_name = group_info.get('name', group_info.get('username', f'推荐群组 {idx}'))
             group_link = group_info.get('link', '')
-            if group_link:
-                text += f"{idx}. [{group_name}]({group_link})\n"
+            if not group_link:
+                continue
+            
+            # 默认使用用户名或链接名称
+            group_name = group_info.get('name', group_info.get('username', f'推荐群组 {idx}'))
+            
+            # 尝试从Telegram API获取群组实际名称
+            try:
+                actual_title = await get_group_title(bot, group_link)
+                if actual_title:
+                    group_name = actual_title
+            except:
+                pass  # 如果获取失败，使用默认名称
+            
+            text += f"{idx}. [{group_name}]({group_link})\n"
         has_groups = True
     
     if not has_groups:
@@ -1003,6 +1040,199 @@ async def recharge_for_vip_callback(event):
         traceback.print_exc()
         await event.respond("❌ 创建充值订单失败，请稍后重试")
     await event.answer()
+
+@bot.on(events.CallbackQuery(pattern=rb'verify_groups_.*'))
+async def verify_groups_callback(event):
+    """验证用户是否加入所有上级群（最多10个）"""
+    # 账号关联处理（备用号->主账号）
+    try:
+        original_sender_id = event.sender_id
+        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+    except:
+        pass
+    
+    telegram_id = event.sender_id
+    member = DB.get_member(telegram_id)
+    
+    if not member:
+        await event.answer("❌ 用户信息不存在", alert=True)
+        return
+    
+    # 如果该用户已经完成过"加群任务"，则不再重新检测，状态保持已完成
+    if member.get('is_joined_upline'):
+        await event.answer("✅ 加群任务已完成", alert=False)
+        return
+    
+    await event.answer("🔍 正在检测群组加入情况，请稍候...", alert=False)
+    
+    # 获取需要加入的群组列表（最多10个）
+    config = get_system_config()
+    max_groups = min(config.get('level_count', 10), 10)
+    
+    # 获取上级链（新格式：字典列表）
+    from core_functions import get_upline_chain
+    chain = get_upline_chain(telegram_id, max_groups)
+    groups_to_check = []
+    
+    # 从上级链获取群组（只使用"正常上级"的群：满足分成条件且为VIP）
+    for item in chain:
+        if item.get('is_fallback'):
+            # 跳过捡漏账号，它们不提供群组
+            continue
+            
+        upline_id = item['id']
+        level = item['level']
+        up_member = DB.get_member(upline_id)
+        if not up_member or not up_member.get('group_link'):
+            continue
+        
+        # 检查上级是否满足条件
+        try:
+            conditions = await check_user_conditions(bot, upline_id)
+            if not (conditions and conditions.get('all_conditions_met') and up_member.get('is_vip')):
+                # 异常上级：不提供群，由捡漏账号的推荐群补位
+                continue
+        except Exception as e:
+            print(f"[verify_groups_callback] 检查上级条件失败: {e}")
+            continue
+        
+        group_links = up_member.get('group_link', '').split('\n')
+        for gl in group_links:
+            gl = gl.strip()
+            if gl and gl not in [g['link'] for g in groups_to_check]:
+                groups_to_check.append({
+                    'level': level,
+                    'link': gl,
+                    'upline_username': up_member.get('username', '')
+                })
+                if len(groups_to_check) >= max_groups:
+                    break
+        if len(groups_to_check) >= max_groups:
+            break
+    
+    # 如果不足10个，用推荐群组补足
+    if len(groups_to_check) < max_groups:
+        fb_groups = get_fallback_resource('group')
+        if fb_groups:
+            for group_info in fb_groups:
+                gl = group_info.get('link', '').strip()
+                if gl and gl not in [g['link'] for g in groups_to_check]:
+                    groups_to_check.append({
+                        'level': len(groups_to_check) + 1,
+                        'link': gl,
+                        'upline_username': group_info.get('username', '推荐群组'),
+                        'group_name': group_info.get('name', '')
+                    })
+                    if len(groups_to_check) >= max_groups:
+                        break
+    
+    if not groups_to_check:
+        await event.respond("❌ 没有可验证的群组")
+        return
+    
+    # 重新编号，避免出现缺号或重复号
+    for idx, g in enumerate(groups_to_check, 1):
+        g['display_index'] = idx
+    
+    # 检测用户是否在群组中
+    not_joined = []
+    joined = []
+    
+    for group_info in groups_to_check:
+        group_link = group_info['link']
+        try:
+            # 提取群组用户名或ID
+            if 't.me/' in group_link:
+                group_username = group_link.split('t.me/')[-1].split('/')[0].split('?')[0].replace('+', '')
+            elif group_link.startswith('@'):
+                group_username = group_link[1:]
+            else:
+                group_username = group_link
+                
+            # 跳过私有群链接（无法通过用户名检查成员）
+            if group_username.startswith('+'):
+                not_joined.append(group_info)
+                continue
+            
+            # 尝试获取群组实体
+            try:
+                group_entity = await bot.get_entity(group_username)
+                
+                # 记录更友好的群名称，方便后面展示
+                try:
+                    title = getattr(group_entity, 'title', None)
+                    if title:
+                        group_info['group_name'] = title
+                except Exception:
+                    pass
+                
+                # 检查用户是否在群组中
+                try:
+                    from telethon.tl.functions.channels import GetParticipantRequest
+                    participant = await bot(GetParticipantRequest(
+                        channel=group_entity,
+                        participant=telegram_id
+                    ))
+                    joined.append(group_info)
+                except:
+                    not_joined.append(group_info)
+            except Exception as e:
+                # 无法获取群组信息，可能是私有群或链接无效
+                not_joined.append(group_info)
+        except Exception as e:
+            not_joined.append(group_info)
+    
+    # 构建结果消息
+    total_groups = len(groups_to_check)
+    joined_count = len(joined)
+    not_joined_count = max(total_groups - joined_count, 0)
+    
+    # 更新数据库中的 is_joined_upline 标志
+    is_completed = False
+    try:
+        if total_groups > 0 and joined_count == total_groups and not member.get('is_joined_upline'):
+            DB.update_member(telegram_id, is_joined_upline=1)
+            is_completed = True
+        elif member.get('is_joined_upline') and total_groups > 0 and joined_count == total_groups:
+            is_completed = True
+    except Exception as e:
+        print(f"[verify_groups] 更新 is_joined_upline 失败: {e}")
+    
+    # 如果已完成，只显示简单提示
+    if is_completed:
+        await event.answer("✅ 加群任务已完成", alert=False)
+        try:
+            await event.edit("✅ 加群任务已完成！\n\n您已加入所有需要加入的群组。")
+        except:
+            pass
+        return
+    
+    # 未完成时，显示详细检测结果
+    text = f"🔍 群组加入验证结果\n\n"
+    text += f"📊 总计: {total_groups} 个群组\n"
+    text += f"✅ 已加入: {joined_count} 个\n"
+    text += f"❌ 未加入: {not_joined_count} 个\n\n"
+    
+    if joined:
+        text += "✅ 已加入的群组:\n"
+        for g in joined:
+            group_name = g.get('group_name') or (g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link'])
+            idx = g.get('display_index', g.get('level', '?'))
+            text += f"  {idx}. {group_name}\n"
+        text += "\n"
+    
+    if not_joined:
+        text += "❌ 未加入的群组（请点击加入）:\n"
+        for g in not_joined:
+            group_name = g.get('group_name') or (g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link'])
+            idx = g.get('display_index', g.get('level', '?'))
+            text += f"  {idx}. [{group_name}]({g['link']})\n"
+        text += "\n⚠️ 请加入以上未加入的群组，才能获得分红！"
+    
+    try:
+        await event.edit(text, parse_mode='markdown')
+    except:
+        await event.respond(text, parse_mode='markdown')
 
 @bot.on(events.NewMessage(pattern='/bind_group'))
 async def bind_group_cmd(event):
