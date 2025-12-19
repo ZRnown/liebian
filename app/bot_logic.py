@@ -1043,7 +1043,7 @@ async def recharge_for_vip_callback(event):
 
 @bot.on(events.CallbackQuery(pattern=rb'verify_groups_.*'))
 async def verify_groups_callback(event):
-    """验证用户是否加入所有上级群（最多10个）"""
+    """验证用户是否加入所有捡漏群组（必须10个全部加入）"""
     # 账号关联处理（备用号->主账号）
     try:
         original_sender_id = event.sender_id
@@ -1058,73 +1058,38 @@ async def verify_groups_callback(event):
         await event.answer("❌ 用户信息不存在", alert=True)
         return
     
-    # 如果该用户已经完成过"加群任务"，则不再重新检测，状态保持已完成
+    # 【核心修复】如果该用户已经完成过"加群任务"，则永久锁死，不再重新检测
     if member.get('is_joined_upline'):
-        await event.answer("✅ 加群任务已完成", alert=False)
+        await event.answer("✅ 加群任务已完成（永久锁定）", alert=False)
+        try:
+            await event.edit("✅ **加群任务已完成**\n\n🎉 您已完成加入10个捡漏群组的任务！\n\n✅ 任务状态已永久锁定，即使退群也不会再检测。\n\n您现在可以获得下级开通VIP的分红了！")
+        except:
+            pass
         return
     
     await event.answer("🔍 正在检测群组加入情况，请稍候...", alert=False)
     
-    # 获取需要加入的群组列表（最多10个）
+    # 【核心修复】加群任务 = 必须加入10个捡漏账号设置的群组
     config = get_system_config()
-    max_groups = min(config.get('level_count', 10), 10)
+    required_groups_count = min(config.get('level_count', 10), 10)
     
-    # 获取上级链（新格式：字典列表）
-    from core_functions import get_upline_chain
-    chain = get_upline_chain(telegram_id, max_groups)
+    # 获取所有捡漏群组（必须10个）
+    fb_groups = get_fallback_resource('group')
+    if not fb_groups or len(fb_groups) < required_groups_count:
+        await event.respond(f"❌ 系统错误：捡漏群组不足{required_groups_count}个，请联系管理员配置")
+        return
+    
+    # 只取前10个捡漏群组
     groups_to_check = []
-    
-    # 从上级链获取群组（只使用"正常上级"的群：满足分成条件且为VIP）
-    for item in chain:
-        if item.get('is_fallback'):
-            # 跳过捡漏账号，它们不提供群组
-            continue
-            
-        upline_id = item['id']
-        level = item['level']
-        up_member = DB.get_member(upline_id)
-        if not up_member or not up_member.get('group_link'):
-            continue
-        
-        # 检查上级是否满足条件
-        try:
-            conditions = await check_user_conditions(bot, upline_id)
-            if not (conditions and conditions.get('all_conditions_met') and up_member.get('is_vip')):
-                # 异常上级：不提供群，由捡漏账号的推荐群补位
-                continue
-        except Exception as e:
-            print(f"[verify_groups_callback] 检查上级条件失败: {e}")
-            continue
-        
-        group_links = up_member.get('group_link', '').split('\n')
-        for gl in group_links:
-            gl = gl.strip()
-            if gl and gl not in [g['link'] for g in groups_to_check]:
-                groups_to_check.append({
-                    'level': level,
-                    'link': gl,
-                    'upline_username': up_member.get('username', '')
-                })
-                if len(groups_to_check) >= max_groups:
-                    break
-        if len(groups_to_check) >= max_groups:
-            break
-    
-    # 如果不足10个，用推荐群组补足
-    if len(groups_to_check) < max_groups:
-        fb_groups = get_fallback_resource('group')
-        if fb_groups:
-            for group_info in fb_groups:
-                gl = group_info.get('link', '').strip()
-                if gl and gl not in [g['link'] for g in groups_to_check]:
-                    groups_to_check.append({
-                        'level': len(groups_to_check) + 1,
-                        'link': gl,
-                        'upline_username': group_info.get('username', '推荐群组'),
-                        'group_name': group_info.get('name', '')
-                    })
-                    if len(groups_to_check) >= max_groups:
-                        break
+    for idx, group_info in enumerate(fb_groups[:required_groups_count], 1):
+        gl = group_info.get('link', '').strip()
+        if gl:
+            groups_to_check.append({
+                'display_index': idx,
+                'link': gl,
+                'username': group_info.get('username', ''),
+                'group_name': group_info.get('name', '')
+            })
     
     if not groups_to_check:
         await event.respond("❌ 没有可验证的群组")
@@ -1187,47 +1152,54 @@ async def verify_groups_callback(event):
     joined_count = len(joined)
     not_joined_count = max(total_groups - joined_count, 0)
     
-    # 更新数据库中的 is_joined_upline 标志
+    # 【核心修复】更新数据库中的 is_joined_upline 标志（永久锁死）
+    # 必须全部10个群组都加入才算完成，一旦完成永久锁死
     is_completed = False
     try:
-        if total_groups > 0 and joined_count == total_groups and not member.get('is_joined_upline'):
+        # 必须全部加入才算完成
+        if total_groups == required_groups_count and joined_count == total_groups and not member.get('is_joined_upline'):
             DB.update_member(telegram_id, is_joined_upline=1)
             is_completed = True
-        elif member.get('is_joined_upline') and total_groups > 0 and joined_count == total_groups:
+            print(f"[验证加群] 用户 {telegram_id} 已完成加群任务，状态已永久锁定")
+        elif member.get('is_joined_upline'):
+            # 如果已经完成过，直接标记为完成（永久锁死）
             is_completed = True
     except Exception as e:
         print(f"[verify_groups] 更新 is_joined_upline 失败: {e}")
     
-    # 如果已完成，只显示简单提示
+    # 构建结果消息 - 始终显示统计信息
+    text = f"🔍 **群组加入验证结果**\n\n"
+    text += f"📊 **总计**: {total_groups} 个群组\n"
+    text += f"✅ **已加入**: {joined_count} 个\n"
+    text += f"❌ **未加入**: {not_joined_count} 个\n\n"
+    
+    # 如果已完成，显示完成提示
     if is_completed:
-        await event.answer("✅ 加群任务已完成", alert=False)
-        try:
-            await event.edit("✅ 加群任务已完成！\n\n您已加入所有需要加入的群组。")
-        except:
-            pass
-        return
-    
-    # 未完成时，显示详细检测结果
-    text = f"🔍 群组加入验证结果\n\n"
-    text += f"📊 总计: {total_groups} 个群组\n"
-    text += f"✅ 已加入: {joined_count} 个\n"
-    text += f"❌ 未加入: {not_joined_count} 个\n\n"
-    
-    if joined:
-        text += "✅ 已加入的群组:\n"
-        for g in joined:
-            group_name = g.get('group_name') or (g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link'])
-            idx = g.get('display_index', g.get('level', '?'))
-            text += f"  {idx}. {group_name}\n"
-        text += "\n"
-    
-    if not_joined:
-        text += "❌ 未加入的群组（请点击加入）:\n"
-        for g in not_joined:
-            group_name = g.get('group_name') or (g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link'])
-            idx = g.get('display_index', g.get('level', '?'))
-            text += f"  {idx}. [{group_name}]({g['link']})\n"
-        text += "\n⚠️ 请加入以上未加入的群组，才能获得分红！"
+        text += "🎉 **恭喜！您已加入所有需要加入的群组！**\n\n"
+        text += "✅ 您现在可以获得下级开通VIP的分红了！\n\n"
+        if joined:
+            text += "**已加入的群组列表：**\n"
+            for g in joined:
+                group_name = g.get('group_name') or (g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link'])
+                idx = g.get('display_index', g.get('level', '?'))
+                text += f"  ✅ {idx}. {group_name}\n"
+    else:
+        # 未完成时，显示详细检测结果
+        if joined:
+            text += f"✅ **已加入的群组** ({joined_count}个):\n"
+            for g in joined:
+                group_name = g.get('group_name') or (g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link'])
+                idx = g.get('display_index', g.get('level', '?'))
+                text += f"  ✅ {idx}. {group_name}\n"
+            text += "\n"
+        
+        if not_joined:
+            text += f"❌ **未加入的群组** ({not_joined_count}个，请点击加入):\n"
+            for g in not_joined:
+                group_name = g.get('group_name') or (g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link'])
+                idx = g.get('display_index', g.get('level', '?'))
+                text += f"  ❌ {idx}. [{group_name}]({g['link']})\n"
+            text += "\n⚠️ **重要提示**：请加入以上未加入的群组，才能获得分红！"
     
     try:
         await event.edit(text, parse_mode='markdown')
@@ -2504,14 +2476,14 @@ async def check_member_status_task():
             
             for telegram_id, group_link in members:
                 try:
-                    # 先查询当前状态，如果 is_joined_upline 已经是 1，则不再重新检测
+                    # 【核心修复】先查询当前状态，如果 is_joined_upline 已经是 1，则永久跳过检测
                     c.execute("SELECT is_joined_upline FROM members WHERE telegram_id = ?", (telegram_id,))
                     current_status = c.fetchone()
                     current_is_joined_upline = current_status[0] if current_status else 0
                     
-                    # 如果已经完成加群任务，跳过检测（保持已完成状态）
+                    # 【核心修复】如果已经完成加群任务，永久跳过检测（永久锁死）
                     if current_is_joined_upline == 1:
-                        print(f"[状态检测] 会员 {telegram_id} 已完成加群任务，跳过检测")
+                        print(f"[状态检测] 会员 {telegram_id} 已完成加群任务（永久锁定），跳过检测")
                         continue
                     
                     # 提取群组用户名或ID

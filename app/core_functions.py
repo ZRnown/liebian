@@ -511,19 +511,20 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                 
             else:
                 # --- 真实上级逻辑 ---
-                # 检查条件
+                # 【核心修复】检查上级是否完成任务（is_joined_upline = 1）
+                # 如果未完成任务，直接用捡漏账号代替，而不是烧伤
                 c.execute('SELECT is_vip, is_group_bound, is_bot_admin, is_joined_upline FROM members WHERE telegram_id = ?', (upline_id,))
                 row = c.fetchone()
                 
                 should_reward = False
                 if row:
                     is_vip, is_bound, is_admin, is_joined = row
-                    # 核心判断：必须全部满足
+                    # 【核心修复】判断条件：VIP + 绑定群 + 机器人管理员 + 完成加群任务
                     if is_vip and is_bound and is_admin and is_joined:
                         should_reward = True
                 
                 if should_reward:
-                    # 发放奖励
+                    # 发放奖励给真实上级
                     c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?', 
                              (reward_amount, reward_amount, upline_id))
                     
@@ -543,19 +544,15 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                     except: 
                         pass
                 else:
-                    # 不满足条件 -> 烧伤/错过
-                    c.execute('UPDATE members SET missed_balance = missed_balance + ? WHERE telegram_id = ?',
-                             (reward_amount, upline_id))
-                    
-                    # 资金转给捡漏账号（当前层的捡漏号）
-                    # 重新获取该层对应的捡漏号
+                    # 【核心修复】上级未完成任务或不存在 -> 直接用捡漏账号代替（不烧伤）
+                    # 获取该层对应的捡漏账号
                     c.execute('SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id ASC')
                     fbs = c.fetchall()
                     # 过滤掉 None 值
                     valid_fbs = [r[0] for r in fbs if r[0] is not None]
                     
                     if valid_fbs:
-                        # 使用 (level-1) % len 来确定分配给谁
+                        # 使用 (level-1) % len 来确定分配给哪个捡漏账号
                         backup_fb_id = valid_fbs[(level - 1) % len(valid_fbs)]
                         
                         # 【关键修复】再次检查 ID 有效性
@@ -574,6 +571,7 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                             c.execute('''INSERT OR IGNORE INTO members (telegram_id, username, is_vip, register_time) 
                                          VALUES (?, ?, 1, ?)''', (backup_fb_id, fb_name, get_cn_time()))
                         
+                        # 发放奖励给捡漏账号
                         c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?',
                                  (reward_amount, reward_amount, backup_fb_id))
                         c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?',
@@ -582,16 +580,10 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                                    (member_id, amount, source_type, source_id, description, create_time)
                                    VALUES (?, ?, ?, ?, ?, ?)''',
                                 (backup_fb_id, reward_amount, 'fallback_commission', telegram_id,
-                                 f'第{level}层（上级不满足条件，转入捡漏）', get_cn_time()))
+                                 f'第{level}层（上级未完成任务，转入捡漏）', get_cn_time()))
                         reward_stats['fallback'] += 1
                     else:
                         print(f"[分红] 警告: Level {level} 没有可用的捡漏账号，奖励丢失")
-                    
-                    try:
-                        await bot.send_message(upline_id, 
-                            f'⚠️ 错过 {reward_amount} U 奖励\n原因：未满足VIP分红条件\n来源：第 {level} 层下级')
-                    except: 
-                        pass
 
             conn.commit()
         except Exception as e:
