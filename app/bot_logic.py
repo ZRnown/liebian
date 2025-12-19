@@ -2364,15 +2364,15 @@ async def check_member_status_task():
                         if upline_groups_to_check:
                             all_joined = True
                             for group_info in upline_groups_to_check:
-                                try:
+                                    try:
                                     upline_chat = await bot.get_entity(group_info['username'])
-                                    participants = await bot.get_participants(upline_chat, limit=1000)
-                                    member_ids = [p.id for p in participants]
+                                        participants = await bot.get_participants(upline_chat, limit=1000)
+                                        member_ids = [p.id for p in participants]
                                     if telegram_id not in member_ids:
                                         all_joined = False
                                         print(f"[状态检测] 会员 {telegram_id} 未加入第{group_info['level']}层上级群 ({group_info['username']})")
                                         break
-                                except Exception as upline_err:
+                                    except Exception as upline_err:
                                     print(f"[状态检测] 检查第{group_info['level']}层上级群失败 {group_info['username']}: {upline_err}")
                                     all_joined = False
                                     break
