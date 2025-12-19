@@ -2272,15 +2272,19 @@ async def check_member_status_task():
             conn = get_db_conn()
             c = conn.cursor()
             
+            # 获取系统配置
+            config = get_system_config()
+            level_count = int(config.get('level_count', 10))
+            
             # 获取所有有群链接的会员
             c.execute("""
-                SELECT telegram_id, group_link, referrer_id 
+                SELECT telegram_id, group_link 
                 FROM members 
                 WHERE group_link IS NOT NULL AND group_link != ''
             """)
             members = c.fetchall()
             
-            for telegram_id, group_link, referrer_id in members:
+            for telegram_id, group_link in members:
                 try:
                     # 先查询当前状态，如果 is_joined_upline 已经是 1，则不再重新检测
                     c.execute("SELECT is_joined_upline FROM members WHERE telegram_id = ?", (telegram_id,))
@@ -2324,12 +2328,23 @@ async def check_member_status_task():
                         except Exception as admin_err:
                             print(f"[状态检测] 检查群管失败 {group_username}: {admin_err}")
                         
-                        # 检查3：用户是否加入了上级的群（只在未完成时检测）
-                        if referrer_id:
-                            c.execute("SELECT group_link FROM members WHERE telegram_id = ?", (referrer_id,))
+                        # 【核心修复】检查3：用户是否加入了所有10层上级的群（如果存在）
+                        # 使用 get_upline_chain 获取完整的10层上级链
+                        from core_functions import get_upline_chain
+                        upline_chain = get_upline_chain(telegram_id, level_count)
+                        
+                        # 收集所有有群链接的上级群（排除捡漏账号）
+                        upline_groups_to_check = []
+                        for item in upline_chain:
+                            if item.get('is_fallback'):
+                                continue  # 跳过捡漏账号
+                            
+                            upline_id = item['id']
+                            c.execute("SELECT group_link FROM members WHERE telegram_id = ?", (upline_id,))
                             upline_row = c.fetchone()
                             if upline_row and upline_row[0]:
                                 upline_group_link = upline_row[0]
+                                # 提取群用户名
                                 if upline_group_link.startswith('https://t.me/'):
                                     upline_group_username = upline_group_link.replace('https://t.me/', '').split('/')[0].split('?')[0]
                                 elif upline_group_link.startswith('@'):
@@ -2337,15 +2352,38 @@ async def check_member_status_task():
                                 else:
                                     upline_group_username = upline_group_link
                                 
+                                # 跳过私有群链接
                                 if not upline_group_username.startswith('+'):
-                                    try:
-                                        upline_chat = await bot.get_entity(upline_group_username)
-                                        participants = await bot.get_participants(upline_chat, limit=1000)
-                                        member_ids = [p.id for p in participants]
-                                        if telegram_id in member_ids:
-                                            is_joined_upline = 1
-                                    except Exception as upline_err:
-                                        print(f"[状态检测] 检查加群失败 {upline_group_username}: {upline_err}")
+                                    upline_groups_to_check.append({
+                                        'level': item['level'],
+                                        'username': upline_group_username,
+                                        'upline_id': upline_id
+                                    })
+                        
+                        # 只有当所有上级群都检查通过时，才标记为完成
+                        if upline_groups_to_check:
+                            all_joined = True
+                            for group_info in upline_groups_to_check:
+                                try:
+                                    upline_chat = await bot.get_entity(group_info['username'])
+                                    participants = await bot.get_participants(upline_chat, limit=1000)
+                                    member_ids = [p.id for p in participants]
+                                    if telegram_id not in member_ids:
+                                        all_joined = False
+                                        print(f"[状态检测] 会员 {telegram_id} 未加入第{group_info['level']}层上级群 ({group_info['username']})")
+                                        break
+                                except Exception as upline_err:
+                                    print(f"[状态检测] 检查第{group_info['level']}层上级群失败 {group_info['username']}: {upline_err}")
+                                    all_joined = False
+                                    break
+                            
+                            if all_joined:
+                                is_joined_upline = 1
+                                print(f"[状态检测] 会员 {telegram_id} 已加入所有 {len(upline_groups_to_check)} 个上级群")
+                        else:
+                            # 如果没有需要检查的上级群，默认标记为完成（可能是顶层用户）
+                            is_joined_upline = 1
+                            print(f"[状态检测] 会员 {telegram_id} 没有需要加入的上级群")
                     
                     except Exception as e:
                         print(f"[状态检测] 检查群组失败 {group_username}: {e}")

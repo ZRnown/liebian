@@ -466,102 +466,6 @@ def update_system_config(key, value):
     conn.commit()
     conn.close()
 
-# Web后台数据库操作类（从原WebDB类迁移）
-class WebDB:
-    """Web管理后台数据库操作"""
-    
-    @staticmethod
-    def get_user_by_username(username):
-        conn = DB.get_conn()
-        c = conn.cursor()
-        c.execute('SELECT id, username, password_hash FROM admin_users WHERE username = ?', (username,))
-        row = c.fetchone()
-        conn.close()
-        if row:
-            return AdminUser(row[0], row[1], row[2])
-        return None
-
-    @staticmethod
-    def get_user_by_id(user_id):
-        conn = DB.get_conn()
-        c = conn.cursor()
-        c.execute('SELECT id, username, password_hash FROM admin_users WHERE id = ?', (user_id,))
-        row = c.fetchone()
-        conn.close()
-        if row:
-            return AdminUser(row[0], row[1], row[2])
-        return None
-        
-    @staticmethod
-    def update_password(user_id, new_password):
-        from werkzeug.security import generate_password_hash
-        conn = DB.get_conn()
-        c = conn.cursor()
-        new_hash = generate_password_hash(new_password)
-        c.execute('UPDATE admin_users SET password_hash = ? WHERE id = ?', (new_hash, user_id))
-        conn.commit()
-        conn.close()
-        return True
-
-    @staticmethod
-    def get_all_members(page=1, per_page=20, search='', filter_type='all'):
-        """获取所有会员列表（简化版，完整版在web_app.py中）"""
-        conn = DB.get_conn()
-        c = conn.cursor()
-        offset = (page - 1) * per_page
-        
-        conditions = []
-        params = []
-        
-        if filter_type == 'vip':
-            conditions.append('is_vip = 1')
-        elif filter_type == 'normal':
-            conditions.append('is_vip = 0')
-        
-        if search:
-            if search.isdigit():
-                conditions.append('(CAST(telegram_id AS TEXT) LIKE ? OR username LIKE ?)')
-                params.extend([f'%{search}%', f'%{search}%'])
-            else:
-                conditions.append('username LIKE ?')
-                params.append(f'%{search}%')
-        
-        search_condition = 'WHERE ' + ' AND '.join(conditions) if conditions else ''
-        
-        c.execute(f'SELECT COUNT(*) FROM members {search_condition}', params)
-        total = c.fetchone()[0]
-        
-        query = f'''
-            SELECT id, telegram_id, username, balance, is_vip, register_time
-            FROM members 
-            {search_condition}
-            ORDER BY id DESC 
-            LIMIT ? OFFSET ?
-        '''
-        c.execute(query, params + [per_page, offset])
-        rows = c.fetchall()
-        
-        members = []
-        for row in rows:
-            members.append({
-                'id': row[0],
-                'telegram_id': row[1],
-                'username': row[2] or '',
-                'balance': row[3],
-                'is_vip': row[4],
-                'register_time': row[5][:19] if row[5] else ''
-            })
-        
-        conn.close()
-        
-        return {
-            'members': members,
-            'total': total,
-            'page': page,
-            'per_page': per_page,
-            'pages': (total + per_page - 1) // per_page
-        }
-
 class AdminUser(UserMixin):
     """管理员用户类"""
     def __init__(self, id, username, password_hash):
@@ -569,6 +473,7 @@ class AdminUser(UserMixin):
         self.username = username
         self.password_hash = password_hash
 
+# Web后台数据库操作类（合并后的完整版本）
 class WebDB:
     """Web管理后台数据库操作"""
     
@@ -786,7 +691,7 @@ class WebDB:
     
     @staticmethod
     def get_all_members(page=1, per_page=20, search='', filter_type='all'):
-        """获取会员列表"""
+        """获取会员列表（完整版）"""
         conn = get_db_conn()
         c = conn.cursor()
         offset = (page - 1) * per_page
