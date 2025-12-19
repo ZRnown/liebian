@@ -183,28 +183,40 @@ def get_upline_chain(telegram_id, max_level=10):
         row = c.fetchone()
         
         if row and row[0]:
+            # 找到真实上级
             upline_chain.append({'level': level, 'id': row[0], 'is_fallback': False})
             current_id = row[0]
         else:
+            # 没有上级了，停止查找真实上级
             break
     
     # 2. 如果层数不足，用捡漏账号补齐
-    needed_count = max_level - len(upline_chain)
+    current_chain_len = len(upline_chain)
+    needed_count = max_level - current_chain_len
+    
     if needed_count > 0:
         # 获取所有激活的捡漏账号，按ID排序
         c.execute('SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id ASC')
         fallback_rows = c.fetchall()
-        fallback_ids = [r[0] for r in fallback_rows]
+        # 过滤掉 None 值，确保全是有效的 ID
+        fallback_ids = [r[0] for r in fallback_rows if r[0] is not None]
         
         if fallback_ids:
-            start_level = len(upline_chain) + 1
+            # 从下一层开始补
+            start_level = current_chain_len + 1
             for i in range(needed_count):
+                current_level = start_level + i
                 # 循环使用捡漏账号: 第1个补位用第1个账号，第2个用第2个...
+                # 使用取余算法实现循环分配
                 fb_id = fallback_ids[i % len(fallback_ids)]
-                if fb_id:  # 确保 fb_id 不为 None
-                    upline_chain.append({'level': start_level + i, 'id': fb_id, 'is_fallback': True})
+                
+                upline_chain.append({
+                    'level': current_level, 
+                    'id': fb_id, 
+                    'is_fallback': True
+                })
         else:
-            print(f'[get_upline_chain] 警告: 没有激活的捡漏账号，无法补足 {needed_count} 层')
+            print(f'[get_upline_chain] 警告: 数据库中没有激活的捡漏账号，无法补足 {needed_count} 层')
     
     conn.close()
     return upline_chain
@@ -451,12 +463,24 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
         upline_id = item['id']
         is_fallback = item['is_fallback']
         
+        # 【关键修复】如果 ID 无效，直接跳过，防止污染数据库
+        if not upline_id or str(upline_id) == 'None' or upline_id == 'None':
+            print(f"[分红] 跳过无效ID: Level {level}, ID={upline_id}")
+            continue
+        
         conn = sqlite3.connect(DB_PATH, timeout=10)
         c = conn.cursor()
         
         try:
             if is_fallback:
                 # --- 捡漏账号逻辑 ---
+                # 【关键修复】再次验证 ID 有效性（双重保险）
+                if not upline_id or str(upline_id) == 'None' or upline_id == 'None':
+                    print(f"[分红] 跳过无效的捡漏账号ID: Level {level}, ID={upline_id}")
+                    conn.commit()
+                    conn.close()
+                    continue
+                
                 # 1. 确保捡漏账号在 members 表存在（为了收益能显示）
                 c.execute('SELECT id FROM members WHERE telegram_id = ?', (upline_id,))
                 if not c.fetchone():
@@ -464,7 +488,7 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                     c.execute('SELECT username FROM fallback_accounts WHERE telegram_id = ?', (upline_id,))
                     fb_row = c.fetchone()
                     fb_name = fb_row[0] if fb_row and fb_row[0] else f'fallback_{upline_id}'
-                    # 插入members表，标记为VIP
+                    # 插入members表，标记为VIP（确保 upline_id 有值）
                     c.execute('''INSERT OR IGNORE INTO members (telegram_id, username, is_vip, register_time) 
                                  VALUES (?, ?, 1, ?)''', (upline_id, fb_name, get_cn_time()))
                 
@@ -527,9 +551,19 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                     # 重新获取该层对应的捡漏号
                     c.execute('SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id ASC')
                     fbs = c.fetchall()
-                    if fbs:
+                    # 过滤掉 None 值
+                    valid_fbs = [r[0] for r in fbs if r[0] is not None]
+                    
+                    if valid_fbs:
                         # 使用 (level-1) % len 来确定分配给谁
-                        backup_fb_id = fbs[(level - 1) % len(fbs)][0]
+                        backup_fb_id = valid_fbs[(level - 1) % len(valid_fbs)]
+                        
+                        # 【关键修复】再次检查 ID 有效性
+                        if not backup_fb_id or str(backup_fb_id) == 'None' or backup_fb_id == 'None':
+                            print(f"[分红] 跳过无效的捡漏账号ID: Level {level}, ID={backup_fb_id}")
+                            conn.commit()
+                            conn.close()
+                            continue
                         
                         # 确保捡漏账号在members表存在
                         c.execute('SELECT id FROM members WHERE telegram_id = ?', (backup_fb_id,))
@@ -550,6 +584,8 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                                 (backup_fb_id, reward_amount, 'fallback_commission', telegram_id,
                                  f'第{level}层（上级不满足条件，转入捡漏）', get_cn_time()))
                         reward_stats['fallback'] += 1
+                    else:
+                        print(f"[分红] 警告: Level {level} 没有可用的捡漏账号，奖励丢失")
                     
                     try:
                         await bot.send_message(upline_id, 

@@ -1008,8 +1008,14 @@ async def recharge_for_vip_callback(event):
         return
     
     # 调用充值订单创建函数（传入bot参数）
-    from payment import create_recharge_order
-    await create_recharge_order(bot, event, need_recharge, is_vip_order=True)
+    try:
+        from payment import create_recharge_order
+        await create_recharge_order(bot, event, need_recharge, is_vip_order=True)
+    except Exception as e:
+        print(f"[充值VIP订单创建失败] {e}")
+        import traceback
+        traceback.print_exc()
+        await event.respond("❌ 创建充值订单失败，请稍后重试")
     await event.answer()
 
 @bot.on(events.NewMessage(pattern='/bind_group'))
