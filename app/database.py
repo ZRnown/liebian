@@ -752,7 +752,22 @@ class WebDB:
         
         rows = c.fetchall()
         members = []
+        
+        # 获取系统配置的层级数
+        try:
+            c.execute("SELECT value FROM system_config WHERE key = 'level_count'")
+            level_row = c.fetchone()
+            level_count_cfg = int(level_row[0]) if level_row else 10
+        except Exception:
+            level_count_cfg = 10
+        
         for row in rows:
+            tg_id = row[1]
+            # 【核心修复】实时计算直推与团队（避免 team_count 全为 0）
+            downline_counts = DB.get_downline_count(tg_id, level_count_cfg)
+            direct_count = downline_counts[0]['total'] if downline_counts else 0
+            team_count = sum(item.get('total', 0) for item in downline_counts) if downline_counts else 0
+            
             members.append({
                 'id': row[0],  # 添加ID字段
                 'telegram_id': row[1],
@@ -768,7 +783,9 @@ class WebDB:
                 'total_earned': row[10] or 0,
                 'is_group_bound': bool(row[11]),  # 添加群状态字段
                 'is_bot_admin': bool(row[12]),
-                'is_joined_upline': bool(row[13])
+                'is_joined_upline': bool(row[13]),
+                'direct_count': direct_count,  # 实时计算的直推人数
+                'team_count': team_count  # 实时计算的团队人数
             })
         
         conn.close()
