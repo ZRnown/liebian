@@ -116,16 +116,15 @@ def init_db():
         password_hash TEXT
     )''')
     
-    # 收益记录表
+    # 收益记录表（记录谁触发升级、哪个用户获得收益、金额、说明、时间）
     c.execute('''CREATE TABLE IF NOT EXISTS earnings_records (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        member_id INTEGER,
+        upgraded_user INTEGER,     -- 升级的发起者（谁开通/升级造成分红）
+        earning_user INTEGER,      -- 获得收益的用户（收到分红的账户）
         amount REAL,
-        source_type TEXT,
-        source_id INTEGER,
         description TEXT,
         create_time TEXT,
-        FOREIGN KEY (member_id) REFERENCES members(telegram_id)
+        FOREIGN KEY (earning_user) REFERENCES members(telegram_id)
     )''')
     
     # 充值记录表

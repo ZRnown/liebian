@@ -500,11 +500,11 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                 c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?',
                          (reward_amount, upline_id))
                 
-                # 4. 记录日志
-                c.execute('''INSERT INTO earnings_records 
-                           (member_id, amount, source_type, source_id, description, create_time)
-                           VALUES (?, ?, ?, ?, ?, ?)''',
-                        (upline_id, reward_amount, 'fallback_commission', telegram_id,
+                # 4. 记录日志（记录：谁升级 -> 谁获得收益）
+                c.execute('''INSERT INTO earnings_records
+                           (upgraded_user, earning_user, amount, description, create_time)
+                           VALUES (?, ?, ?, ?, ?)''',
+                        (telegram_id, upline_id, reward_amount,
                          f'第{level}层（无上级，转入捡漏账号）', get_cn_time()))
                 
                 reward_stats['fallback'] += 1
@@ -528,11 +528,11 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                     c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?', 
                              (reward_amount, reward_amount, upline_id))
                     
-                    # 记录日志
-                    c.execute('''INSERT INTO earnings_records 
-                               (member_id, amount, source_type, source_id, description, create_time)
-                               VALUES (?, ?, ?, ?, ?, ?)''',
-                            (upline_id, reward_amount, 'vip_commission', telegram_id,
+                    # 记录日志：升级用户 -> 获益用户
+                    c.execute('''INSERT INTO earnings_records
+                               (upgraded_user, earning_user, amount, description, create_time)
+                               VALUES (?, ?, ?, ?, ?)''',
+                            (telegram_id, upline_id, reward_amount,
                              f'第{level}层下级开通VIP', get_cn_time()))
                     
                     reward_stats['real'] += 1
@@ -576,10 +576,10 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                                  (reward_amount, reward_amount, backup_fb_id))
                         c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?',
                                  (reward_amount, backup_fb_id))
-                        c.execute('''INSERT INTO earnings_records 
-                                   (member_id, amount, source_type, source_id, description, create_time)
-                                   VALUES (?, ?, ?, ?, ?, ?)''',
-                                (backup_fb_id, reward_amount, 'fallback_commission', telegram_id,
+                        c.execute('''INSERT INTO earnings_records
+                                   (upgraded_user, earning_user, amount, description, create_time)
+                                   VALUES (?, ?, ?, ?, ?)''',
+                                (telegram_id, backup_fb_id, reward_amount,
                                  f'第{level}层（上级未完成任务，转入捡漏）', get_cn_time()))
                         reward_stats['fallback'] += 1
                     else:

@@ -459,9 +459,7 @@ async def confirm_vip_callback(event):
         f'✅ 查看裂变数据\n'
         f'✅ 获得下级开通VIP的奖励\n'
         f'✅ 加入上级群组\n'
-        f'✅ 推广赚钱\n\n'
-        f'已为 {stats["real"]} 位上级发放奖励\n'
-        f'捡漏账号获得 {stats["fallback"]} 次奖励'
+        f'✅ 推广赚钱'
     )
     await event.answer()
 
@@ -521,7 +519,6 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                         f'💰 充值金额: {amount} U\n'
                         f'💳 VIP费用: {config["vip_price"]} U\n'
                         f'💵 当前余额: {new_balance} U\n\n'
-                        f'✅ 已为 {stats["real"]} 位上级发放分红\n'
                         f'📊 捡漏账号获得 {stats["fallback"]} 笔分红\n\n'
                         f'⚠️ 重要：请立即完成以下操作\n\n'
                         f'1️⃣ 绑定您的群组\n'
@@ -669,65 +666,77 @@ async def fission_handler(event):
             except Exception as e:
                 print(f"[群裂变列表] 检查第{level}层上级条件失败: {e}")
     
-    # 构建最终显示的群组列表（1-10层）
-    groups_to_show = []
-    for level in range(1, level_count + 1):
-        if level in upline_map:
-            # 该层有上级且完成任务，使用上级的群组
-            group_link = upline_map[level]['link']
-            # 尝试获取群组实际名称
-            group_name = f"第{level}层上级"  # 默认名称
+    # 构建最终显示的群组列表（按显示顺序填充：第1..第N）
+    # 规则调整：如果上级存在并完成任务，应该替换显示列表的从后向前位置：
+    #   上1级 (level=1) -> 替换显示第 N 项（最后一项）
+    #   上2级 (level=2) -> 替换显示第 N-1 项，依此类推
+    groups_to_show = [None] * level_count  # 0-based positions
+
+    # 先把上级群放到对应显示位置
+    for item in chain:
+        if item.get('is_fallback'):
+            continue
+        level = item['level']
+        upline_id = item['id']
+        up_member = DB.get_member(upline_id)
+        if up_member and up_member.get('group_link'):
             try:
-                # 提取群组用户名
-                if 't.me/' in group_link:
-                    group_username = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
-                elif group_link.startswith('@'):
-                    group_username = group_link[1:]
-                else:
-                    group_username = group_link
-                
-                # 跳过私有群链接
-                if not group_username.startswith('+'):
+                conds = await check_user_conditions(bot, upline_id)
+                if conds and conds['all_conditions_met']:
+                    group_link = up_member['group_link'].split('\n')[0].strip()
+                    # 计算显示位置（从后向前）
+                    pos = level_count - level  # 0-based index
+                    if pos < 0 or pos >= level_count:
+                        continue
+                    group_name = f"第{level}层上级"
                     try:
-                        group_entity = await bot.get_entity(group_username)
-                        title = getattr(group_entity, 'title', None)
-                        if title:
-                            group_name = title
+                        if 't.me/' in group_link:
+                            group_username = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
+                        elif group_link.startswith('@'):
+                            group_username = group_link[1:]
+                        else:
+                            group_username = group_link
+                        if not group_username.startswith('+'):
+                            try:
+                                group_entity = await bot.get_entity(group_username)
+                                title = getattr(group_entity, 'title', None)
+                                if title:
+                                    group_name = title
+                            except:
+                                pass
                     except:
                         pass
-            except:
-                pass
-            
-            groups_to_show.append({
-                'level': level,
-                'link': group_link,
-                'name': group_name,
-                'type': 'upline'
-            })
-        else:
-            # 该层没有上级或上级未完成任务，使用对应层级的捡漏账号群组
-            # 使用 (level-1) % len 来确定使用哪个捡漏账号
-            fb_index = (level - 1) % len(fb_groups)
+                    groups_to_show[pos] = {
+                        'level': level,
+                        'link': group_link,
+                        'name': group_name,
+                        'type': 'upline'
+                    }
+            except Exception as e:
+                print(f"[群裂变列表] 检查第{level}层上级条件失败: {e}")
+
+    # 用捡漏群补全剩余位置（按从前到后映射级别）
+    for display_idx in range(level_count):
+        if groups_to_show[display_idx] is None:
+            # 要计算该显示位对应的层级（反向）： display_idx = level_count - level
+            level_for_slot = level_count - display_idx
+            fb_index = (level_for_slot - 1) % len(fb_groups)
             fb_group = fb_groups[fb_index]
             group_link = fb_group.get('link', '').strip()
             if group_link:
-                # 默认使用用户名或链接名称
-                group_name = fb_group.get('name', fb_group.get('username', f'推荐群组 {level}'))
-                
-                # 尝试从Telegram API获取群组实际名称
+                group_name = fb_group.get('name', fb_group.get('username', f'推荐群组 {level_for_slot}'))
                 try:
                     actual_title = await get_group_title(bot, group_link)
                     if actual_title:
                         group_name = actual_title
                 except:
-                    pass  # 如果获取失败，使用默认名称
-                
-                groups_to_show.append({
-                    'level': level,
+                    pass
+                groups_to_show[display_idx] = {
+                    'level': level_for_slot,
                     'link': group_link,
                     'name': group_name,
                     'type': 'fallback'
-                })
+                }
     
     # 统一显示在"推荐加入的群组"中
     if groups_to_show:
@@ -856,36 +865,43 @@ async def earnings_history_callback(event):
     
     conn = DB.get_conn()
     c = conn.cursor()
+    # 新表结构：记录 upgraded_user (谁触发升级), earning_user (谁获得收益), amount, description, create_time
     c.execute('''
-        SELECT amount, source_type, description, create_time
+        SELECT upgraded_user, amount, description, create_time
         FROM earnings_records
-        WHERE member_id = ?
+        WHERE earning_user = ?
         ORDER BY create_time DESC
         LIMIT 50
     ''', (member["telegram_id"],))
     records = c.fetchall()
     conn.close()
-    
+
     if not records:
         text = "📊 收益记录\n\n暂无收益记录"
         buttons = [[Button.inline('🔙 返回', b'back_to_profile')]]
     else:
-        total = sum(r[0] for r in records)
+        total = sum(r[1] for r in records)
         text = f"📊 收益记录\n\n"
         text += f"💰 累计收益: {total} U\n"
         text += f"📝 记录数: {len(records)} 条\n\n"
         text += "最近收益记录:\n"
         text += "━━━━━━━━━━━━━━\n"
-        
-        for i, (amount, source_type, desc, create_time) in enumerate(records[:20], 1):
+
+        for i, (upgraded_user, amount, desc, create_time) in enumerate(records[:20], 1):
+            # 尝试获取升级者用户名
+            try:
+                upm = DB.get_member(upgraded_user) if upgraded_user else None
+                up_name = f"@{upm['username']}" if upm and upm.get('username') else str(upgraded_user)
+            except:
+                up_name = str(upgraded_user)
             time_str = create_time[:16] if create_time else "未知"
-            text += f"{i}. +{amount} U\n"
-            text += f"   {desc or source_type}\n"
+            text += f"{i}. +{amount} U — 升级用户: {up_name}\n"
+            text += f"   {desc or ''}\n"
             text += f"   {time_str}\n\n"
-        
+
         if len(records) > 20:
             text += f"... 还有 {len(records) - 20} 条记录\n"
-        
+
         buttons = [[Button.inline('🔙 返回', b'back_to_profile')]]
     
     try:
@@ -1156,41 +1172,49 @@ async def verify_groups_callback(event):
             except Exception as e:
                 print(f"[验证加群] 检查第{level}层上级条件失败: {e}")
     
-    # 构建需要检查的群组列表（1-10层）
-    for level in range(1, required_groups_count + 1):
-        if level in upline_map:
-            # 该层有上级且完成任务，使用上级的群组
-            group_link = upline_map[level]['link']
-            groups_to_check.append({
-                'display_index': level,
-                'link': group_link,
+    # 构建需要检查的群组列表（按显示顺序，采用与 fission_handler 相同的从后向前替换策略）
+    groups_to_check = [None] * required_groups_count
+
+    # 先把真实上级放到对应显示位置（上1级 -> 最后一个位置）
+    for level, info in upline_map.items():
+        try:
+            pos = required_groups_count - level
+            if pos < 0 or pos >= required_groups_count:
+                continue
+            groups_to_check[pos] = {
+                'display_index': pos + 1,
+                'link': info['link'],
                 'level': level,
                 'type': 'upline',
-                'group_name': f"第{level}层上级"  # 默认名称，验证时会更新为实际名称
-            })
-        else:
-            # 该层没有上级或上级未完成任务，使用对应层级的捡漏账号群组
-            # 使用 (level-1) % len 来确定使用哪个捡漏账号
-            fb_index = (level - 1) % len(fb_groups)
+                'group_name': f"第{level}层上级",
+                'upline_id': info.get('upline_id')
+            }
+        except Exception as e:
+            print(f"[验证加群] 构建上级映射失败: {e}")
+
+    # 补全空位为捡漏群组
+    for display_pos in range(required_groups_count):
+        if groups_to_check[display_pos] is None:
+            # 对应的层级（反向映射）
+            level_for_slot = required_groups_count - display_pos
+            fb_index = (level_for_slot - 1) % len(fb_groups)
             fb_group = fb_groups[fb_index]
             group_link = fb_group.get('link', '').strip()
             if group_link:
-                groups_to_check.append({
-                    'display_index': level,
+                groups_to_check[display_pos] = {
+                    'display_index': display_pos + 1,
                     'link': group_link,
-                    'level': level,
+                    'level': level_for_slot,
                     'type': 'fallback',
                     'username': fb_group.get('username', ''),
                     'group_name': fb_group.get('name', '')
-                })
-    
+                }
+
+    # 过滤空
+    groups_to_check = [g for g in groups_to_check if g is not None]
     if not groups_to_check:
         await event.respond("❌ 没有可验证的群组")
         return
-    
-    # 重新编号，避免出现缺号或重复号
-    for idx, g in enumerate(groups_to_check, 1):
-        g['display_index'] = idx
     
     # 检测用户是否在群组中
     not_joined = []
@@ -2112,8 +2136,6 @@ async def message_handler(event):
                     f'✅ VIP充值成功!\n\n'
                     f'用户ID: {target_user["telegram_id"]}\n'
                     f'用户名: @{target_user["username"]}\n'
-                    f'已为 {stats["real"]} 位上级发放奖励\n'
-                    f'捡漏账号获得 {stats["fallback"]} 次奖励\n'
                     f'用户已收到开通通知'
                 )
             else:
