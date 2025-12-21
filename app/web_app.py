@@ -609,22 +609,24 @@ def api_fallback_accounts():
     try:
         conn = get_db_conn()
         c = conn.cursor()
-        c.execute('''
-            SELECT fa.id, fa.telegram_id, fa.username, fa.group_link, fa.total_earned, fa.is_active,
-                   m.is_vip, m.balance
-            FROM fallback_accounts fa
-            LEFT JOIN members m ON fa.telegram_id = m.telegram_id
-            ORDER BY fa.id ASC
-        ''')
-        accounts = []
-        for row in c.fetchall():
-            telegram_id = row[1]
             c.execute('''
-                SELECT COALESCE(SUM(amount), 0) 
-                FROM earnings_records 
-                WHERE member_id = ? AND source_type = 'fallback_commission'
-            ''', (telegram_id,))
-            calculated_total = c.fetchone()[0] or 0
+                SELECT fa.id, fa.telegram_id, fa.username, fa.group_link, fa.total_earned, fa.is_active,
+                       m.is_vip, m.balance
+                FROM fallback_accounts fa
+                LEFT JOIN members m ON fa.telegram_id = m.telegram_id
+                ORDER BY fa.id ASC
+            ''')
+        accounts = []
+            for row in c.fetchall():
+                telegram_id = row[1]
+                # 重新计算：统计 earnings_records 中，给该捡漏账号的所有含“捡漏”说明的收益
+                c2 = conn.cursor()
+                c2.execute('''
+                    SELECT COALESCE(SUM(amount), 0)
+                    FROM earnings_records
+                    WHERE earning_user = ? AND description LIKE '%捡漏%'
+                ''', (telegram_id,))
+                calculated_total = c2.fetchone()[0] or 0
             
             stored_total = row[4] or 0
             if abs(calculated_total - stored_total) > 0.01:
@@ -666,7 +668,7 @@ def api_get_earnings():
         
         if search:
             if search.isdigit():
-                where_clause = 'WHERE er.member_id = ?'
+                where_clause = 'WHERE er.earning_user = ?'
                 params = [int(search)]
             else:
                 where_clause = 'WHERE (m.username LIKE ? OR fa.username LIKE ?)'
@@ -674,8 +676,8 @@ def api_get_earnings():
         
         count_query = f'''
             SELECT COUNT(*) FROM earnings_records er
-            LEFT JOIN members m ON er.member_id = m.telegram_id
-            LEFT JOIN fallback_accounts fa ON er.member_id = fa.telegram_id
+            LEFT JOIN members m ON er.earning_user = m.telegram_id
+            LEFT JOIN fallback_accounts fa ON er.earning_user = fa.telegram_id
             {where_clause}
         '''
         c.execute(count_query, params)
