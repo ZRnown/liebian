@@ -682,13 +682,12 @@ def api_get_earnings():
         total = c.fetchone()[0]
         
         query = f'''
-            SELECT er.id, er.member_id, 
+            SELECT er.id, er.earning_user as member_id,
                    COALESCE(m.username, fa.username, '') as username,
-                   er.amount, er.source_type, 
-                   er.description, er.create_time
+                   er.amount, er.upgraded_user, er.description, er.create_time
             FROM earnings_records er
-            LEFT JOIN members m ON er.member_id = m.telegram_id
-            LEFT JOIN fallback_accounts fa ON er.member_id = fa.telegram_id
+            LEFT JOIN members m ON er.earning_user = m.telegram_id
+            LEFT JOIN fallback_accounts fa ON er.earning_user = fa.telegram_id
             {where_clause}
             ORDER BY er.create_time DESC
             LIMIT ? OFFSET ?
@@ -699,6 +698,7 @@ def api_get_earnings():
         for row in c.fetchall():
             member_id = row[1]
             username = row[2] or ''
+            upgraded_user_id = row[4] if len(row) > 4 else None
             
             if member_id and not username:
                 c2 = conn.cursor()
@@ -715,24 +715,22 @@ def api_get_earnings():
                         username = m_row[0]
                     else:
                         username = str(member_id)
-            
-            if not member_id and row[4] == 'fallback_commission':
-                c2 = conn.cursor()
-                c2.execute('SELECT telegram_id, username FROM fallback_accounts WHERE is_active = 1 ORDER BY id LIMIT 1')
-                fb_row = c2.fetchone()
-                if fb_row:
-                    member_id = fb_row[0]
-                    username = fb_row[1] or str(fb_row[0])
-                else:
-                    username = '未知账号'
-                    member_id = 0
-            
+            # 获取升级者显示名
+            upgraded_name = ''
+            try:
+                if upgraded_user_id:
+                    upm = DB.get_member(upgraded_user_id)
+                    upgraded_name = f"@{upm['username']}" if upm and upm.get('username') else str(upgraded_user_id)
+            except:
+                upgraded_name = str(upgraded_user_id) if upgraded_user_id else ''
+
             records.append({
                 'id': row[0],
                 'member_id': member_id if member_id is not None else 0,
                 'username': username or (str(member_id) if member_id else 'N/A'),
                 'amount': row[3],
-                'source_type': row[4] or '',
+                'upgraded_user_id': upgraded_user_id or 0,
+                'upgraded_user_name': upgraded_name,
                 'description': row[5] or '',
                 'create_time': row[6][:19] if row[6] else ''
             })
