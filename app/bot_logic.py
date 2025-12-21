@@ -1216,12 +1216,21 @@ async def verify_groups_callback(event):
         await event.respond("❌ 没有可验证的群组")
         return
     
-    # 检测用户是否在群组中
+    # 去重群组（按 link 保持顺序），检测用户是否在群组中
+    seen_links = set()
+    dedup_groups = []
+    for g in groups_to_check:
+        link = g.get('link') or ''
+        if link and link not in seen_links:
+            dedup_groups.append(g)
+            seen_links.add(link)
+
     not_joined = []
     joined = []
     
-    for group_info in groups_to_check:
+    for group_info in dedup_groups:
         group_link = group_info['link']
+        print(f"[verify_groups] 检查群: display_index={group_info.get('display_index')} level={group_info.get('level')} link={group_link}")
         try:
             # 提取群组用户名或ID
             if 't.me/' in group_link:
@@ -1239,7 +1248,7 @@ async def verify_groups_callback(event):
             # 尝试获取群组实体
             try:
                 group_entity = await bot.get_entity(group_username)
-                
+
                 # 记录更友好的群名称，方便后面展示（优先使用实际群组名称）
                 try:
                     title = getattr(group_entity, 'title', None)
@@ -1247,7 +1256,7 @@ async def verify_groups_callback(event):
                         group_info['group_name'] = title
                 except Exception:
                     pass
-                
+
                 # 检查用户是否在群组中
                 try:
                     from telethon.tl.functions.channels import GetParticipantRequest
@@ -1256,18 +1265,23 @@ async def verify_groups_callback(event):
                         participant=telegram_id
                     ))
                     joined.append(group_info)
-                except:
+                    print(f"[verify_groups] 已检测到用户加入: {group_username}")
+                except Exception as part_err:
                     not_joined.append(group_info)
+                    print(f"[verify_groups] 用户未加入: {group_username} ({part_err})")
             except Exception as e:
                 # 无法获取群组信息，可能是私有群或链接无效
                 not_joined.append(group_info)
+                print(f"[verify_groups] 获取群信息失败: {group_link} ({e})")
         except Exception as e:
             not_joined.append(group_info)
+            print(f"[verify_groups] 内部异常: {e}")
     
     # 构建结果消息
-    total_groups = len(groups_to_check)
+    total_groups = len(dedup_groups)
     joined_count = len(joined)
     not_joined_count = max(total_groups - joined_count, 0)
+    print(f"[verify_groups] 统计: total_groups={total_groups}, joined_count={joined_count}, not_joined_count={not_joined_count}")
     
     # 【核心修复】更新数据库中的 is_joined_upline 标志（永久锁死）
     # 必须全部10个群组都加入才算完成，一旦完成永久锁死
