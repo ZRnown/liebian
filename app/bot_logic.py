@@ -689,28 +689,28 @@ async def fission_handler(event):
                     if pos < 0 or pos >= level_count:
                         continue
                     group_name = f"第{level}层上级"
+            try:
+                if 't.me/' in group_link:
+                    group_username = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
+                elif group_link.startswith('@'):
+                    group_username = group_link[1:]
+                else:
+                    group_username = group_link
+                if not group_username.startswith('+'):
                     try:
-                        if 't.me/' in group_link:
-                            group_username = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
-                        elif group_link.startswith('@'):
-                            group_username = group_link[1:]
-                        else:
-                            group_username = group_link
-                        if not group_username.startswith('+'):
-                            try:
-                                group_entity = await bot.get_entity(group_username)
-                                title = getattr(group_entity, 'title', None)
-                                if title:
-                                    group_name = title
-                            except:
-                                pass
+                        group_entity = await bot.get_entity(group_username)
+                        title = getattr(group_entity, 'title', None)
+                        if title:
+                            group_name = title
                     except:
                         pass
+            except:
+                pass
                     groups_to_show[pos] = {
-                        'level': level,
-                        'link': group_link,
-                        'name': group_name,
-                        'type': 'upline'
+                'level': level,
+                'link': group_link,
+                'name': group_name,
+                'type': 'upline'
                     }
             except Exception as e:
                 print(f"[群裂变列表] 检查第{level}层上级条件失败: {e}")
@@ -875,7 +875,7 @@ async def earnings_history_callback(event):
     ''', (member["telegram_id"],))
     records = c.fetchall()
     conn.close()
-
+    
     if not records:
         text = "📊 收益记录\n\n暂无收益记录"
         buttons = [[Button.inline('🔙 返回', b'back_to_profile')]]
@@ -886,7 +886,7 @@ async def earnings_history_callback(event):
         text += f"📝 记录数: {len(records)} 条\n\n"
         text += "最近收益记录:\n"
         text += "━━━━━━━━━━━━━━\n"
-
+        
         for i, (upgraded_user, amount, desc, create_time) in enumerate(records[:20], 1):
             # 尝试获取升级者用户名
             try:
@@ -898,10 +898,10 @@ async def earnings_history_callback(event):
             text += f"{i}. +{amount} U — 升级用户: {up_name}\n"
             text += f"   {desc or ''}\n"
             text += f"   {time_str}\n\n"
-
+        
         if len(records) > 20:
             text += f"... 还有 {len(records) - 20} 条记录\n"
-
+        
         buttons = [[Button.inline('🔙 返回', b'back_to_profile')]]
     
     try:
@@ -1209,7 +1209,7 @@ async def verify_groups_callback(event):
                     'username': fb_group.get('username', ''),
                     'group_name': fb_group.get('name', '')
                 }
-
+    
     # 过滤空
     groups_to_check = [g for g in groups_to_check if g is not None]
     if not groups_to_check:
@@ -1248,7 +1248,7 @@ async def verify_groups_callback(event):
             # 尝试获取群组实体
             try:
                 group_entity = await bot.get_entity(group_username)
-
+                
                 # 记录更友好的群名称，方便后面展示（优先使用实际群组名称）
                 try:
                     title = getattr(group_entity, 'title', None)
@@ -1256,7 +1256,7 @@ async def verify_groups_callback(event):
                         group_info['group_name'] = title
                 except Exception:
                     pass
-
+                
                 # 检查用户是否在群组中
                 try:
                     from telethon.tl.functions.channels import GetParticipantRequest

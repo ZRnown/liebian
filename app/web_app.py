@@ -314,8 +314,9 @@ def api_member_detail(telegram_id):
     """获取会员详情API"""
     member = WebDB.get_member_detail(telegram_id)
     if member:
-        return jsonify({'success': True, 'member': member})
-    return jsonify({'success': False, 'message': '会员不存在'}), 404
+        # 返回与前端期望一致的纯 member 对象（兼容旧前端）
+        return jsonify(member)
+    return jsonify({'error': '会员不存在'}), 404
 
 @app.route('/api/member/<int:telegram_id>', methods=['PUT'])
 @login_required
@@ -622,19 +623,19 @@ def api_fallback_accounts():
             # 重新计算：统计 earnings_records 中，给该捡漏账号的所有含“捡漏”说明的收益
             c2 = conn.cursor()
             c2.execute('''
-                SELECT COALESCE(SUM(amount), 0)
-                FROM earnings_records
+                SELECT COALESCE(SUM(amount), 0) 
+                FROM earnings_records 
                 WHERE earning_user = ? AND description LIKE '%捡漏%'
             ''', (telegram_id,))
             calculated_total = c2.fetchone()[0] or 0
-
+            
             stored_total = row[4] or 0
             if abs(calculated_total - stored_total) > 0.01:
                 c.execute('UPDATE fallback_accounts SET total_earned = ? WHERE telegram_id = ?', 
                          (calculated_total, telegram_id))
                 conn.commit()
                 stored_total = calculated_total
-
+            
             accounts.append({
                 'id': row[0],
                 'telegram_id': telegram_id,
@@ -725,7 +726,7 @@ def api_get_earnings():
                     upgraded_name = f"@{upm['username']}" if upm and upm.get('username') else str(upgraded_user_id)
             except:
                 upgraded_name = str(upgraded_user_id) if upgraded_user_id else ''
-
+            
             records.append({
                 'id': row[0],
                 'member_id': member_id if member_id is not None else 0,
