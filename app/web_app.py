@@ -761,6 +761,219 @@ def api_get_resource_categories():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+
+@app.route('/api/resource_categories/<int:id>')
+@login_required
+def api_get_resource_category(id):
+    """获取单个资源分类"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('SELECT id, name, parent_id FROM resource_categories WHERE id = ?', (id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return jsonify({'id': row[0], 'name': row[1], 'parent_id': row[2]})
+        return jsonify({'success': False, 'message': '分类不存在'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/resource_categories', methods=['POST'])
+@login_required
+def api_create_resource_category():
+    """创建资源分类"""
+    try:
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        parent_id = int(data.get('parent_id', 0) or 0)
+        if not name:
+            return jsonify({'success': False, 'message': '分类名称不能为空'}), 400
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('INSERT INTO resource_categories (name, parent_id) VALUES (?, ?)', (name, parent_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '创建成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/resource_categories/<int:id>', methods=['PUT'])
+@login_required
+def api_update_resource_category(id):
+    """更新资源分类"""
+    try:
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        parent_id = int(data.get('parent_id', 0) or 0)
+        if not name:
+            return jsonify({'success': False, 'message': '分类名称不能为空'}), 400
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('UPDATE resource_categories SET name = ?, parent_id = ? WHERE id = ?', (name, parent_id, id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '更新成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/resource_categories/<int:id>', methods=['DELETE'])
+@login_required
+def api_delete_resource_category(id):
+    """删除资源分类"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('SELECT COUNT(*) FROM resource_categories WHERE parent_id = ?', (id,))
+        if c.fetchone()[0] > 0:
+            conn.close()
+            return jsonify({'success': False, 'message': '该分类下有子分类，无法删除'}), 400
+        c.execute('SELECT COUNT(*) FROM resources WHERE category_id = ?', (id,))
+        if c.fetchone()[0] > 0:
+            conn.close()
+            return jsonify({'success': False, 'message': '该分类下有资源，无法删除'}), 400
+        c.execute('DELETE FROM resource_categories WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '删除成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/resources')
+@login_required
+def api_get_resources():
+    """获取资源列表"""
+    try:
+        category_id = request.args.get('category_id', type=int)
+        conn = get_db_conn()
+        c = conn.cursor()
+        if category_id:
+            c.execute('''
+                SELECT r.id, r.name, r.link, r.type, r.member_count, r.category_id, rc.name
+                FROM resources r
+                LEFT JOIN resource_categories rc ON r.category_id = rc.id
+                WHERE r.category_id = ?
+                ORDER BY r.id DESC
+            ''', (category_id,))
+        else:
+            c.execute('''
+                SELECT r.id, r.name, r.link, r.type, r.member_count, r.category_id, rc.name
+                FROM resources r
+                LEFT JOIN resource_categories rc ON r.category_id = rc.id
+                ORDER BY r.id DESC
+            ''')
+        rows = c.fetchall()
+        resources = []
+        for row in rows:
+            resources.append({
+                'id': row[0],
+                'name': row[1],
+                'link': row[2],
+                'type': row[3],
+                'member_count': row[4],
+                'category_id': row[5],
+                'category_name': row[6] or ''
+            })
+        conn.close()
+        return jsonify({'success': True, 'resources': resources})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/resources/<int:id>')
+@login_required
+def api_get_resource(id):
+    """获取单个资源"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('SELECT id, name, link, type, member_count, category_id FROM resources WHERE id = ?', (id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return jsonify({
+                'id': row[0],
+                'name': row[1],
+                'link': row[2],
+                'type': row[3],
+                'member_count': row[4],
+                'category_id': row[5]
+            })
+        return jsonify({'success': False, 'message': '资源不存在'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/resources', methods=['POST'])
+@login_required
+def api_create_resource():
+    """创建资源"""
+    try:
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        link = (data.get('link') or '').strip()
+        rtype = (data.get('type') or '').strip()
+        category_id = int(data.get('category_id', 0) or 0)
+        member_count = int(data.get('member_count', 0) or 0)
+        if not name or not link or not rtype:
+            return jsonify({'success': False, 'message': '必填字段不能为空'}), 400
+        if rtype not in ['group', 'channel']:
+            return jsonify({'success': False, 'message': '资源类型不正确'}), 400
+        if not (link.startswith('https://t.me/') or link.startswith('t.me/') or link.startswith('@')):
+            return jsonify({'success': False, 'message': 'Telegram链接格式不正确'}), 400
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('INSERT INTO resources (category_id, name, link, type, member_count) VALUES (?, ?, ?, ?, ?)',
+                  (category_id, name, link, rtype, member_count))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '创建成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/resources/<int:id>', methods=['PUT'])
+@login_required
+def api_update_resource(id):
+    """更新资源"""
+    try:
+        data = request.json or {}
+        category_id = int(data.get('category_id', 0) or 0)
+        name = (data.get('name') or '').strip()
+        link = (data.get('link') or '').strip()
+        rtype = (data.get('type') or '').strip()
+        member_count = int(data.get('member_count', 0) or 0)
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('''
+            UPDATE resources 
+            SET category_id = ?, name = ?, link = ?, type = ?, member_count = ?
+            WHERE id = ?
+        ''', (category_id, name, link, rtype, member_count, id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '更新成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/resources/<int:id>', methods=['DELETE'])
+@login_required
+def api_delete_resource(id):
+    """删除资源"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('DELETE FROM resources WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '删除成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/broadcast/messages')
 @login_required
 def api_get_broadcast_messages():

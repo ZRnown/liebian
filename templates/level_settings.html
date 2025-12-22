@@ -15,9 +15,7 @@
             <button onclick="switchTab('level')" id="tab-level" class="tab-btn px-5 py-3 text-sm font-medium border-b-2 border-indigo-500 text-indigo-600 whitespace-nowrap">
                 <i class="ti ti-hierarchy-2 mr-1"></i>层级设置
             </button>
-            <button onclick="switchTab('fallback')" id="tab-fallback" class="tab-btn px-5 py-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap">
-                <i class="ti ti-users-group mr-1"></i>捡漏账号
-            </button>
+            <!-- 捡漏账号已移入独立页面，系统设置中不再显示 -->
             <button onclick="switchTab('customer')" id="tab-customer" class="tab-btn px-5 py-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap">
                 <i class="ti ti-headset mr-1"></i>客服设置
             </button>
@@ -62,30 +60,7 @@
         </div>
     </div>
 
-    <!-- ===== 捡漏账号 ===== -->
-    <div id="content-fallback" class="tab-content hidden">
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-semibold text-slate-700">捡漏账号列表</h3>
-                <button onclick="addFallbackAccount()" class="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600"><i class="ti ti-plus mr-1"></i>添加账号</button>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead class="bg-slate-50">
-                        <tr>
-                            <th class="px-4 py-3 text-left">序号</th>
-                            <th class="px-4 py-3 text-left">用户名</th>
-                            <th class="px-4 py-3 text-left">群链接</th>
-                            <th class="px-4 py-3 text-left">收益</th>
-                            <th class="px-4 py-3 text-left">状态</th>
-                            <th class="px-4 py-3 text-left">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="fallbackList"></tbody>
-                </table>
-            </div>
-        </div>
-    </div>
+    <!-- 捡漏账号管理已移至独立页面 /fallback-accounts -->
 
     <!-- ===== 客服设置 ===== -->
     <div id="content-customer" class="tab-content hidden">
@@ -206,25 +181,7 @@
     </div>
 </div>
 
-<!-- 捡漏账号弹窗 -->
-<div id="fallbackModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
-    <div class="bg-white rounded-xl p-6 w-full max-w-md">
-        <h3 id="fallbackModalTitle" class="text-lg font-bold mb-4">添加捡漏账号</h3>
-        <input type="hidden" id="fallbackId">
-        <div class="mb-4">
-            <label class="block text-sm font-medium mb-1">用户名</label>
-            <input type="text" id="fallbackUsername" class="w-full px-3 py-2 border rounded-lg" placeholder="fallback_1">
-        </div>
-        <div class="mb-4">
-            <label class="block text-sm font-medium mb-1">群链接</label>
-            <input type="text" id="fallbackGroupLink" class="w-full px-3 py-2 border rounded-lg" placeholder="https://t.me/...">
-        </div>
-        <div class="flex justify-end gap-2">
-            <button onclick="closeFallbackModal()" class="px-4 py-2 border rounded-lg">取消</button>
-            <button onclick="saveFallbackAccount()" class="px-4 py-2 bg-indigo-500 text-white rounded-lg">保存</button>
-        </div>
-    </div>
-</div>
+<!-- 捡漏账号弹窗已移除（使用 /fallback-accounts 页面） -->
 
 <!-- 客服编辑弹窗 -->
 <div id="customerModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
@@ -271,7 +228,6 @@ function switchTab(tab) {
     document.getElementById('content-' + tab).classList.remove('hidden');
     
     if (tab === 'level') loadLevelSettings();
-    else if (tab === 'fallback') loadFallbackAccounts();
     else if (tab === 'customer') loadCustomerServices();
     else if (tab === 'system') loadSystemSettings();
     else if (tab === 'payment') loadPaymentConfig();
@@ -349,71 +305,7 @@ async function saveLevelSettings() {
     } catch (e) { showToast('错误', e.message, 'error'); }
 }
 
-// ===== 捡漏账号 =====
-async function loadFallbackAccounts() {
-    try {
-        const res = await fetch('/api/settings/fallback-accounts');
-        const data = await res.json();
-        let html = '';
-        if (data.success && data.accounts && data.accounts.length > 0) {
-            data.accounts.forEach((acc, i) => {
-                html += `<tr class="border-b">
-                    <td class="px-4 py-3">#${acc.id}</td>
-                    <td class="px-4 py-3 font-medium">${acc.username || '-'}</td>
-                    <td class="px-4 py-3"><a href="${acc.group_link}" target="_blank" class="text-blue-500 text-xs">${acc.group_link || '-'}</a></td>
-                    <td class="px-4 py-3 text-green-600">${acc.total_earned || 0} U</td>
-                    <td class="px-4 py-3"><span class="px-2 py-1 text-xs rounded ${acc.is_active ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600'}">${acc.is_active ? '启用' : '禁用'}</span></td>
-                </tr>`;
-            });
-        }
-        document.getElementById('fallbackList').innerHTML = html || '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">暂无数据</td></tr>';
-    } catch (e) { console.error(e); }
-}
-
-function addFallbackAccount() {
-    document.getElementById('fallbackId').value = '';
-    document.getElementById('fallbackUsername').value = '';
-    document.getElementById('fallbackGroupLink').value = '';
-    document.getElementById('fallbackModalTitle').textContent = '添加捡漏账号';
-    document.getElementById('fallbackModal').classList.remove('hidden');
-}
-
-function editFallback(id, username, groupLink) {
-    document.getElementById('fallbackId').value = id;
-    document.getElementById('fallbackUsername').value = username;
-    document.getElementById('fallbackGroupLink').value = groupLink;
-    document.getElementById('fallbackModalTitle').textContent = '编辑捡漏账号';
-    document.getElementById('fallbackModal').classList.remove('hidden');
-}
-
-function closeFallbackModal() { document.getElementById('fallbackModal').classList.add('hidden'); }
-
-async function saveFallbackAccount() {
-    const id = document.getElementById('fallbackId').value;
-    const username = document.getElementById('fallbackUsername').value;
-    const group_link = document.getElementById('fallbackGroupLink').value;
-    if (!username) { showToast('错误', '请填写用户名', 'error'); return; }
-    try {
-        const url = id ? `/api/fallback-accounts/${id}` : '/api/fallback-accounts';
-        const res = await fetch(url, {
-            method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ username, group_link })
-        });
-        const data = await res.json();
-        if (data.success) { showToast('成功', '保存成功'); closeFallbackModal(); loadFallbackAccounts(); }
-        else showToast('错误', data.message, 'error');
-    } catch (e) { showToast('错误', e.message, 'error'); }
-}
-
-async function deleteFallback(id) {
-    if (!confirm('确定删除？')) return;
-    try {
-        const res = await fetch(`/api/fallback-accounts/${id}`, { method: 'DELETE' });
-        const data = await res.json();
-        if (data.success) { showToast('成功', '删除成功'); loadFallbackAccounts(); }
-        else showToast('错误', data.message, 'error');
-    } catch (e) { showToast('错误', e.message, 'error'); }
-}
+/* 捡漏账号管理已移至独立页面 /fallback-accounts（相关脚本移除） */
 
 // ===== 客服设置 =====
 async function loadCustomerServices() {
