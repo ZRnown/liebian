@@ -808,6 +808,43 @@ def api_bot_configs():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+
+@app.route('/api/bot-config', methods=['POST'])
+@login_required
+def api_create_bot_config():
+    """添加机器人配置"""
+    try:
+        data = request.json or {}
+        token = (data.get('bot_token') or '').strip()
+        username = (data.get('bot_username') or '').strip()
+        if not token:
+            return jsonify({'success': False, 'message': 'Bot Token 不能为空'}), 400
+        conn = get_db_conn()
+        c = conn.cursor()
+        now = get_cn_time()
+        c.execute('INSERT INTO bot_configs (bot_token, bot_username, is_active, create_time) VALUES (?, ?, ?, ?)',
+                  (token, username, 1, now))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '机器人已添加'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/bot-config/<int:id>', methods=['DELETE'])
+@login_required
+def api_delete_bot_config(id):
+    """删除机器人配置"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('DELETE FROM bot_configs WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '已删除'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/welcome-messages')
 @login_required
 def api_welcome_messages():
@@ -855,6 +892,28 @@ def api_level_settings():
             'level_count': config.get('level_count', 10),
             'level_reward': config.get('level_reward', 1.0)
         })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/level-settings', methods=['POST'])
+@login_required
+def api_update_level_settings():
+    """保存层级设置"""
+    try:
+        data = request.json or {}
+        level_count = data.get('level_count')
+        level_amounts = data.get('level_amounts')  # expected dict {1: amt, 2: amt, ...}
+
+        from database import update_system_config
+        if level_count is not None:
+            update_system_config('level_count', int(level_count))
+        if level_amounts is not None:
+            # store per-level amounts as JSON string in system_config key 'level_amounts'
+            import json
+            update_system_config('level_amounts', json.dumps(level_amounts))
+
+        return jsonify({'success': True, 'message': '层级设置已保存'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -1103,7 +1162,84 @@ def api_get_customer_services():
     """获取客服列表API"""
     try:
         services = DB.get_customer_services()
-        return jsonify({'success': True, 'services': services})
+        # Return as an array for frontend templates that expect a plain list
+        return jsonify(services)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/customer_services', methods=['POST'])
+@login_required
+def api_create_customer_service():
+    """创建客服"""
+    try:
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        link = (data.get('link') or '').strip()
+        if not name or not link:
+            return jsonify({'success': False, 'message': '名称和链接不能为空'}), 400
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('INSERT INTO customer_service (name, link) VALUES (?, ?)', (name, link))
+        conn.commit()
+        new_id = c.lastrowid
+        conn.close()
+        return jsonify({'success': True, 'id': new_id})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/customer_services/<int:id>', methods=['GET'])
+@login_required
+def api_get_customer_service(id):
+    """获取单个客服"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('SELECT id, name, link FROM customer_service WHERE id = ?', (id,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'success': False, 'message': '客服不存在'}), 404
+        return jsonify({'id': row[0], 'name': row[1], 'link': row[2]})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/customer_services/<int:id>', methods=['PUT'])
+@login_required
+def api_update_customer_service(id):
+    """更新客服"""
+    try:
+        data = request.json or {}
+        name = data.get('name')
+        link = data.get('link')
+        if not name and not link:
+            return jsonify({'success': False, 'message': '无更新字段'}), 400
+        conn = get_db_conn()
+        c = conn.cursor()
+        if name:
+            c.execute('UPDATE customer_service SET name = ? WHERE id = ?', (name, id))
+        if link:
+            c.execute('UPDATE customer_service SET link = ? WHERE id = ?', (link, id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '更新成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/customer_services/<int:id>', methods=['DELETE'])
+@login_required
+def api_delete_customer_service(id):
+    """删除客服"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('DELETE FROM customer_service WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '删除成功'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -1125,11 +1261,78 @@ def api_get_payment_config():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+
+@app.route('/api/payment-config', methods=['POST'])
+@login_required
+def api_update_payment_config():
+    """更新支付配置（前端保存）"""
+    try:
+        data = request.json or {}
+        # write to system_config and update in-memory PAYMENT_CONFIG
+        from database import update_system_config
+        if 'api_url' in data:
+            update_system_config('payment_url', data['api_url'])
+            PAYMENT_CONFIG['api_url'] = data['api_url']
+        if 'payment_token' in data:
+            update_system_config('payment_token', data['payment_token'])
+            PAYMENT_CONFIG['key'] = data['payment_token']
+        if 'payment_rate' in data:
+            update_system_config('payment_rate', str(data['payment_rate']))
+        if 'payment_channel' in data:
+            update_system_config('payment_channel', data['payment_channel'])
+            PAYMENT_CONFIG['pay_type'] = data['payment_channel']
+        if 'payment_user_id' in data:
+            update_system_config('payment_user_id', str(data['payment_user_id']))
+            PAYMENT_CONFIG['partner_id'] = data.get('payment_user_id', PAYMENT_CONFIG.get('partner_id'))
+
+        return jsonify({'success': True, 'message': '支付配置已保存'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/settings/bot-tokens')
 @login_required
 def api_bot_tokens_alias():
     """Bot Token列表 (兼容旧前端)"""
     return api_bot_configs()
+
+
+@app.route('/api/settings/bot-tokens', methods=['POST'])
+@login_required
+def api_add_bot_token_alias():
+    """添加Bot Token (兼容旧前端)"""
+    try:
+        data = request.json or {}
+        token = (data.get('token') or '').strip()
+        if not token:
+            return jsonify({'success': False, 'message': 'Token不能为空'}), 400
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM system_config WHERE key LIKE 'bot_token_%'")
+        count = c.fetchone()[0]
+        key = f'bot_token_{count + 1}'
+        c.execute('INSERT INTO system_config (key, value) VALUES (?, ?)', (key, token))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Token已添加'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/settings/bot-tokens/<int:index>', methods=['DELETE'])
+@login_required
+def api_delete_bot_token_alias(index):
+    """删除Bot Token (兼容旧前端)"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        # keys are 1-based in UI mapping to bot_token_{n}
+        key = f'bot_token_{index + 1}'
+        c.execute("DELETE FROM system_config WHERE key = ?", (key,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Token已删除'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/fallback-accounts/<int:id>', methods=['DELETE'])
 @login_required

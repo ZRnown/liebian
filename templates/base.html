@@ -29,6 +29,20 @@
             }
         }
     </script>
+    <script>
+        // Ensure fetch includes cookies for same-origin requests (so Flask login session is sent)
+        (function() {
+            if (window.fetch && !window._fetch_with_credentials_patched) {
+                window._origFetch = window.fetch.bind(window);
+                window.fetch = function(input, init) {
+                    init = init || {};
+                    if (!init.credentials) init.credentials = 'same-origin';
+                    return window._origFetch(input, init);
+                };
+                window._fetch_with_credentials_patched = true;
+            }
+        })();
+    </script>
     <style>
         body { font-family: 'Inter', sans-serif; }
         .fade-in-up { animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }

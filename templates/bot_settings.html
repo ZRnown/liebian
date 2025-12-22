@@ -227,14 +227,14 @@ async function saveBot() {
 
         const result = await response.json();
         if (result.success) {
-            alert(result.message);
+            showToast('成功', result.message, 'success');
             closeBotModal();
             loadBots();
         } else {
-            alert('保存失败: ' + result.message);
+            showToast('保存失败', result.message || '保存失败', 'error');
         }
     } catch (error) {
-        alert('保存失败: ' + error.message);
+        showToast('保存失败', error.message, 'error');
     }
 }
 
