@@ -689,28 +689,34 @@ async def fission_handler(event):
                     if pos < 0 or pos >= level_count:
                         continue
                     group_name = f"第{level}层上级"
-            try:
-                if 't.me/' in group_link:
-                    group_username = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
-                elif group_link.startswith('@'):
-                    group_username = group_link[1:]
-                else:
-                    group_username = group_link
-                if not group_username.startswith('+'):
+                    # 尝试获取群名称（优先使用实际群标题）
                     try:
-                        group_entity = await bot.get_entity(group_username)
-                        title = getattr(group_entity, 'title', None)
-                        if title:
-                            group_name = title
-                    except:
+                        if 't.me/' in group_link:
+                            group_username = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
+                        elif group_link.startswith('@'):
+                            group_username = group_link[1:]
+                        else:
+                            group_username = group_link
+
+                        if not group_username.startswith('+'):
+                            try:
+                                group_entity = await bot.get_entity(group_username)
+                                title = getattr(group_entity, 'title', None)
+                                if title:
+                                    group_name = title
+                            except Exception:
+                                # 获取实体或标题失败，使用默认 group_name
+                                pass
+                    except Exception:
+                        # group_link 解析异常，继续使用默认 group_name
                         pass
-            except:
-                pass
+
+                    # 填充显示数组
                     groups_to_show[pos] = {
-                'level': level,
-                'link': group_link,
-                'name': group_name,
-                'type': 'upline'
+                        'level': level,
+                        'link': group_link,
+                        'name': group_name,
+                        'type': 'upline'
                     }
             except Exception as e:
                 print(f"[群裂变列表] 检查第{level}层上级条件失败: {e}")
