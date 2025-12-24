@@ -805,20 +805,20 @@ async def fission_handler(event):
             }
     
     # 统一显示在"推荐加入的群组"中
-        if groups_to_show:
-            text += "🔥 **推荐加入的群组：**\n"
-            for idx, group_info in enumerate(groups_to_show, 1):
-                # 显示编号为从后向前（例如 level_count=10 则首项显示为 10）
-                display_num = level_count - (idx - 1)
-                if not group_info:
-                    text += f"{display_num}. 未配置\n"
-                    continue
-                name = group_info.get('name') or f'推荐群组 {display_num}'
-                link = group_info.get('link') or ''
-                if link:
-                    text += f"{display_num}. [{name}]({link})\n"
-                else:
-                    text += f"{display_num}. {name}\n"
+    if groups_to_show:
+        text += "🔥 **推荐加入的群组：**\n"
+        for idx, group_info in enumerate(groups_to_show, 1):
+            # 显示编号为从后向前（例如 level_count=10 则首项显示为 10）
+            display_num = level_count - (idx - 1)
+            if not group_info:
+                text += f"{display_num}. 未配置\n"
+                continue
+            name = group_info.get('name') or f'推荐群组 {display_num}'
+            link = group_info.get('link') or ''
+            if link:
+                text += f"{display_num}. [{name}]({link})\n"
+            else:
+                text += f"{display_num}. {name}\n"
     else:
         await event.respond("❌ 暂无可用群组，请联系管理员配置捡漏账号群链接。")
         return
