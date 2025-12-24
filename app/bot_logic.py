@@ -1016,8 +1016,28 @@ VIP价格: {vip_price} U
 ✅ 推广赚钱功能"""
     
     if user_balance >= vip_price:
-        # 余额足够，显示余额开通按钮
-        buttons = [[Button.inline(f'💎 余额开通VIP', b'open_vip_balance')]]
+        # 余额足够，直接尝试开通（跳过额外确认）
+        try:
+            success, result = await process_vip_upgrade(telegram_id, vip_price, config)
+            if success:
+                # 显示成功提示
+                stats = result.get('stats', {})
+                new_balance = result.get('new_balance', 0)
+                text = f'🎉 恭喜! VIP开通成功!\n\n您现在可以使用所有VIP功能。\n\n消费: {vip_price} U\n剩余余额: {new_balance} U'
+                try:
+                    await event.edit(text)
+                except:
+                    await event.respond(text)
+                await event.answer()
+                return
+            else:
+                # 如果处理失败，回退到展示充值/确认界面
+                text += f"\n\n❌ 开通失败: {result}\n"
+                buttons = [[Button.inline(f'💰 充值{need_recharge}U开通VIP', b'recharge_for_vip')]]
+        except Exception as e:
+            print(f"[open_vip] 直接开通失败: {e}")
+            text += f"\n\n❌ 开通失败，请稍后重试"
+            buttons = [[Button.inline(f'💰 充值{need_recharge}U开通VIP', b'recharge_for_vip')]]
     else:
         # 余额不足，显示充值按钮
         text += f"\n\n❌ 余额不足，请先充值"

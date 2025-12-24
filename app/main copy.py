@@ -993,7 +993,9 @@ async def payment_timeout_handler(order):
 async def create_recharge_order(event, amount, is_vip_order=False):
     telegram_id = event.sender_id
     order_number = f"RCH_{telegram_id}_{int(time.time())}"
-    payment_result = create_payment_order(amount, order_number, f"TG{telegram_id}")
+    # include remark so the payment gateway callback can return it and we can record whether this order is for 开通 or 充值
+    remark_text = '开通' if is_vip_order else '充值'
+    payment_result = create_payment_order(amount, order_number, f"TG{telegram_id}", remark=remark_text)
     if not payment_result or payment_result.get("code") != 200:
         await event.respond("创建支付订单失败，请稍后重试")
         return
@@ -1001,10 +1003,26 @@ async def create_recharge_order(event, amount, is_vip_order=False):
     # 保存充值记录到数据库
     conn = DB.get_conn()
     c = conn.cursor()
-    c.execute('''INSERT INTO recharge_records 
-                 (member_id, amount, order_id, status, payment_method, create_time) 
-                 VALUES (?, ?, ?, ?, ?, ?)''',
-              (telegram_id, amount, order_number, 'pending', 'USDT', datetime.now().isoformat()))
+    # try to save remark column if exists; insert without remark still works on older schemas
+    try:
+        c.execute("PRAGMA table_info(recharge_records)")
+        cols = [r[1] for r in c.fetchall()]
+        if 'remark' in cols:
+            c.execute('''INSERT INTO recharge_records 
+                         (member_id, amount, order_id, status, payment_method, create_time, remark) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                      (telegram_id, amount, order_number, 'pending', 'USDT', datetime.now().isoformat(), remark_text))
+        else:
+            c.execute('''INSERT INTO recharge_records 
+                         (member_id, amount, order_id, status, payment_method, create_time) 
+                         VALUES (?, ?, ?, ?, ?, ?)''',
+                      (telegram_id, amount, order_number, 'pending', 'USDT', datetime.now().isoformat()))
+    except Exception:
+        # fallback to original insert
+        c.execute('''INSERT INTO recharge_records 
+                     (member_id, amount, order_id, status, payment_method, create_time) 
+                     VALUES (?, ?, ?, ?, ?, ?)''',
+                  (telegram_id, amount, order_number, 'pending', 'USDT', datetime.now().isoformat()))
     conn.commit()
     conn.close()
     

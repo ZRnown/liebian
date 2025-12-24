@@ -40,6 +40,15 @@ login_manager.login_view = 'login'
 def load_user(user_id):
     return WebDB.get_user_by_id(int(user_id))
 
+# For API routes, return JSON 401 instead of redirecting to login page (prevents HTML responses on fetch)
+@app.before_request
+def api_require_login_for_api():
+    try:
+        if request.path.startswith('/api/') and not current_user.is_authenticated:
+            return jsonify({'success': False, 'message': '未登录'}), 401
+    except Exception:
+        pass
+
 # ==================== 支付系统配置 ====================
 PAYMENT_CONFIG = {
     'api_url': 'https://usdt.qxzy7888.org/pay/',
@@ -208,19 +217,36 @@ def team_graph_page(telegram_id):
 def payment_notify():
     """支付回调处理"""
     try:
-        data = request.form.to_dict()
+        # 支持 form-post 或者 json body
+        data = {}
+        if request.form and len(request.form) > 0:
+            data = request.form.to_dict()
+        else:
+            try:
+                data = request.get_json() or {}
+            except Exception:
+                data = {}
         print(f'[支付回调] 收到数据: {data}')
-        
-        sign = data.pop('sign', '')
-        remark = data.pop('remark', '')
-        
-        calculated_sign = generate_payment_sign(data, PAYMENT_CONFIG['key'])
-        
-        if sign != calculated_sign:
-            print(f'[支付回调] 签名验证失败')
+
+        # 支付方可能使用不同大小写的 sign 字段
+        sign = ''
+        for k in list(data.keys()):
+            if k.lower() == 'sign':
+                sign = data.pop(k, '')
+                break
+        # remark 不参与签名验证
+        for k in list(data.keys()):
+            if k.lower() == 'remark':
+                data.pop(k, None)
+                break
+
+        calculated_sign = generate_payment_sign(data, PAYMENT_CONFIG.get('key', ''))
+
+        if not sign or sign.upper() != calculated_sign.upper():
+            print(f'[支付回调] 签名验证失败, recv_sign={sign}, calc_sign={calculated_sign}')
             return 'fail'
         
-        if data.get('status') == '4' and data.get('callbacks') == 'ORDER_SUCCESS':
+        if str(data.get('status')) == '4' and str(data.get('callbacks')) == 'ORDER_SUCCESS':
             out_trade_no = data.get('out_trade_no')
             amount = float(data.get('amount', 0))
             
@@ -1178,20 +1204,37 @@ def api_recharges():
         total = c.fetchone()[0]
         
         offset = (page - 1) * per_page
-        query = f'''
-            SELECT r.id, r.member_id, m.username, r.amount, r.order_id, 
-                   r.status, r.create_time, r.payment_method
-            FROM recharge_records r
-            LEFT JOIN members m ON r.member_id = m.telegram_id
-            {where_clause}
-            ORDER BY r.create_time DESC
-            LIMIT ? OFFSET ?
-        '''
+
+        # 检查 recharge_records 表中是否存在 remark 字段
+        c.execute("PRAGMA table_info(recharge_records)")
+        cols = [r[1] for r in c.fetchall()]
+        remark_present = 'remark' in cols
+
+        if remark_present:
+            query = f'''
+                SELECT r.id, r.member_id, m.username, r.amount, r.order_id,
+                       r.status, r.create_time, r.payment_method, r.remark
+                FROM recharge_records r
+                LEFT JOIN members m ON r.member_id = m.telegram_id
+                {where_clause}
+                ORDER BY r.create_time DESC
+                LIMIT ? OFFSET ?
+            '''
+        else:
+            query = f'''
+                SELECT r.id, r.member_id, m.username, r.amount, r.order_id,
+                       r.status, r.create_time, r.payment_method
+                FROM recharge_records r
+                LEFT JOIN members m ON r.member_id = m.telegram_id
+                {where_clause}
+                ORDER BY r.create_time DESC
+                LIMIT ? OFFSET ?
+            '''
         c.execute(query, params + [per_page, offset])
-        
+
         recharges = []
         for row in c.fetchall():
-            recharges.append({
+            item = {
                 'id': row[0],
                 'telegram_id': row[1],
                 'username': row[2] or '',
@@ -1200,7 +1243,12 @@ def api_recharges():
                 'status': row[5],
                 'create_time': row[6][:19] if row[6] else '',
                 'payment_method': row[7] or ''
-            })
+            }
+            if remark_present:
+                item['remark'] = row[8] or ''
+            else:
+                item['remark'] = ''
+            recharges.append(item)
         
         conn.close()
         
@@ -1246,6 +1294,14 @@ def api_update_recharge_status(recharge_id):
 
         # 标记为已支付，并为用户增加余额
         c.execute('UPDATE recharge_records SET status = ? WHERE id = ?', ('completed', recharge_id))
+        # 如果表中存在 remark 字段，且管理员通过后台标记为已支付（通常表示开通），写备注为"开通"
+        try:
+            c.execute("PRAGMA table_info(recharge_records)")
+            cols = [r[1] for r in c.fetchall()]
+            if 'remark' in cols:
+                c.execute('UPDATE recharge_records SET remark = ? WHERE id = ?', ('开通', recharge_id))
+        except Exception:
+            pass
         c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?', (amount, member_id))
         conn.commit()
         conn.close()
@@ -1461,14 +1517,15 @@ def api_delete_customer_service(id):
 def api_get_payment_config():
     """获取支付配置API"""
     try:
+        # Return payload compatible with frontend field names
         return jsonify({
             'success': True,
             'config': {
-                'api_url': PAYMENT_CONFIG['api_url'],
-                'partner_id': PAYMENT_CONFIG['partner_id'],
-                'notify_url': PAYMENT_CONFIG['notify_url'],
-                'return_url': PAYMENT_CONFIG['return_url'],
-                'pay_type': PAYMENT_CONFIG['pay_type']
+                'payment_url': PAYMENT_CONFIG.get('api_url', ''),
+                'payment_token': PAYMENT_CONFIG.get('key', ''),
+                'payment_rate': PAYMENT_CONFIG.get('payment_rate', 1.00),
+                'payment_channel': PAYMENT_CONFIG.get('pay_type', 'trc20'),
+                'payment_user_id': PAYMENT_CONFIG.get('partner_id', '')
             }
         })
     except Exception as e:
@@ -1483,20 +1540,28 @@ def api_update_payment_config():
         data = request.json or {}
         # write to system_config and update in-memory PAYMENT_CONFIG
         from database import update_system_config
-        if 'api_url' in data:
-            update_system_config('payment_url', data['api_url'])
-            PAYMENT_CONFIG['api_url'] = data['api_url']
-        if 'payment_token' in data:
-            update_system_config('payment_token', data['payment_token'])
-            PAYMENT_CONFIG['key'] = data['payment_token']
-        if 'payment_rate' in data:
-            update_system_config('payment_rate', str(data['payment_rate']))
-        if 'payment_channel' in data:
-            update_system_config('payment_channel', data['payment_channel'])
-            PAYMENT_CONFIG['pay_type'] = data['payment_channel']
-        if 'payment_user_id' in data:
-            update_system_config('payment_user_id', str(data['payment_user_id']))
-            PAYMENT_CONFIG['partner_id'] = data.get('payment_user_id', PAYMENT_CONFIG.get('partner_id'))
+        # Support both frontend keys and alternative keys
+        url = data.get('payment_url') or data.get('api_url') or data.get('paymentUrl')
+        token = data.get('payment_token') or data.get('paymentToken') or data.get('key')
+        rate = data.get('payment_rate') or data.get('paymentRate')
+        channel = data.get('payment_channel') or data.get('paymentChannel') or data.get('pay_type')
+        user_id = data.get('payment_user_id') or data.get('paymentUserId') or data.get('partner_id')
+
+        if url is not None:
+            update_system_config('payment_url', url)
+            PAYMENT_CONFIG['api_url'] = url
+        if token is not None:
+            update_system_config('payment_token', token)
+            PAYMENT_CONFIG['key'] = token
+        if rate is not None:
+            update_system_config('payment_rate', str(rate))
+            PAYMENT_CONFIG['payment_rate'] = float(rate)
+        if channel is not None:
+            update_system_config('payment_channel', channel)
+            PAYMENT_CONFIG['pay_type'] = channel
+        if user_id is not None:
+            update_system_config('payment_user_id', str(user_id))
+            PAYMENT_CONFIG['partner_id'] = str(user_id)
 
         return jsonify({'success': True, 'message': '支付配置已保存'})
     except Exception as e:
@@ -1623,6 +1688,22 @@ def api_manual_vip(telegram_id):
 
 def run_web():
     """Web 启动入口"""
+    # Ensure recharge_records has a remark column for admin notes
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute("PRAGMA table_info(recharge_records)")
+        cols = [r[1] for r in c.fetchall()]
+        if 'remark' not in cols:
+            try:
+                c.execute("ALTER TABLE recharge_records ADD COLUMN remark TEXT")
+                conn.commit()
+            except Exception:
+                pass
+        conn.close()
+    except Exception:
+        pass
+
     print("🌐 Web管理后台启动中...")
     app.run(debug=False, host='0.0.0.0', port=5051, use_reloader=False)
 
