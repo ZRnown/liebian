@@ -1387,12 +1387,14 @@ def api_update_recharge_status(recharge_id):
 
         # 【核心修复】统一走异步充值处理逻辑（process_recharge：自动开VIP + 条件检测 + 捡漏账号）
         try:
-            if bot:
-                bot.loop.create_task(process_recharge(member_id, amount, is_vip_order=True))
+            # 直接从 bot_logic 导入 bot 实例和 process_recharge，避免引用未定义的局部 bot
+            from bot_logic import bot as bot_instance, process_recharge as process_recharge_fn
+            if bot_instance:
+                bot_instance.loop.create_task(process_recharge_fn(member_id, amount, is_vip_order=True))
+                print(f'[后台充值状态修改] 已创建 process_recharge 任务: member_id={member_id}, amount={amount}')
             else:
-                from bot_logic import bot, process_recharge
-                bot.loop.create_task(process_recharge(member_id, amount, is_vip_order=True))
-            print(f'[后台充值状态修改] 已创建 process_recharge 任务: member_id={member_id}, amount={amount}')
+                # 如果 bot 未初始化，仅记录日志（管理员可稍后重试或通过 bot 启动触发）
+                print(f'[后台充值状态修改] bot 未初始化，无法创建 process_recharge 任务: member_id={member_id}, amount={amount}')
         except Exception as async_err:
             print(f'[后台充值状态修改] 调用 process_recharge 失败: {async_err}')
             import traceback
