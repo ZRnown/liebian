@@ -415,7 +415,11 @@ async def open_vip_balance_callback(event):
 🎁 上级获得 {stats["real"]} 次奖励
 💎 推荐账号获得 {stats["fallback"]} 次奖励"""
     
-    await event.answer(text, alert=True)
+    # 以消息形式发送开通成功通知（避免弹窗 alert），并尝试删除之前的交互消息
+    try:
+        await event.respond(text)
+    except:
+        await event.answer(text, alert=True)
     try:
         await event.delete()
     except:
@@ -1445,7 +1449,8 @@ async def view_fission_handler(event):
     total_vip = 0
     buttons = []
 
-    for level in range(1, config['level_count'] + 1):
+    # 显示层级按钮：从高层到低层（例如 10 -> 1），满足用户要求倒序显示
+    for level in range(config['level_count'], 0, -1):
         if level == 1:
             c.execute("""
                 SELECT COUNT(*), SUM(CASE WHEN is_vip = 1 THEN 1 ELSE 0 END)
@@ -1477,6 +1482,86 @@ async def view_fission_handler(event):
     buttons.append([Button.inline('🏠 主菜单', b'fission_main_menu')])
 
     await event.respond(text, buttons=buttons)
+
+
+@bot.on(events.CallbackQuery(pattern=rb'flv_(\d+)_(\d+)'))
+async def flv_level_callback(event):
+    """查看指定层的下级成员列表：flv_{level}_{page}"""
+    try:
+        import re
+        m = re.match(rb'flv_(\d+)_(\d+)', event.data)
+        if not m:
+            await event.answer('参数错误', alert=True)
+            return
+        level = int(m.group(1))
+        page = int(m.group(2))
+        if page < 1:
+            page = 1
+
+        telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
+        conn = get_db_conn()
+        c = conn.cursor()
+
+        # 逐层查找下级：从当前用户开始，循环 level 次
+        current_ids = [telegram_id]
+        for _ in range(level):
+            if not current_ids:
+                break
+            placeholders = ','.join(['?'] * len(current_ids))
+            c.execute(f"SELECT telegram_id FROM members WHERE referrer_id IN ({placeholders})", current_ids)
+            rows = c.fetchall()
+            current_ids = [r[0] for r in rows]
+
+        members = []
+        if current_ids:
+            placeholders = ','.join(['?'] * len(current_ids))
+            c.execute(f"SELECT telegram_id, username, is_vip FROM members WHERE telegram_id IN ({placeholders}) ORDER BY id DESC", current_ids)
+            rows = c.fetchall()
+            for r in rows:
+                members.append({'telegram_id': r[0], 'username': r[1] or '', 'is_vip': bool(r[2])})
+
+        conn.close()
+
+        per_page = 15
+        total = len(members)
+        pages = (total + per_page - 1) // per_page if total > 0 else 1
+        page = max(1, min(page, pages if pages > 0 else 1))
+        start = (page - 1) * per_page
+        end = start + per_page
+        page_items = members[start:end]
+
+        if not page_items:
+            await event.answer(f'第{level}层暂无成员', alert=True)
+            return
+
+        text = f'📋 第{level}层成员（第{page}/{pages}页）\n\n'
+        for idx, m in enumerate(page_items, start + 1):
+            name_display = f'@{m["username"]}' if m['username'] else str(m['telegram_id'])
+            vip_tag = ' VIP' if m['is_vip'] else ''
+            text += f'{idx}. {name_display} {vip_tag}\n'
+
+        # 构建按钮：每个成员可点击跳转（如果有用户名则链接 t.me/username），以及分页和返回按钮
+        btns = []
+        for m in page_items:
+            if m['username']:
+                btns.append([Button.url(m['username'] + (' ✅' if m['is_vip'] else ''), f'https://t.me/{m["username"]}')])
+
+        nav = []
+        if page > 1:
+            nav.append(Button.inline('⬅️ 上页', f'flv_{level}_{page-1}'.encode()))
+        if page < pages:
+            nav.append(Button.inline('下页 ➡️', f'flv_{level}_{page+1}'.encode()))
+        if nav:
+            btns.append(nav)
+        btns.append([Button.inline('🔙 返回', b'fission_main_menu')])
+
+        try:
+            await event.edit(text, buttons=btns)
+        except:
+            await event.respond(text, buttons=btns)
+    except Exception as e:
+        print(f"[flv_callback] 错误: {e}")
+        await event.answer('加载失败', alert=True)
 
 @bot.on(events.NewMessage(pattern=BTN_PROMOTE))
 async def promote_handler(event):
