@@ -457,7 +457,8 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
     conn.close()
     
     reward_stats = {'real': 0, 'fallback': 0}
-    
+    used_fallbacks = set()
+
     for item in chain:
         level = item['level']
         upline_id = item['id']
@@ -508,6 +509,11 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                          f'第{level}层（无上级，转入捡漏账号）', get_cn_time()))
                 
                 reward_stats['fallback'] += 1
+                # 标记已分配给该捡漏账号，防止同一次分配重复发放
+                try:
+                    used_fallbacks.add(int(upline_id))
+                except:
+                    pass
                 
             else:
                 # --- 真实上级逻辑 ---
@@ -553,7 +559,16 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                     
                     if valid_fbs:
                         # 使用 (level-1) % len 来确定分配给哪个捡漏账号
-                        backup_fb_id = valid_fbs[(level - 1) % len(valid_fbs)]
+                        # 选择一个尚未被本次分配使用的捡漏账号，优先避免重复
+                        backup_fb_id = None
+                        for offset in range(len(valid_fbs)):
+                            candidate = valid_fbs[(level - 1 + offset) % len(valid_fbs)]
+                            if candidate not in used_fallbacks:
+                                backup_fb_id = candidate
+                                break
+                        if backup_fb_id is None:
+                            # 全部都用过了，回退到原始取余选择
+                            backup_fb_id = valid_fbs[(level - 1) % len(valid_fbs)]
                         
                         # 【关键修复】再次检查 ID 有效性
                         if not backup_fb_id or str(backup_fb_id) == 'None' or backup_fb_id == 'None':
@@ -582,6 +597,10 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                                 (telegram_id, backup_fb_id, reward_amount,
                                  f'第{level}层（上级未完成任务，转入捡漏）', get_cn_time()))
                         reward_stats['fallback'] += 1
+                        try:
+                            used_fallbacks.add(int(backup_fb_id))
+                        except:
+                            pass
                     else:
                         print(f"[分红] 警告: Level {level} 没有可用的捡漏账号，奖励丢失")
 

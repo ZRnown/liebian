@@ -750,10 +750,12 @@ async def fission_handler(event):
                 }
     
     # 统一显示在"推荐加入的群组"中
-    if groups_to_show:
-        text += "🔥 **推荐加入的群组：**\n"
-        for idx, group_info in enumerate(groups_to_show, 1):
-            text += f"{idx}. [{group_info['name']}]({group_info['link']})\n"
+        if groups_to_show:
+            text += "🔥 **推荐加入的群组：**\n"
+            for idx, group_info in enumerate(groups_to_show, 1):
+                # 显示编号为从后向前（例如 level_count=10 则首项显示为 10）
+                display_num = level_count - (idx - 1)
+                text += f"{display_num}. [{group_info['name']}]({group_info['link']})\n"
     else:
         await event.respond("❌ 暂无可用群组，请联系管理员配置捡漏账号群链接。")
         return
@@ -1541,12 +1543,8 @@ async def flv_level_callback(event):
             vip_tag = ' VIP' if m['is_vip'] else ''
             text += f'{idx}. {name_display} {vip_tag}\n'
 
-        # 构建按钮：每个成员可点击跳转（如果有用户名则链接 t.me/username），以及分页和返回按钮
+        # 构建分页和返回按钮（不在下面显示每个成员的跳转按钮）
         btns = []
-        for m in page_items:
-            if m['username']:
-                btns.append([Button.url(m['username'] + (' ✅' if m['is_vip'] else ''), f'https://t.me/{m["username"]}')])
-
         nav = []
         if page > 1:
             nav.append(Button.inline('⬅️ 上页', f'flv_{level}_{page-1}'.encode()))
