@@ -341,6 +341,14 @@ def payment_notify():
                             if not notify_queue:
                                 from bot_logic import notify_queue
                             notify_queue.append({'member_id': telegram_id, 'message': msg})
+                            # 同时尝试把充值处理任务推到 bot 的队列，避免跨线程 loop 调度问题
+                            try:
+                                import bot_logic
+                                if hasattr(bot_logic, 'process_recharge_queue'):
+                                    bot_logic.process_recharge_queue.append({'member_id': telegram_id, 'amount': amount, 'is_vip_order': is_vip_order})
+                                    print(f'[支付回调] 已将充值任务加入 bot_logic.process_recharge_queue: {telegram_id}')
+                            except Exception as e:
+                                print(f'[支付回调] 无法加入 process_recharge_queue: {e}')
                         conn.close()
                         return 'success'
                     else:
@@ -368,6 +376,13 @@ def payment_notify():
                         if not notify_queue:
                             from bot_logic import notify_queue
                         notify_queue.append({'member_id': telegram_id, 'message': msg})
+                        try:
+                            import bot_logic
+                            if hasattr(bot_logic, 'process_recharge_queue'):
+                                bot_logic.process_recharge_queue.append({'member_id': telegram_id, 'amount': amount, 'is_vip_order': False})
+                                print(f'[支付回调] 已将充值任务加入 bot_logic.process_recharge_queue: {telegram_id}')
+                        except Exception as e:
+                            print(f'[支付回调] 无法加入 process_recharge_queue: {e}')
                         return 'success'
         
         return 'success'
@@ -1205,10 +1220,45 @@ def api_level_settings():
     """获取层级设置"""
     try:
         config = get_system_config()
+        # level_amounts: per-level reward amounts (list or dict). If missing, generate defaults.
+        level_count = int(config.get('level_count', 10))
+        level_reward = float(config.get('level_reward', 1.0))
+        level_amounts = config.get('level_amounts')
+        if not level_amounts:
+            # default: same reward for each level
+            level_amounts = [level_reward for _ in range(level_count)]
+        else:
+            try:
+                # ensure it's a list of length level_count (if dict convert)
+                import json
+                if isinstance(level_amounts, str):
+                    parsed = json.loads(level_amounts)
+                else:
+                    parsed = level_amounts
+                if isinstance(parsed, dict):
+                    # convert dict {1: amt,...} to list
+                    amounts = []
+                    for i in range(1, level_count + 1):
+                        amounts.append(float(parsed.get(str(i)) or parsed.get(i) or level_reward))
+                    level_amounts = amounts
+                elif isinstance(parsed, list):
+                    # pad or trim
+                    parsed = [float(x) for x in parsed]
+                    if len(parsed) < level_count:
+                        parsed += [level_reward] * (level_count - len(parsed))
+                    else:
+                        parsed = parsed[:level_count]
+                    level_amounts = parsed
+                else:
+                    level_amounts = [level_reward for _ in range(level_count)]
+            except Exception:
+                level_amounts = [level_reward for _ in range(level_count)]
+
         return jsonify({
             'success': True,
-            'level_count': config.get('level_count', 10),
-            'level_reward': config.get('level_reward', 1.0)
+            'level_count': level_count,
+            'level_reward': level_reward,
+            'level_amounts': level_amounts
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500

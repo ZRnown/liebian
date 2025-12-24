@@ -57,6 +57,7 @@ else:
 # 全局队列
 pending_broadcasts = []
 notify_queue = []
+process_recharge_queue = []
 waiting_for_group_link = {}
 waiting_for_backup = {}
 waiting_for_recharge_amount = {}
@@ -2865,6 +2866,28 @@ def run_bot():
     # 5. 启动内存群发队列处理（Web后台群发）
     bot.loop.create_task(process_broadcasts())
     print("✅ 内存群发队列处理器已启动")
+
+    # 6. 启动来自 Web 的充值处理队列（线程安全队列，由 Web 将项 push 到此列表）
+    async def _process_recharge_queue_worker():
+        while True:
+            try:
+                if process_recharge_queue:
+                    item = process_recharge_queue.pop(0)
+                    try:
+                        member_id = item.get('member_id')
+                        amount = item.get('amount', 0)
+                        is_vip_order = item.get('is_vip_order', False)
+                        await process_recharge(member_id, amount, is_vip_order=is_vip_order)
+                        print(f"[process_recharge_queue] 已处理: member_id={member_id}, amount={amount}, is_vip_order={is_vip_order}")
+                    except Exception as e:
+                        print(f"[process_recharge_queue] 处理失败: {e}")
+                await asyncio.sleep(1)
+            except Exception as e:
+                print(f"[process_recharge_queue] 错误: {e}")
+                await asyncio.sleep(5)
+
+    bot.loop.create_task(_process_recharge_queue_worker())
+    print("✅ Web -> Bot 充值队列处理器已启动")
     
     print("=" * 60)
     print("✅ 所有后台任务已挂载")

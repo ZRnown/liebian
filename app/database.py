@@ -443,6 +443,7 @@ def get_system_config():
         'pinned_ad': 'pinned_ad',
         'welcome_message': 'welcome_message',
         'welcome_enabled': 'welcome_enabled',
+        'level_amounts': 'level_amounts',
         'auto_register_enabled': 'auto_register_enabled'
     }
     
@@ -451,6 +452,13 @@ def get_system_config():
             config_key = key_mapping[key]
             if key in ['levels', 'reward_per_level', 'vip_price', 'withdraw_threshold']:
                 config[config_key] = float(value) if '.' in str(value) else int(value)
+            elif key == 'level_amounts':
+                # stored as JSON string -> parse to list/dict
+                try:
+                    import json
+                    config['level_amounts'] = json.loads(value)
+                except Exception:
+                    config['level_amounts'] = value
             else:
                 config[config_key] = value
     
