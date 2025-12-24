@@ -248,6 +248,7 @@ def team_graph_page(telegram_id):
 
 @app.route('/api/payment/notify', methods=['POST'])
 def payment_notify():
+    global notify_queue
     """支付回调处理"""
     try:
         # 支持 form-post 或者 json body
@@ -1133,6 +1134,56 @@ def api_get_broadcast_messages():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/broadcast/send', methods=['POST'])
+@login_required
+def api_broadcast_send():
+    """手动群发消息到指定群组"""
+    try:
+        data = request.get_json() or {}
+        message = data.get('message', '')
+        group_ids = data.get('group_ids', [])
+        send_all = data.get('all', False)
+
+        if not message:
+            return jsonify({'success': False, 'message': '消息内容不能为空'}), 400
+
+        conn = get_db_conn()
+        c = conn.cursor()
+
+        if send_all:
+            c.execute('SELECT id, group_link, group_name FROM member_groups')
+        else:
+            if not group_ids:
+                conn.close()
+                return jsonify({'success': False, 'message': '请选择群组'}), 400
+            placeholders = ','.join(['?' for _ in group_ids])
+            c.execute(f'SELECT id, group_link, group_name FROM member_groups WHERE id IN ({placeholders})', group_ids)
+
+        groups = c.fetchall()
+        conn.close()
+
+        if not groups:
+            return jsonify({'success': False, 'message': '没有找到群组'}), 400
+
+        # 加入发送队列
+        sent = 0
+        for g in groups:
+            group_link = g[1]
+            if group_link and 't.me/' in group_link:
+                try:
+                    pending_broadcasts.append({
+                        'type': 'broadcast',
+                        'group_links': [group_link],
+                        'message_content': message
+                    })
+                    sent += 1
+                except Exception:
+                    pass
+
+        return jsonify({'success': True, 'sent': sent, 'message': f'已加入发送队列: {sent}个群组'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/bot-configs')
 @login_required
 def api_bot_configs():
@@ -1568,6 +1619,7 @@ def api_update_recharge_status(recharge_id):
 @app.route('/api/members/broadcast', methods=['POST'])
 @login_required
 def api_members_broadcast():
+    global notify_queue
     """向会员发送群发消息"""
     try:
         data = request.get_json() or {}
