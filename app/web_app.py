@@ -1437,33 +1437,15 @@ def api_update_recharge_status(recharge_id):
 
         # 【核心修复】统一走异步充值处理逻辑（process_recharge：自动开VIP + 条件检测 + 捡漏账号）
         try:
-            # 直接从 bot_logic 导入 bot 实例和 process_recharge，避免引用未定义的局部 bot
-            from bot_logic import bot as bot_instance, process_recharge as process_recharge_fn
-            if bot_instance:
-                import asyncio
-                # Try to obtain the actual event loop object stored on the client
-                loop_obj = getattr(bot_instance, '_loop', None)
-                if loop_obj and getattr(loop_obj, 'is_running', lambda: False)():
-                    # Submit coroutine to the running bot loop from this thread
-                    asyncio.run_coroutine_threadsafe(process_recharge_fn(member_id, amount, is_vip_order=True), loop_obj)
-                    print(f'[后台充值状态修改] 已通过 run_coroutine_threadsafe 提交 process_recharge 任务: member_id={member_id}, amount={amount}')
-                else:
-                    # Fallback: attempt to create task via call_soon_threadsafe if available
-                    try:
-                        loop = getattr(bot_instance, 'loop', None)
-                        if loop:
-                            # If accessing bot_instance.loop is possible in this thread, schedule normally
-                            loop.create_task(process_recharge_fn(member_id, amount, is_vip_order=True))
-                            print(f'[后台充值状态修改] 已在 bot.loop 创建任务: member_id={member_id}, amount={amount}')
-                        else:
-                            print(f'[后台充值状态修改] 无法获取 bot loop，跳过创建任务: member_id={member_id}, amount={amount}')
-                    except Exception as inner_err:
-                        print(f'[后台充值状态修改] 调用 bot.loop.create_task 失败: {inner_err}')
+            # 将任务推入 bot_logic 的队列，由 bot 在自身事件循环中消费（线程安全）
+            import bot_logic
+            if hasattr(bot_logic, 'process_recharge_queue'):
+                bot_logic.process_recharge_queue.append({'member_id': member_id, 'amount': amount, 'is_vip_order': True})
+                print(f'[后台充值状态修改] 已将充值任务加入 bot_logic.process_recharge_queue: member_id={member_id}, amount={amount}')
             else:
-                # 如果 bot 未初始化，仅记录日志（管理员可稍后重试或通过 bot 启动触发）
-                print(f'[后台充值状态修改] bot 未初始化，无法创建 process_recharge 任务: member_id={member_id}, amount={amount}')
+                print(f'[后台充值状态修改] bot_logic.process_recharge_queue 不存在，无法入队: member_id={member_id}, amount={amount}')
         except Exception as async_err:
-            print(f'[后台充值状态修改] 调用 process_recharge 失败: {async_err}')
+            print(f'[后台充值状态修改] 将任务加入队列失败: {async_err}')
             import traceback
             traceback.print_exc()
 
