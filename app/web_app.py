@@ -346,7 +346,10 @@ def payment_notify():
                                 import bot_logic
                                 if hasattr(bot_logic, 'process_recharge_queue'):
                                     bot_logic.process_recharge_queue.append({'member_id': telegram_id, 'amount': amount, 'is_vip_order': is_vip_order})
-                                    print(f'[支付回调] 已将充值任务加入 bot_logic.process_recharge_queue: {telegram_id}')
+                                    try:
+                                        print(f'[支付回调] 已将充值任务加入 bot_logic.process_recharge_queue: {telegram_id}, queue_len={len(bot_logic.process_recharge_queue)}')
+                                    except:
+                                        print(f'[支付回调] 已将充值任务加入 bot_logic.process_recharge_queue: {telegram_id}')
                             except Exception as e:
                                 print(f'[支付回调] 无法加入 process_recharge_queue: {e}')
                         conn.close()
@@ -380,7 +383,10 @@ def payment_notify():
                             import bot_logic
                             if hasattr(bot_logic, 'process_recharge_queue'):
                                 bot_logic.process_recharge_queue.append({'member_id': telegram_id, 'amount': amount, 'is_vip_order': False})
-                                print(f'[支付回调] 已将充值任务加入 bot_logic.process_recharge_queue: {telegram_id}')
+                                try:
+                                    print(f'[支付回调] 已将充值任务加入 bot_logic.process_recharge_queue: {telegram_id}, queue_len={len(bot_logic.process_recharge_queue)}')
+                                except:
+                                    print(f'[支付回调] 已将充值任务加入 bot_logic.process_recharge_queue: {telegram_id}')
                         except Exception as e:
                             print(f'[支付回调] 无法加入 process_recharge_queue: {e}')
                         return 'success'
@@ -1178,6 +1184,109 @@ def api_delete_bot_config(id):
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+
+# ============ 群发消息增删改查 API（与前端模板匹配） ============
+@app.route('/api/broadcast/message', methods=['POST'])
+@login_required
+def api_create_broadcast_message():
+    """创建群发消息（供前端 templates/broadcast.html 使用）"""
+    try:
+        data = request.get_json() or {}
+        title = (data.get('title') or '')[:200]
+        content = data.get('content') or ''
+        image_url = data.get('image_url') or ''
+        video_url = data.get('video_url') or ''
+        buttons = data.get('buttons') or '[]'
+        buttons_per_row = int(data.get('buttons_per_row', 2) or 2)
+        schedule_enabled = 1 if data.get('schedule_enabled') else 0
+        schedule_time = data.get('schedule_time') or ''
+        now = get_cn_time()
+
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO broadcast_messages
+            (title, content, media_type, media_url, is_active, create_time, image_url, video_url, buttons, buttons_per_row, schedule_enabled, schedule_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (title, content, None, None, 1, now, image_url, video_url, buttons, buttons_per_row, schedule_enabled, schedule_time))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '创建成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/broadcast/message/<int:id>', methods=['GET'])
+@login_required
+def api_get_broadcast_message(id):
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('SELECT id, title, content, image_url, video_url, buttons, buttons_per_row, is_active, schedule_enabled, schedule_time, create_time FROM broadcast_messages WHERE id = ?', (id,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'success': False, 'message': '未找到该消息'}), 404
+        msg = {
+            'id': row[0],
+            'title': row[1],
+            'content': row[2],
+            'image_url': row[3] or '',
+            'video_url': row[4] or '',
+            'buttons': row[5] or '[]',
+            'buttons_per_row': row[6] or 2,
+            'is_active': row[7],
+            'schedule_enabled': row[8],
+            'schedule_time': row[9] or '',
+            'create_time': row[10] or ''
+        }
+        return jsonify({'success': True, 'message': msg})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/broadcast/message/<int:id>', methods=['PUT'])
+@login_required
+def api_update_broadcast_message(id):
+    try:
+        data = request.get_json() or {}
+        title = (data.get('title') or '')[:200]
+        content = data.get('content') or ''
+        image_url = data.get('image_url') or ''
+        video_url = data.get('video_url') or ''
+        buttons = data.get('buttons') or '[]'
+        buttons_per_row = int(data.get('buttons_per_row', 2) or 2)
+        schedule_enabled = 1 if data.get('schedule_enabled') else 0
+        schedule_time = data.get('schedule_time') or ''
+        is_active = 1 if data.get('is_active', True) else 0
+
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('''
+            UPDATE broadcast_messages
+            SET title = ?, content = ?, image_url = ?, video_url = ?, buttons = ?, buttons_per_row = ?, schedule_enabled = ?, schedule_time = ?, is_active = ?
+            WHERE id = ?
+        ''', (title, content, image_url, video_url, buttons, buttons_per_row, schedule_enabled, schedule_time, is_active, id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '更新成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/broadcast/message/<int:id>', methods=['DELETE'])
+@login_required
+def api_delete_broadcast_message(id):
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('DELETE FROM broadcast_messages WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '删除成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/welcome-messages')
 @login_required
 def api_welcome_messages():
@@ -1441,7 +1550,10 @@ def api_update_recharge_status(recharge_id):
             import bot_logic
             if hasattr(bot_logic, 'process_recharge_queue'):
                 bot_logic.process_recharge_queue.append({'member_id': member_id, 'amount': amount, 'is_vip_order': True})
-                print(f'[后台充值状态修改] 已将充值任务加入 bot_logic.process_recharge_queue: member_id={member_id}, amount={amount}')
+                try:
+                    print(f'[后台充值状态修改] 已将充值任务加入 bot_logic.process_recharge_queue: member_id={member_id}, amount={amount}, queue_len={len(bot_logic.process_recharge_queue)}')
+                except:
+                    print(f'[后台充值状态修改] 已将充值任务加入 bot_logic.process_recharge_queue: member_id={member_id}, amount={amount}')
             else:
                 print(f'[后台充值状态修改] bot_logic.process_recharge_queue 不存在，无法入队: member_id={member_id}, amount={amount}')
         except Exception as async_err:

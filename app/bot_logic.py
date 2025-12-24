@@ -643,6 +643,20 @@ async def fission_handler(event):
     
     # 获取所有捡漏群组
     fb_groups = get_fallback_resource('group')
+    # Debug: 打印捡漏群组原始返回，便于诊断为何为空或不包含链接
+    print(f"[fission debug] get_fallback_resource('group') returned: {fb_groups}")
+    try:
+        conn_dbg = get_db_conn()
+        c_dbg = conn_dbg.cursor()
+        c_dbg.execute("SELECT id, telegram_id, username, group_link, is_active FROM fallback_accounts ORDER BY id ASC")
+        fb_rows = c_dbg.fetchall()
+        print(f"[fission debug] fallback_accounts count: {len(fb_rows)}")
+        for r in fb_rows:
+            print(f"[fission debug] fallback_accounts row: id={r[0]}, telegram_id={r[1]}, username={r[2]}, is_active={r[4]}, group_link={r[3]}")
+        conn_dbg.close()
+    except Exception as dbg_e:
+        print(f"[fission debug] error reading fallback_accounts: {dbg_e}")
+
     if not fb_groups:
         await event.respond("❌ 系统错误：捡漏群组未配置，请联系管理员")
         return
@@ -1640,7 +1654,7 @@ async def resources_handler(event):
     await show_resource_categories(event, page=1, is_new=True)
 
 async def show_resource_categories(event, page=1, is_new=False):
-    """显示资源分类（分页，每行3个）"""
+    """显示资源分类（文本列表，分页，每页25条）"""
     categories = DB.get_resource_categories(0)
 
     if not categories:
@@ -1651,45 +1665,47 @@ async def show_resource_categories(event, page=1, is_new=False):
             await event.edit(msg)
         return
 
-    # 分页设置：每页9个（3行x3列）
-    per_page = 9
+    # 文本列表分页：每页25个分类（适合显示为列表）
+    per_page = 25
     total = len(categories)
     total_pages = (total + per_page - 1) // per_page
     page = max(1, min(page, total_pages))
-    
+
     start = (page - 1) * per_page
     end = start + per_page
     page_categories = categories[start:end]
 
-    # 构建按钮（每行3个）
+    # 构建文本列表（编号 + 名称），下方放一列“进入”按钮用于进入分类资源
+    text_lines = [f'📁 行业资源\n\n共 {total} 个分类 （第 {page}/{total_pages} 页）\n']
     buttons = []
-    row = []
-    for cat in page_categories:
-        row.append(Button.inline(cat["name"], f'cat_{cat["id"]}'.encode()))
-        if len(row) == 3:
-            buttons.append(row)
-            row = []
-    if row:
-        buttons.append(row)
+    for idx, cat in enumerate(page_categories, start + 1):
+        text_lines.append(f'{idx}. {cat["name"]}')
+        # 每个分类一行按钮（进入该分类）
+        buttons.append([Button.inline(f'进入 {cat["name"]}', f'cat_{cat["id"]}'.encode())])
 
-    # 分页按钮
-    nav_buttons = []
+    # 分页控制按钮
+    nav = []
     if page > 1:
-        nav_buttons.append(Button.inline('< 上一页', f'catpg_{page-1}'.encode()))
+        nav.append(Button.inline('< 上一页', f'catpg_{page-1}'.encode()))
     if page < total_pages:
-        nav_buttons.append(Button.inline('下一页 >', f'catpg_{page+1}'.encode()))
-    if nav_buttons:
-        buttons.append(nav_buttons)
+        nav.append(Button.inline('下一页 >', f'catpg_{page+1}'.encode()))
+    if nav:
+        buttons.append(nav)
 
-    # 返回按钮
     buttons.append([Button.inline('< 返回', b'res_back_main')])
 
-    text = f'📁 行业资源\n\n请选择分类: ({page}/{total_pages})'
-    
-    if is_new:
-        await event.respond(text, buttons=buttons, parse_mode='md')
-    else:
-        await event.edit(text, buttons=buttons)
+    text = '\n'.join(text_lines)
+    try:
+        if is_new:
+            await event.respond(text, buttons=buttons, parse_mode='markdown')
+        else:
+            await event.edit(text, buttons=buttons, parse_mode='markdown')
+    except:
+        # fallback without buttons
+        if is_new:
+            await event.respond(text)
+        else:
+            await event.edit(text)
 
 
 # 点击分类回调：显示该分类下的资源
@@ -1698,35 +1714,126 @@ async def category_callback(event):
     try:
         data = event.data.decode()
         cid = int(data.replace('cat_', ''))
-        conn = get_db_conn()
-        c = conn.cursor()
-        c.execute('SELECT id, name, link, type, member_count FROM resources WHERE category_id = ? ORDER BY id DESC', (cid,))
-        rows = c.fetchall()
-        conn.close()
+        # 使用DB.get_resources进行分页读取
+        per_page = 25
+        page = 1
+        result = DB.get_resources(cid, page=page, per_page=per_page)
 
-        if not rows:
+        items = result.get('items', [])
+        total = result.get('total', 0)
+        pages = result.get('pages', 1)
+
+        if not items:
             await event.answer('该分类暂无资源', alert=True)
             return
 
-        text = f'📂 资源列表（分类ID: {cid}）\n\n'
-        buttons = []
-        for r in rows[:50]:
-            rid, name, link, rtype, count = r
-            display = f'{name} ({rtype}/{count})'
-            # 如果有链接则显示为按钮链接
-            if link:
-                buttons.append([Button.url(display, link)])
-            else:
-                text += f'- {display}\n'
+        def fmt_count(n):
+            try:
+                n = int(n)
+            except:
+                return str(n)
+            if n >= 1000:
+                v = round(n / 1000.0, 1)
+                if v.is_integer():
+                    return f'{int(v)}K'
+                return f'{v}K'
+            return str(n)
 
-        # 返回按钮
-        buttons.append([Button.inline('< 返回', b'res_back_main')])
+        # 构建文本列表（每行包含图标、名称、人数和链接）
+        text_lines = [f'📂 资源列表（分类ID: {cid}）\n共 {total} 条，显示第 {page}/{pages} 页\n']
+        for it in items:
+            icon = '👥' if (it.get('type') or '').lower() == 'group' else '📣'
+            name = it.get('name') or '未命名'
+            link = it.get('link') or ''
+            count_str = fmt_count(it.get('count') or 0)
+            # 安全转义中括号和圆括号 in markdown link text
+            safe_name = name.replace('[','\\[').replace(']','\\]').replace('(','\\(').replace(')','\\)')
+            if link:
+                text_lines.append(f'{icon} [{safe_name} ({count_str})]({link})')
+            else:
+                text_lines.append(f'{icon} {safe_name} ({count_str})')
+
+        text = '\n'.join(text_lines)
+
+        # 构建分页按钮
+        btns = []
+        nav = []
+        if page > 1:
+            nav.append(Button.inline('< 上一页', f'res_page_{cid}_{page-1}'.encode()))
+        if page < pages:
+            nav.append(Button.inline('下一页 >', f'res_page_{cid}_{page+1}'.encode()))
+        if nav:
+            btns.append(nav)
+        btns.append([Button.inline('🔙 返回分类', b'back_to_categories')])
+
         try:
-            await event.edit(text, buttons=buttons, parse_mode='md')
+            await event.edit(text, buttons=btns, parse_mode='markdown')
         except:
-            await event.respond(text, buttons=buttons, parse_mode='md')
+            await event.respond(text, buttons=btns, parse_mode='markdown')
     except Exception as e:
         print(f"[category_callback] 错误: {e}")
+        await event.answer('加载失败', alert=True)
+
+
+@bot.on(events.CallbackQuery(pattern=rb'res_page_(\d+)_(\d+)'))
+async def resource_page_callback(event):
+    """分页资源显示：res_page_{category_id}_{page}"""
+    try:
+        data = event.data.decode()
+        parts = data.replace('res_page_', '').split('_')
+        cid = int(parts[0])
+        page = int(parts[1])
+        per_page = 25
+        result = DB.get_resources(cid, page=page, per_page=per_page)
+        items = result.get('items', [])
+        total = result.get('total', 0)
+        pages = result.get('pages', 1)
+
+        if not items:
+            await event.answer('该页暂无资源', alert=True)
+            return
+
+        def fmt_count(n):
+            try:
+                n = int(n)
+            except:
+                return str(n)
+            if n >= 1000:
+                v = round(n / 1000.0, 1)
+                if v.is_integer():
+                    return f'{int(v)}K'
+                return f'{v}K'
+            return str(n)
+
+        text_lines = [f'📂 资源列表（分类ID: {cid}）\n共 {total} 条，显示第 {page}/{pages} 页\n']
+        for it in items:
+            icon = '👥' if (it.get('type') or '').lower() == 'group' else '📣'
+            name = it.get('name') or '未命名'
+            link = it.get('link') or ''
+            count_str = fmt_count(it.get('count') or 0)
+            safe_name = name.replace('[','\\[').replace(']','\\]').replace('(','\\(').replace(')','\\)')
+            if link:
+                text_lines.append(f'{icon} [{safe_name} ({count_str})]({link})')
+            else:
+                text_lines.append(f'{icon} {safe_name} ({count_str})')
+
+        text = '\n'.join(text_lines)
+        btns = []
+        nav = []
+        if page > 1:
+            nav.append(Button.inline('< 上一页', f'res_page_{cid}_{page-1}'.encode()))
+        if page < pages:
+            nav.append(Button.inline('下一页 >', f'res_page_{cid}_{page+1}'.encode()))
+        if nav:
+            btns.append(nav)
+        btns.append([Button.inline('🔙 返回分类', b'back_to_categories')])
+
+        try:
+            await event.edit(text, buttons=btns, parse_mode='markdown')
+        except:
+            await event.respond(text, buttons=btns, parse_mode='markdown')
+    except Exception as e:
+        print(f"[resource_page_callback] 错误: {e}")
         await event.answer('加载失败', alert=True)
 
 @bot.on(events.NewMessage(pattern=BTN_SUPPORT))
@@ -2916,19 +3023,30 @@ def run_bot():
     async def _process_recharge_queue_worker():
         while True:
             try:
-                if process_recharge_queue:
+                # Debug: current queue length
+                try:
+                    qlen = len(process_recharge_queue)
+                except Exception:
+                    qlen = 0
+                if qlen:
+                    print(f"[process_recharge_queue] 队列长度: {qlen}")
                     item = process_recharge_queue.pop(0)
                     try:
                         member_id = item.get('member_id')
                         amount = item.get('amount', 0)
                         is_vip_order = item.get('is_vip_order', False)
+                        print(f"[process_recharge_queue] 开始处理: member_id={member_id}, amount={amount}, is_vip_order={is_vip_order}")
                         await process_recharge(member_id, amount, is_vip_order=is_vip_order)
-                        print(f"[process_recharge_queue] 已处理: member_id={member_id}, amount={amount}, is_vip_order={is_vip_order}")
+                        print(f"[process_recharge_queue] 处理完成: member_id={member_id}, amount={amount}, is_vip_order={is_vip_order}")
                     except Exception as e:
+                        import traceback
                         print(f"[process_recharge_queue] 处理失败: {e}")
+                        traceback.print_exc()
                 await asyncio.sleep(1)
             except Exception as e:
+                import traceback
                 print(f"[process_recharge_queue] 错误: {e}")
+                traceback.print_exc()
                 await asyncio.sleep(5)
 
     bot.loop.create_task(_process_recharge_queue_worker())
