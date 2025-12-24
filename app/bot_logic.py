@@ -27,6 +27,43 @@ from bot_commands_addon import (
     handle_check_status, handle_my_team
 )
 
+
+def compute_vip_price_from_config(config):
+    """Compute effective VIP price: if per-level amounts configured, sum them; else use vip_price"""
+    try:
+        # support config 'level_amounts' as list or JSON string
+        level_count = int(config.get('level_count', 10))
+        level_amounts = config.get('level_amounts')
+        if level_amounts:
+            import json
+            if isinstance(level_amounts, str):
+                try:
+                    parsed = json.loads(level_amounts)
+                except Exception:
+                    parsed = None
+            else:
+                parsed = level_amounts
+
+            if isinstance(parsed, list):
+                # sum first level_count entries (pad with zeros)
+                vals = [float(x) for x in parsed[:level_count]]
+                if len(vals) < level_count:
+                    vals += [0.0] * (level_count - len(vals))
+                return sum(vals)
+            elif isinstance(parsed, dict):
+                total = 0.0
+                for i in range(1, level_count + 1):
+                    v = parsed.get(str(i)) or parsed.get(i) or 0
+                    total += float(v)
+                return total
+    except Exception:
+        pass
+    # fallback to simple vip_price
+    try:
+        return float(config.get('vip_price', 10))
+    except Exception:
+        return 10.0
+
 # 按钮文字常量
 BTN_PROFILE = '👤 个人中心'
 BTN_FISSION = '🔗 群裂变加入'
@@ -390,7 +427,7 @@ async def open_vip_balance_callback(event):
         return
     
     config = get_system_config()
-    vip_price = config.get('vip_price', 10)
+    vip_price = compute_vip_price_from_config(config)
     user_balance = member.get('balance', 0)
     
     if user_balance < vip_price:
@@ -445,12 +482,13 @@ async def confirm_vip_callback(event):
         await event.answer('您已经是VIP了!')
         return
     
-    if member['balance'] < config['vip_price']:
-        await event.answer(f'余额不足! 还需 {config["vip_price"] - member["balance"]} U', alert=True)
+    vip_price = compute_vip_price_from_config(config)
+    if member['balance'] < vip_price:
+        await event.answer(f'余额不足! 还需 {vip_price - member["balance"]} U', alert=True)
         return
     
     # 【核心修复】调用统一处理函数
-    success, result = await process_vip_upgrade(event.sender_id, config['vip_price'], config)
+    success, result = await process_vip_upgrade(event.sender_id, vip_price, config)
     
     if not success:
         await event.answer(f"❌ {result}", alert=True)
@@ -496,9 +534,10 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
             DB.update_member(telegram_id, balance=new_balance)
             
             # 如果是VIP充值订单且余额足够，自动开通VIP
-            if is_vip_order and new_balance >= config['vip_price'] and not member['is_vip']:
+            vip_price = compute_vip_price_from_config(config)
+            if is_vip_order and new_balance >= vip_price and not member['is_vip']:
                 # 【核心修复】调用统一处理函数
-                success, result = await process_vip_upgrade(telegram_id, config['vip_price'], config)
+                success, result = await process_vip_upgrade(telegram_id, vip_price, config)
                 
                 if success:
                     stats = result['stats']
@@ -522,7 +561,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                         telegram_id,
                         f'🎉 充值成功！VIP已开通！\n\n'
                         f'💰 充值金额: {amount} U\n'
-                        f'💳 VIP费用: {config["vip_price"]} U\n'
+                        f'💳 VIP费用: {vip_price} U\n'
                         f'💵 当前余额: {new_balance} U\n\n'
                         f'📊 捡漏账号获得 {stats["fallback"]} 笔分红\n\n'
                         f'⚠️ 重要：请立即完成以下操作\n\n'
@@ -566,7 +605,8 @@ async def admin_manual_vip_handler(telegram_id, config):
         return False, "用户已是VIP"
     
     # 【核心修复】调用统一处理函数（不扣除余额，因为是管理员赠送）
-    success, result = await process_vip_upgrade(telegram_id, config['vip_price'], config, deduct_balance=False)
+    vip_price = compute_vip_price_from_config(config)
+    success, result = await process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=False)
     
     if not success:
         return False, result
@@ -1675,13 +1715,13 @@ async def show_resource_categories(event, page=1, is_new=False):
     end = start + per_page
     page_categories = categories[start:end]
 
-    # 构建文本列表（编号 + 名称），下方放一列“进入”按钮用于进入分类资源
+    # 构建文本列表（编号 + 名称），下方放一列按钮用于进入分类资源
     text_lines = [f'📁 行业资源\n\n共 {total} 个分类 （第 {page}/{total_pages} 页）\n']
     buttons = []
     for idx, cat in enumerate(page_categories, start + 1):
         text_lines.append(f'{idx}. {cat["name"]}')
-        # 每个分类一行按钮（进入该分类）
-        buttons.append([Button.inline(f'进入 {cat["name"]}', f'cat_{cat["id"]}'.encode())])
+        # 每个分类一行按钮（分类名称作为按钮）
+        buttons.append([Button.inline(cat["name"], f'cat_{cat["id"]}'.encode())])
 
     # 分页控制按钮
     nav = []
@@ -1773,6 +1813,17 @@ async def category_callback(event):
     except Exception as e:
         print(f"[category_callback] 错误: {e}")
         await event.answer('加载失败', alert=True)
+
+
+@bot.on(events.CallbackQuery(pattern=rb'back_to_categories'))
+async def back_to_categories_callback(event):
+    """返回分类列表（同 show_resource_categories 第1页）"""
+    try:
+        await show_resource_categories(event, page=1, is_new=False)
+        await event.answer()
+    except Exception as e:
+        print(f"[back_to_categories] 错误: {e}")
+        await event.answer('返回失败', alert=True)
 
 
 @bot.on(events.CallbackQuery(pattern=rb'res_page_(\d+)_(\d+)'))
@@ -2306,6 +2357,14 @@ async def message_handler(event):
                 if 1 <= value <= 20:
                     from database import update_system_config
                     update_system_config('level_count', value)
+                    # 初始化或调整每层金额配置为当前每层返利（或1）* value 层，便于前端显示
+                    try:
+                        import json
+                        per_level = float(config.get('level_reward', 1))
+                        amounts = [per_level for _ in range(value)]
+                        update_system_config('level_amounts', json.dumps(amounts))
+                    except Exception as e:
+                        print(f"[admin_set_level] 无法初始化 level_amounts: {e}")
                     del admin_waiting[sender_id]
                     await event.respond(f'✅ 层数设置成功!\n\n当前层数: {value} 层')
                 else:
