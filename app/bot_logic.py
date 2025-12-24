@@ -733,21 +733,22 @@ async def fission_handler(event):
             level_for_slot = level_count - display_idx
             fb_index = (level_for_slot - 1) % len(fb_groups)
             fb_group = fb_groups[fb_index]
-            group_link = fb_group.get('link', '').strip()
-            if group_link:
-                group_name = fb_group.get('name', fb_group.get('username', f'推荐群组 {level_for_slot}'))
-                try:
+            group_link = (fb_group.get('link') or '').strip()
+            group_name = fb_group.get('name') or fb_group.get('username') or f'推荐群组 {level_for_slot}'
+            try:
+                if group_link:
                     actual_title = await get_group_title(bot, group_link)
                     if actual_title:
                         group_name = actual_title
-                except:
-                    pass
-                groups_to_show[display_idx] = {
-                    'level': level_for_slot,
-                    'link': group_link,
-                    'name': group_name,
-                    'type': 'fallback'
-                }
+            except:
+                pass
+            # Always fill the slot; if link missing, leave empty string and display as plain text
+            groups_to_show[display_idx] = {
+                'level': level_for_slot,
+                'link': group_link,
+                'name': group_name,
+                'type': 'fallback'
+            }
     
     # 统一显示在"推荐加入的群组"中
         if groups_to_show:
@@ -755,7 +756,15 @@ async def fission_handler(event):
             for idx, group_info in enumerate(groups_to_show, 1):
                 # 显示编号为从后向前（例如 level_count=10 则首项显示为 10）
                 display_num = level_count - (idx - 1)
-                text += f"{display_num}. [{group_info['name']}]({group_info['link']})\n"
+                if not group_info:
+                    text += f"{display_num}. 未配置\n"
+                    continue
+                name = group_info.get('name') or f'推荐群组 {display_num}'
+                link = group_info.get('link') or ''
+                if link:
+                    text += f"{display_num}. [{name}]({link})\n"
+                else:
+                    text += f"{display_num}. {name}\n"
     else:
         await event.respond("❌ 暂无可用群组，请联系管理员配置捡漏账号群链接。")
         return
@@ -1681,6 +1690,44 @@ async def show_resource_categories(event, page=1, is_new=False):
         await event.respond(text, buttons=buttons, parse_mode='md')
     else:
         await event.edit(text, buttons=buttons)
+
+
+# 点击分类回调：显示该分类下的资源
+@bot.on(events.CallbackQuery(pattern=rb'cat_(\d+)'))
+async def category_callback(event):
+    try:
+        data = event.data.decode()
+        cid = int(data.replace('cat_', ''))
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('SELECT id, name, link, type, member_count FROM resources WHERE category_id = ? ORDER BY id DESC', (cid,))
+        rows = c.fetchall()
+        conn.close()
+
+        if not rows:
+            await event.answer('该分类暂无资源', alert=True)
+            return
+
+        text = f'📂 资源列表（分类ID: {cid}）\n\n'
+        buttons = []
+        for r in rows[:50]:
+            rid, name, link, rtype, count = r
+            display = f'{name} ({rtype}/{count})'
+            # 如果有链接则显示为按钮链接
+            if link:
+                buttons.append([Button.url(display, link)])
+            else:
+                text += f'- {display}\n'
+
+        # 返回按钮
+        buttons.append([Button.inline('< 返回', b'res_back_main')])
+        try:
+            await event.edit(text, buttons=buttons, parse_mode='md')
+        except:
+            await event.respond(text, buttons=buttons, parse_mode='md')
+    except Exception as e:
+        print(f"[category_callback] 错误: {e}")
+        await event.answer('加载失败', alert=True)
 
 @bot.on(events.NewMessage(pattern=BTN_SUPPORT))
 async def support_handler(event):
