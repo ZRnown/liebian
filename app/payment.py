@@ -193,14 +193,25 @@ async def create_recharge_order(bot, event, amount, is_vip_order=False):
     if not payment_result or payment_result.get("code") != 200:
         await event.respond("创建支付订单失败，请稍后重试")
         return
-    
+
     # 保存充值记录到数据库
     conn = get_db_conn()
     c = conn.cursor()
-    c.execute('''INSERT INTO recharge_records 
-                 (member_id, amount, order_id, status, payment_method, create_time) 
-                 VALUES (?, ?, ?, ?, ?, ?)''',
-              (telegram_id, amount, order_number, 'pending', 'USDT', get_cn_time()))
+    remark = "开通" if is_vip_order else ""
+
+    # 检查表是否有remark字段
+    c.execute("PRAGMA table_info(recharge_records)")
+    columns = [col[1] for col in c.fetchall()]
+    if 'remark' in columns:
+        c.execute('''INSERT INTO recharge_records
+                     (member_id, amount, order_id, status, payment_method, remark, create_time)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                  (telegram_id, amount, order_number, 'pending', 'USDT', remark, get_cn_time()))
+    else:
+        c.execute('''INSERT INTO recharge_records
+                     (member_id, amount, order_id, status, payment_method, create_time)
+                     VALUES (?, ?, ?, ?, ?, ?)''',
+                  (telegram_id, amount, order_number, 'pending', 'USDT', get_cn_time()))
     conn.commit()
     conn.close()
     

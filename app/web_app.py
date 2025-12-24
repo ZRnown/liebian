@@ -63,6 +63,39 @@ PAYMENT_CONFIG = {
 import hashlib
 import requests as req
 
+def process_vip_upgrade_sync(telegram_id, vip_price, config, deduct_balance=True):
+    """同步版本的VIP开通处理（用于支付回调）"""
+    try:
+        from bot_logic import DB, distribute_vip_rewards, get_system_config
+
+        member = DB.get_member(telegram_id)
+        if not member:
+            return False, "用户不存在"
+
+        if member.get('is_vip'):
+            return False, "用户已是VIP"
+
+        # 检查余额（如果需要扣费）
+        if deduct_balance:
+            if member.get('balance', 0) < vip_price:
+                return False, "余额不足"
+            # 扣除VIP费用
+            new_balance = member['balance'] - vip_price
+            DB.update_member(telegram_id, balance=new_balance, is_vip=1, vip_time=get_cn_time())
+        else:
+            # 不扣费，直接开通
+            DB.update_member(telegram_id, is_vip=1, vip_time=get_cn_time())
+
+        # 分发VIP奖励
+        distribute_vip_rewards(telegram_id, vip_price)
+
+        return True, {'new_balance': member.get('balance', 0) if not deduct_balance else new_balance}
+    except Exception as e:
+        print(f"[VIP开通同步] 错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return False, str(e)
+
 def generate_payment_sign(params, key):
     """生成支付签名"""
     sorted_params = sorted([(k, v) for k, v in params.items() if v is not None and v != ''])
@@ -262,29 +295,75 @@ def payment_notify():
                     
                     if existing:
                         if existing[1] != 'completed':
-                            c.execute('UPDATE recharge_records SET status = ? WHERE order_id = ?', 
+                            c.execute('UPDATE recharge_records SET status = ? WHERE order_id = ?',
                                     ('completed', out_trade_no))
-                            c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?', 
+                            c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?',
                                     (amount, telegram_id))
+
+                            # 检查是否是VIP订单
+                            c.execute('SELECT remark FROM recharge_records WHERE order_id = ?', (out_trade_no,))
+                            remark_row = c.fetchone()
+                            is_vip_order = remark_row and remark_row[0] == "开通"
+
+                            # 获取当前余额用于后续判断
+                            c.execute('SELECT balance, is_vip FROM members WHERE telegram_id = ?', (telegram_id,))
+                            member_row = c.fetchone()
+                            current_balance = member_row[0] if member_row else 0
+                            is_vip = member_row[1] if member_row else 0
+
+                            # 如果是VIP订单且余额足够，自动开通VIP
+                            config = get_system_config()
+                            vip_price = config.get('vip_price', 10)
+
+                            if is_vip_order and current_balance >= vip_price and not is_vip:
+                                # 自动开通VIP
+                                try:
+                                    # 直接调用同步VIP开通逻辑
+                                    success, result = process_vip_upgrade_sync(telegram_id, vip_price, config, deduct_balance=False)
+                                    if success:
+                                        print(f'[支付回调] VIP自动开通成功: telegram_id={telegram_id}')
+                                        # 重新获取最新余额
+                                        c.execute('SELECT balance FROM members WHERE telegram_id = ?', (telegram_id,))
+                                        updated_balance_row = c.fetchone()
+                                        current_balance = updated_balance_row[0] if updated_balance_row else current_balance
+                                    else:
+                                        print(f'[支付回调] VIP自动开通失败: {result}')
+                                except Exception as vip_err:
+                                    print(f'[支付回调] VIP自动开通异常: {vip_err}')
+
                             conn.commit()
-                            
+
                             # 发送通知
-                            msg = f"✅ 充值成功\n\n💰 金额: {amount} USDT\n📝 订单号: {out_trade_no}\n\n余额已到账，感谢您的支持！"
+                            if is_vip_order and current_balance >= vip_price:
+                                msg = f"🎉 充值成功！VIP已开通！\n\n💰 充值金额: {amount} U\n💎 VIP费用: {vip_price} U\n💵 当前余额: {current_balance} U\n\n您现在可以:\n✅ 查看裂变数据\n✅ 获得下级开通VIP的奖励\n✅ 加入上级群组\n✅ 推广赚钱\n\n感谢您的支持!"
+                            else:
+                                msg = f"✅ 充值成功\n\n💰 金额: {amount} USDT\n📝 订单号: {out_trade_no}\n\n余额已到账，感谢您的支持！"
                             if not notify_queue:
                                 from bot_logic import notify_queue
                             notify_queue.append({'member_id': telegram_id, 'message': msg})
                         conn.close()
                         return 'success'
                     else:
-                        c.execute('''INSERT INTO recharge_records 
-                                   (member_id, amount, order_id, status, payment_method, create_time) 
-                                   VALUES (?, ?, ?, ?, ?, ?)''',
-                                (telegram_id, amount, out_trade_no, 'completed', 'USDT', get_cn_time()))
-                        c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?', 
+                        # 检查remark字段是否存在
+                        c.execute("PRAGMA table_info(recharge_records)")
+                        columns = [col[1] for col in c.fetchall()]
+                        has_remark = 'remark' in columns
+
+                        if has_remark:
+                            c.execute('''INSERT INTO recharge_records
+                                       (member_id, amount, order_id, status, payment_method, remark, create_time)
+                                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                                    (telegram_id, amount, out_trade_no, 'completed', 'USDT', '', get_cn_time()))
+                        else:
+                            c.execute('''INSERT INTO recharge_records
+                                       (member_id, amount, order_id, status, payment_method, create_time)
+                                       VALUES (?, ?, ?, ?, ?, ?)''',
+                                    (telegram_id, amount, out_trade_no, 'completed', 'USDT', get_cn_time()))
+                        c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?',
                                 (amount, telegram_id))
                         conn.commit()
                         conn.close()
-                        
+
                         msg = f"✅ 充值成功\n\n💰 金额: {amount} USDT\n📝 订单号: {out_trade_no}\n\n余额已到账，感谢您的支持！"
                         if not notify_queue:
                             from bot_logic import notify_queue
