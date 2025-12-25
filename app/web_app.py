@@ -1673,6 +1673,10 @@ def api_recharges():
 
         recharges = []
         for row in c.fetchall():
+            # 根据remark判断充值类型
+            remark = row[8] if remark_present and len(row) > 8 else ''
+            recharge_type = '开通VIP' if remark == '开通' else '充值'
+
             item = {
                 'id': row[0],
                 'telegram_id': row[1],
@@ -1681,10 +1685,11 @@ def api_recharges():
                 'order_number': row[4] or '',
                 'status': row[5],
                 'create_time': row[6][:19] if row[6] else '',
-                'payment_method': row[7] or ''
+                'payment_method': row[7] or '',
+                'type': recharge_type  # 新增类型字段
             }
             if remark_present:
-                item['remark'] = row[8] or ''
+                item['remark'] = remark
             else:
                 item['remark'] = ''
             recharges.append(item)

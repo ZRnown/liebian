@@ -34,6 +34,7 @@
                     <tr>
                         <th class="px-6 py-4 text-left">ID</th>
                         <th class="px-6 py-4 text-left">用户</th>
+                        <th class="px-6 py-4 text-left">类型</th>
                         <th class="px-6 py-4 text-left">金额</th>
                         <th class="px-6 py-4 text-left">订单号</th>
                         <th class="px-6 py-4 text-left">创建时间</th>
@@ -97,6 +98,9 @@
                         <td class="px-6 py-4">
                             <div class="font-medium text-slate-900">@${item.username || 'N/A'}</div>
                             <div class="text-xs text-slate-500">ID: ${item.telegram_id}</div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 rounded-full text-xs ${item.type === '开通VIP' ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700'}">${item.type}</span>
                         </td>
                         <td class="px-6 py-4 font-bold text-slate-700">${item.amount} U</td>
                         <td class="px-6 py-4 text-slate-500 text-xs">${item.order_number || '-'}</td>
