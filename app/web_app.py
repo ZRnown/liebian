@@ -730,6 +730,65 @@ def api_get_member_groups():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/member-groups/broadcast', methods=['POST'])
+@login_required
+def api_broadcast_to_groups():
+    """向选中的会员群组发送广播消息"""
+    try:
+        data = request.get_json() or {}
+        group_ids = data.get('group_ids', [])
+        message = (data.get('message', '')).strip()
+
+        if not message:
+            return jsonify({'success': False, 'message': '消息内容不能为空'}), 400
+
+        if not group_ids:
+            return jsonify({'success': False, 'message': '请选择要发送的群组'}), 400
+
+        conn = get_db_conn()
+        c = conn.cursor()
+
+        # 获取选中的群组信息
+        placeholders = ','.join(['?' for _ in group_ids])
+        c.execute(f'SELECT id, group_link, group_name FROM member_groups WHERE id IN ({placeholders})', group_ids)
+        groups = c.fetchall()
+        conn.close()
+
+        if not groups:
+            return jsonify({'success': False, 'message': '未找到对应的群组'}), 404
+
+        # 确保 pending_broadcasts 已初始化
+        if not pending_broadcasts:
+            from bot_logic import pending_broadcasts
+
+        # 将消息发送任务添加到队列
+        sent_count = 0
+        for group in groups:
+            group_link = group[1]
+            if group_link and 't.me/' in group_link:
+                try:
+                    pending_broadcasts.append({
+                        'type': 'broadcast',
+                        'group_links': [group_link],
+                        'message_content': message
+                    })
+                    sent_count += 1
+                except Exception as e:
+                    print(f'[群发API] 添加群组 {group[0]} 失败: {e}')
+                    continue
+
+        if sent_count == 0:
+            return jsonify({'success': False, 'message': '没有有效的群组链接可以发送'}), 400
+
+        return jsonify({
+            'success': True,
+            'sent_count': sent_count,
+            'message': f'已将群发任务添加到队列，将发送到 {sent_count} 个群组'
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/fallback-accounts')
 @login_required
 def api_fallback_accounts():
