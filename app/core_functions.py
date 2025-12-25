@@ -485,9 +485,10 @@ def generate_vip_success_message(telegram_id, amount, vip_price, current_balance
         return f"🎉 VIP开通成功！\n花费: {vip_price}U\n余额: {current_balance}U"
 
 
-# 【核心修复】分红逻辑：解决捡漏账号重复问题
 async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
-    # ... (保留原有导入)
+    """
+    统一处理VIP开通后的分红逻辑（终极修复版：全链路去重）
+    """
     import sys
     import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -507,8 +508,8 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
 
     reward_stats = {'real': 0, 'fallback': 0}
 
-    # 记录本轮已获得奖励的捡漏账号ID，防止同一单内重复奖励同一个捡漏号
-    used_fallbacks_in_this_round = set()
+    # 记录本轮已获得奖励的账号ID（包括真实用户和捡漏账号）
+    used_ids_in_this_round = set()
 
     # 预先加载所有活跃捡漏账号（按ID排序）
     conn = sqlite3.connect(DB_PATH)
@@ -523,7 +524,6 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
         upline_id = item['id']
         is_fallback_in_chain = item['is_fallback']
 
-        # 如果ID无效跳过
         if not upline_id or str(upline_id) == 'None': continue
 
         conn = sqlite3.connect(DB_PATH, timeout=10)
@@ -532,42 +532,56 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
         try:
             target_id_to_reward = None
             is_rewarding_fallback = False
+
+            # --- 步骤A：确定这一层的原始接收者 ---
             if is_fallback_in_chain:
                 # 链条本身就是捡漏账号
-                target_id_to_reward = upline_id
+                candidate_id = upline_id
                 is_rewarding_fallback = True
             else:
                 # 真实用户，检查条件
                 c.execute('SELECT is_vip, is_group_bound, is_bot_admin, is_joined_upline FROM members WHERE telegram_id = ?', (upline_id,))
                 row = c.fetchone()
 
-                # 条件：VIP + 绑群 + 群管 + 加群任务完成
                 if row and row[0] and row[1] and row[2] and row[3]:
-                    target_id_to_reward = upline_id # 真实用户达标
+                    candidate_id = upline_id # 真实用户达标
+                    is_rewarding_fallback = False
                 else:
-                    # 真实用户未达标 -> 寻找替补
-                    # 【核心算法】从捡漏池中找一个未在本轮使用的
-                    # 算法：优先使用 (level-1) 对应的捡漏号，如果已被用，则往后顺延
-                    if all_valid_fbs:
-                        start_index = (level - 1) % len(all_valid_fbs)
-                        found_fb = None
+                    # 真实用户不达标，标记需要找替补
+                    candidate_id = None
+                    is_rewarding_fallback = True
 
-                        # 尝试找一个没用过的
+            # --- 步骤B：如果需要捡漏，或者原始捡漏账号重复了，寻找新替补 ---
+            if is_rewarding_fallback:
+                # 算法：从 (level-1) 开始尝试，找到一个没用过的捡漏账号
+                # 如果 chain 里自带的捡漏账号(candidate_id)已经被用过了，也必须换！
+
+                # 1. 确定搜索起点
+                start_index = (level - 1) % len(all_valid_fbs) if all_valid_fbs else 0
+                found_fb = None
+
+                # 2. 优先检查 chain 自带的那个捡漏号是否可用（如果是 chain fallback）
+                if candidate_id and candidate_id in all_valid_fbs and candidate_id not in used_ids_in_this_round:
+                    found_fb = candidate_id
+                else:
+                    # 3. 轮询查找未使用的捡漏号
+                    if all_valid_fbs:
                         for i in range(len(all_valid_fbs)):
                             idx = (start_index + i) % len(all_valid_fbs)
-                            candidate = all_valid_fbs[idx]
-                            if candidate not in used_fallbacks_in_this_round:
-                                found_fb = candidate
+                            fb_candidate = all_valid_fbs[idx]
+                            if fb_candidate not in used_ids_in_this_round:
+                                found_fb = fb_candidate
                                 break
 
-                        # 如果所有号都被用过了（极端情况），就还是用对应层级的那个（允许重复，总比不发好）
+                        # 4. 兜底：如果所有号都用光了，被迫复用当前层对应的号
                         if found_fb is None:
                             found_fb = all_valid_fbs[start_index]
 
-                        target_id_to_reward = found_fb
-                        is_rewarding_fallback = True
+                target_id_to_reward = found_fb
+            else:
+                target_id_to_reward = candidate_id
 
-            # 执行奖励发放
+            # --- 步骤C：执行发放 ---
             if target_id_to_reward:
                 # 如果是捡漏账号，确保在members表存在
                 if is_rewarding_fallback:
@@ -582,9 +596,11 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                     c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?',
                              (reward_amount, target_id_to_reward))
                     reward_stats['fallback'] += 1
-                    used_fallbacks_in_this_round.add(int(target_id_to_reward))
                 else:
                     reward_stats['real'] += 1
+
+                # 标记该ID本轮已使用
+                used_ids_in_this_round.add(int(target_id_to_reward))
 
                 # 更新余额和日志
                 c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?',
