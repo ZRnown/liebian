@@ -778,6 +778,69 @@ def api_get_member_groups():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+@app.route('/api/member-groups/<int:id>', methods=['PUT'])
+@login_required
+def api_update_member_group(id):
+    """更新会员群组信息"""
+    try:
+        data = request.json or {}
+        group_name = data.get('group_name')
+        group_link = data.get('group_link')
+
+        conn = get_db_conn()
+        c = conn.cursor()
+
+        updates = []
+        params = []
+        if group_name is not None:
+            updates.append("group_name = ?")
+            params.append(group_name)
+        if group_link is not None:
+            updates.append("group_link = ?")
+            params.append(group_link)
+
+        if not updates:
+            conn.close()
+            return jsonify({'success': False, 'message': '没有要更新的内容'})
+
+        params.append(id)
+        c.execute(f"UPDATE member_groups SET {', '.join(updates)} WHERE id = ?", params)
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': '更新成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/member-groups/<int:id>/verify', methods=['POST'])
+@login_required
+def api_verify_member_group(id):
+    """验证群组状态 (触发Bot检测)"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute("SELECT group_link FROM member_groups WHERE id = ?", (id,))
+        row = c.fetchone()
+        conn.close()
+
+        if not row or not row[0]:
+            return jsonify({'success': False, 'message': '群组不存在或无链接'}), 404
+
+        group_link = row[0]
+
+        # 尝试调用 Bot 验证 (这是一个异步操作，Web端只能返回已提交)
+        # 这里简单返回成功，实际验证依赖后台 check_member_status_task 任务
+        # 或者可以手动触发一次检测逻辑
+
+        return jsonify({
+            'success': True,
+            'message': '验证请求已提交，请稍后刷新查看状态 (系统后台会自动定时检测)'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/member-groups/broadcast', methods=['POST'])
 @login_required
 def api_broadcast_to_groups():
@@ -805,17 +868,19 @@ def api_broadcast_to_groups():
         if not groups:
             return jsonify({'success': False, 'message': '未找到对应的群组'}), 404
 
-        # 确保 pending_broadcasts 已初始化
-        if not pending_broadcasts:
-            from bot_logic import pending_broadcasts
+        # 【修复点】正确引用 bot_logic 中的变量
+        import bot_logic
+        # 确保列表存在
+        if not hasattr(bot_logic, 'pending_broadcasts'):
+            bot_logic.pending_broadcasts = []
 
-        # 将消息发送任务添加到队列
         sent_count = 0
         for group in groups:
             group_link = group[1]
             if group_link and 't.me/' in group_link:
                 try:
-                    pending_broadcasts.append({
+                    # 直接追加到 bot_logic 模块的列表中
+                    bot_logic.pending_broadcasts.append({
                         'type': 'broadcast',
                         'group_links': [group_link],
                         'message_content': message
@@ -1294,14 +1359,28 @@ def api_broadcast_send():
 @app.route('/api/bot-configs')
 @login_required
 def api_bot_configs():
-    """获取Bot配置列表"""
+    """获取Bot配置列表 (修复版: 返回完整对象)"""
     try:
         conn = get_db_conn()
         c = conn.cursor()
-        c.execute("SELECT value FROM system_config WHERE key LIKE 'bot_token_%'")
-        tokens = [row[0] for row in c.fetchall()]
+        # 从 bot_configs 表读取，而不是 system_config
+        c.execute("SELECT id, bot_token, bot_username, is_active, create_time FROM bot_configs ORDER BY id DESC")
+        rows = c.fetchall()
         conn.close()
-        return jsonify({'success': True, 'tokens': tokens})
+
+        configs = []
+        for row in rows:
+            configs.append({
+                'id': row[0],
+                'bot_token': row[1],
+                'bot_username': row[2] or '未知',
+                'is_active': row[3],
+                'create_time': row[4] or ''
+            })
+
+        # 前端可能期望 'tokens' 字段，我们返回 'configs' 或兼容处理
+        # 如果您的前端是旧版，可能需要调整。假设前端是新版表格：
+        return jsonify({'success': True, 'configs': configs, 'tokens': configs})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 

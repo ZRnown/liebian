@@ -1628,6 +1628,74 @@ async def flv_level_callback(event):
         print(f"[flv_callback] 错误: {e}")
         await event.answer('加载失败', alert=True)
 
+
+@bot.on(events.CallbackQuery(pattern=b'fission_main_menu'))
+async def fission_main_menu_callback(event):
+    """查看裂变数据 - 返回主菜单 (复用 view_fission_handler 逻辑)"""
+    try:
+        # 复用查看裂变数据的逻辑
+        from bot_logic import view_fission_handler
+        # 需要构造一个伪造的 message event 或者直接调用逻辑
+        # 为了简单，我们重新实现核心显示逻辑
+
+        telegram_id = get_main_account_id(event.sender_id)
+        config = get_system_config()
+        member = DB.get_member(telegram_id)
+
+        if not member or not member['is_vip']:
+            await event.answer("状态异常", alert=True)
+            return
+
+        conn = get_db_conn()
+        c = conn.cursor()
+
+        text = '📊 我的裂变数据\n'
+        text += '━━━━━━━━━━━━━━\n\n'
+
+        total_members = 0
+        total_vip = 0
+        buttons = []
+
+        for level in range(1, config['level_count'] + 1):
+            if level == 1:
+                c.execute("""
+                    SELECT COUNT(*), SUM(CASE WHEN is_vip = 1 THEN 1 ELSE 0 END)
+                    FROM members WHERE referrer_id = ?
+                """, (member['telegram_id'],))
+            else:
+                c.execute("""
+                    SELECT COUNT(*), SUM(CASE WHEN is_vip = 1 THEN 1 ELSE 0 END)
+                    FROM members
+                    WHERE level_path LIKE ?
+                """, (f'%,{member["id"]},%',))
+
+            result = c.fetchone()
+            level_total = result[0] if result[0] else 0
+            level_vip = result[1] if result[1] else 0
+
+            total_members += level_total
+            total_vip += level_vip
+
+            btn_text = f'第{level}层: {level_total}人'
+            buttons.append([Button.inline(btn_text, f'flv_{level}_1'.encode())])
+
+        conn.close()
+
+        text += f'━━━━━━━━━━━━━━\n'
+        text += f'📈 团队总计：{total_members}人\n'
+        text += f'💎 VIP会员：{total_vip}人\n'
+
+        # 修改这里：显示返回主菜单
+        buttons.append([Button.text(BTN_BACK, resize=True)])
+
+        try:
+            await event.edit(text, buttons=buttons)
+        except:
+            await event.respond(text, buttons=buttons)
+    except Exception as e:
+        print(f"Main menu error: {e}")
+        await event.answer("加载失败", alert=True)
+
 @bot.on(events.NewMessage(pattern=BTN_PROMOTE))
 async def promote_handler(event):
     """赚钱推广"""
