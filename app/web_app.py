@@ -2160,41 +2160,6 @@ def run_web():
     print("🌐 Web管理后台启动中...")
     app.run(debug=False, host='0.0.0.0', port=5051, use_reloader=False)
 
-@app.route('/api/member-groups/<int:id>', methods=['PUT'])
-@login_required
-def api_update_member_group(id):
-    """更新会员群组信息"""
-    try:
-        data = request.json or {}
-        group_name = data.get('group_name')
-        group_link = data.get('group_link')
-
-        conn = get_db_conn()
-        c = conn.cursor()
-
-        updates = []
-        params = []
-        if group_name is not None:
-            updates.append("group_name = ?")
-            params.append(group_name)
-        if group_link is not None:
-            updates.append("group_link = ?")
-            params.append(group_link)
-
-        if not updates:
-            conn.close()
-            return jsonify({'success': False, 'message': '没有要更新的内容'})
-
-        params.append(id)
-        c.execute(f"UPDATE member_groups SET {', '.join(updates)} WHERE id = ?", params)
-        conn.commit()
-        conn.close()
-
-        return jsonify({'success': True, 'message': '更新成功'})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
 @app.route('/api/member-groups/<int:id>/verify', methods=['POST'])
 @login_required
 def api_verify_member_group(id):
