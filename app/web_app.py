@@ -287,41 +287,28 @@ def team_graph_page(telegram_id):
 @app.route('/api/payment/notify', methods=['POST'])
 def payment_notify():
     global notify_queue
-    """支付回调处理"""
     try:
-        print(f'[支付回调] 开始处理回调')
-        print(f'[支付回调] 当前支付配置: {PAYMENT_CONFIG}')
+        # 1. 获取和解析数据
+        raw_data = request.form.to_dict()
+        if not raw_data:
+            raw_data = request.get_json() or {}
 
-        # 支持 form-post 或者 json body
-        data = {}
-        if request.form and len(request.form) > 0:
-            data = request.form.to_dict()
-            print(f'[支付回调] 收到form数据: {data}')
-        else:
-            try:
-                data = request.get_json() or {}
-                print(f'[支付回调] 收到json数据: {data}')
-            except Exception as e:
-                print(f'[支付回调] 解析数据失败: {e}')
-                data = {}
-        print(f'[支付回调] 最终数据: {data}')
+        print(f'[支付回调] 收到数据: {raw_data}')
 
-        # 2. 签名验证准备
+        # 2. 签名验证 (排除 sign, remark, 空值)
         sign_received = ''
         filtered_params = {}
-
-        for k, v in data.items():
+        for k, v in raw_data.items():
             val_str = str(v)
             if k.lower() == 'sign':
                 sign_received = val_str
                 continue
-            if k.lower() == 'remark': # 【重要】文档规定remark不参与签名
+            if k.lower() == 'remark':
                 continue
-            if val_str == '': # 空值不参与
+            if val_str == '':
                 continue
             filtered_params[k] = val_str
 
-        # 3. 验证签名
         my_key = PAYMENT_CONFIG.get('key', '')
         sorted_keys = sorted(filtered_params.keys())
         sign_str = '&'.join([f'{k}={filtered_params[k]}' for k in sorted_keys])
@@ -329,120 +316,72 @@ def payment_notify():
         calc_sign = hashlib.md5(sign_str_with_key.encode('utf-8')).hexdigest().upper()
 
         if sign_received.upper() != calc_sign:
-            print(f'[支付回调] 签名验证失败: 收到={sign_received}, 计算={calc_sign}')
+            print('[支付回调] 签名验证失败')
             return 'fail'
-        
-        print(f'[支付回调] 检查支付状态: status={data.get("status")}, callbacks={data.get("callbacks")}')
 
-        # 处理支付成功回调
-        if str(data.get('status')) == '4': # 4代表成功
+        # 3. 业务处理
+        status = str(raw_data.get('status'))
+        out_trade_no = raw_data.get('out_trade_no')
+        amount = float(raw_data.get('amount', 0))
+
+        # status=4 代表成功
+        if status == '4':
             conn = get_db_conn()
             c = conn.cursor()
 
-            # 解析 telegram_id
+            # 解析用户ID
             telegram_id = 0
-            out_trade_no = data.get('out_trade_no')
             if out_trade_no and out_trade_no.startswith('RCH_'):
                 parts = out_trade_no.split('_')
                 if len(parts) >= 2:
                     telegram_id = int(parts[1])
-            # 检查订单状态，防止重复处理
+
+            # 查重
             c.execute('SELECT status, remark FROM recharge_records WHERE order_id = ?', (out_trade_no,))
             existing = c.fetchone()
 
             if existing and existing[0] != 'completed':
-                # 标记完成
+                # A. 标记订单完成
                 c.execute('UPDATE recharge_records SET status = ? WHERE order_id = ?', ('completed', out_trade_no))
 
-                # 增加余额
-                amount = float(data.get('amount', 0))
+                # B. 增加用户余额 (只加余额，千万别在这里扣费开VIP！)
                 c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?', (amount, telegram_id))
+                conn.commit()
 
-                # 获取最新状态
-                c.execute('SELECT balance, is_vip FROM members WHERE telegram_id = ?', (telegram_id,))
-                m_row = c.fetchone()
-                new_balance = m_row[0]
-                is_vip = m_row[1]
-
-                is_vip_order = existing[1] == '开通' # 检查订单备注是否为开通VIP
-
-                msg = ""
-
-                if is_vip_order and not is_vip:
+                # C. 判断是否为 VIP 订单
+                # 逻辑：备注是"开通"，或者充值金额 >= VIP价格
+                is_vip_order = False
+                if existing[1] == '开通':
+                    is_vip_order = True
+                else:
+                    # 补充检测：如果没备注，但金额足够，也视为VIP意向(可选，根据您的需求)
                     config = get_system_config()
                     vip_price = float(config.get('vip_price', 10))
-                    if new_balance >= vip_price:
-                        # 扣费开通
-                        final_balance = new_balance - vip_price
-                        c.execute('UPDATE members SET balance = ?, is_vip = 1, vip_time = ? WHERE telegram_id = ?',
-                                 (final_balance, get_cn_time(), telegram_id))
+                    if amount >= vip_price:
+                        is_vip_order = True
 
-                        conn.commit() # 必须先提交，因为下面生成文案需要查库
+                print(f"[支付回调] 订单 {out_trade_no} 处理完毕，余额已加。VIP订单标记: {is_vip_order}")
 
-                        # 【核心修复】生成详细的VIP成功文案
-                        from core_functions import generate_vip_success_message
-                        msg = generate_vip_success_message(telegram_id, amount, vip_price, final_balance)
-
-                        # 触发分红任务 (放入队列让Bot处理，避免Web线程卡顿)
-                        try:
-                            import bot_logic
-                            if hasattr(bot_logic, 'process_recharge_queue'):
-                                # 标记 is_vip_order=False 防止 bot_logic 再次扣费/开通，
-                                # 因为这里已经改了余额。
-                                # 但为了利用 bot_logic 的 distribute_vip_rewards，我们可能需要调整策略
-                                # 简单策略：仅让Bot发分红，这里已经扣费了
-                                # 实际上 bot_logic.process_recharge 会获取当前余额。
-                                # 我们传入 is_vip_order 参数
-                                bot_logic.process_recharge_queue.append({
-                                    'member_id': telegram_id,
-                                    'amount': amount,
-                                    'is_vip_order': is_vip_order
-                                })
-
-                        except: pass
-
-                else:
-                    # 普通充值
-                    conn.commit()
-                    msg = f"✅ 充值成功\n\n💰 金额: {amount} U\n💵 余额: {new_balance} U"
-
-                # 无论如何，尝试通知 bot 线程去处理（分红等复杂逻辑）
-                # 为了防止 Web 端和 Bot 端冲突，最稳妥的方式是：
-                # Web 端只负责：1. 改订单状态 completed 2. 加余额
-                # Bot 线程负责：检测到充值 -> 判断是否 VIP 订单 -> 扣费 -> 开通 -> 分红
-                # 现在的代码已经在上面加了余额。
-                # 我们推入队列
+                # D. 【关键】推入队列，让 Bot 线程去处理扣费、开通和分红
+                # 这样可以避免 Web 线程和 Bot 线程的状态冲突
                 try:
                     import bot_logic
                     if hasattr(bot_logic, 'process_recharge_queue'):
-                        # 推入队列，由 Bot 处理 VIP 判定、扣费、分红
-                        # 注意：我们在 Web 端已经加了余额。
-                        # bot_logic.process_recharge 会获取当前余额。
-                        # 我们传入 is_vip_order 参数
                         bot_logic.process_recharge_queue.append({
                             'member_id': telegram_id,
                             'amount': amount,
                             'is_vip_order': is_vip_order
                         })
-
-                except: pass
-
-                # 如果没有上面那个队列机制，就用 notify_queue 发消息
-
-                if not notify_queue:
-                    from bot_logic import notify_queue
-                # 如果没有在上面生成 msg (例如交给bot处理了)，这里可以发一个简单的到账通知作为兜底
-                # 或者如果上面生成了 msg，就发 msg
-                if msg:
-                   notify_queue.append({'member_id': telegram_id, 'message': msg})
+                        print(f"[支付回调] 已将任务推入 Bot 队列，等待 Bot 处理 VIP 逻辑")
+                except Exception as q_err:
+                    print(f"[支付回调] 推送队列失败: {q_err}")
 
             conn.close()
+            return 'success'
 
-            return 'success' # 必须返回 success (小写)
-        
         return 'success'
     except Exception as e:
-        print(f'[支付回调] 错误: {e}')
+        print(f'[支付回调] 异常: {e}')
         import traceback
         traceback.print_exc()
         return 'fail'
