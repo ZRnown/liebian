@@ -2160,29 +2160,5 @@ def run_web():
     print("🌐 Web管理后台启动中...")
     app.run(debug=False, host='0.0.0.0', port=5051, use_reloader=False)
 
-@app.route('/api/member-groups/<int:id>/verify', methods=['POST'])
-@login_required
-def api_verify_member_group(id):
-    """验证群组状态"""
-    try:
-        conn = get_db_conn()
-        c = conn.cursor()
-        c.execute("SELECT group_link FROM member_groups WHERE id = ?", (id,))
-        row = c.fetchone()
-        conn.close()
-
-        if not row or not row[0]:
-            return jsonify({'success': False, 'message': '群组不存在或无链接'}), 404
-
-        # 这里仅返回成功，真正的验证逻辑由后台定时任务 check_member_status_task 处理
-        # 前端收到成功后会提示用户稍后查看
-        return jsonify({
-            'success': True,
-            'message': '验证请求已提交，后台系统将自动检测该群组状态，请稍后刷新页面查看结果。'
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
 __all__ = ['app', 'run_web']
 
