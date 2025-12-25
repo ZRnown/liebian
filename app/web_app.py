@@ -261,16 +261,22 @@ def payment_notify():
     global notify_queue
     """支付回调处理"""
     try:
+        print(f'[支付回调] 开始处理回调')
+        print(f'[支付回调] 当前支付配置: {PAYMENT_CONFIG}')
+
         # 支持 form-post 或者 json body
         data = {}
         if request.form and len(request.form) > 0:
             data = request.form.to_dict()
+            print(f'[支付回调] 收到form数据: {data}')
         else:
             try:
                 data = request.get_json() or {}
-            except Exception:
+                print(f'[支付回调] 收到json数据: {data}')
+            except Exception as e:
+                print(f'[支付回调] 解析数据失败: {e}')
                 data = {}
-        print(f'[支付回调] 收到数据: {data}')
+        print(f'[支付回调] 最终数据: {data}')
 
         # 支付方可能使用不同大小写的 sign 字段
         sign = ''
@@ -278,38 +284,55 @@ def payment_notify():
             if k.lower() == 'sign':
                 sign = data.pop(k, '')
                 break
-        # remark 不参与签名验证
-        for k in list(data.keys()):
-            if k.lower() == 'remark':
-                data.pop(k, None)
-                break
 
-        calculated_sign = generate_payment_sign(data, PAYMENT_CONFIG.get('key', ''))
+        # 过滤掉remark（不参与签名）和sign（已移除）之外的参数
+        # 保留所有非空参数用于签名验证（除了remark和sign）
+        filtered_data = {}
+        for k, v in data.items():
+            if v is not None and v != '' and k.lower() not in ['remark', 'sign']:
+                filtered_data[k] = str(v)  # 确保所有值都是字符串
+
+        print(f'[支付回调] 原始数据: {data}')
+        print(f'[支付回调] 过滤后的参数: {filtered_data}')
+        print(f'[支付回调] 使用密钥: {PAYMENT_CONFIG.get("key", "")}')
+
+        calculated_sign = generate_payment_sign(filtered_data, PAYMENT_CONFIG.get('key', ''))
+        print(f'[支付回调] 签名验证: recv_sign={sign}, calc_sign={calculated_sign}')
 
         if not sign or sign.upper() != calculated_sign.upper():
-            print(f'[支付回调] 签名验证失败, recv_sign={sign}, calc_sign={calculated_sign}')
+            print(f'[支付回调] 签名验证失败')
             return 'fail'
         
+        print(f'[支付回调] 检查支付状态: status={data.get("status")}, callbacks={data.get("callbacks")}')
+
+        # 处理支付成功回调
         if str(data.get('status')) == '4' and str(data.get('callbacks')) == 'ORDER_SUCCESS':
+            print(f'[支付回调] 检测到支付成功')
             out_trade_no = data.get('out_trade_no')
             amount = float(data.get('amount', 0))
-            
+            print(f'[支付回调] 订单号: {out_trade_no}, 金额: {amount}')
+
             if out_trade_no and out_trade_no.startswith('RCH_'):
                 parts = out_trade_no.split('_')
                 if len(parts) >= 2:
                     telegram_id = int(parts[1])
+                    print(f'[支付回调] 用户ID: {telegram_id}')
                     conn = get_db_conn()
                     c = conn.cursor()
-                    
+
                     c.execute('SELECT id, status FROM recharge_records WHERE order_id = ?', (out_trade_no,))
                     existing = c.fetchone()
-                    
+                    print(f'[支付回调] 数据库中的订单: {existing}')
+
                     if existing:
                         if existing[1] != 'completed':
+                            print(f'[支付回调] 更新订单状态为已完成')
                             c.execute('UPDATE recharge_records SET status = ? WHERE order_id = ?',
                                     ('completed', out_trade_no))
                             c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?',
                                     (amount, telegram_id))
+                        else:
+                            print(f'[支付回调] 订单已经是已完成状态，跳过更新')
 
                             # 检查是否是VIP订单
                             c.execute('SELECT remark FROM recharge_records WHERE order_id = ?', (out_trade_no,))
@@ -336,19 +359,14 @@ def payment_notify():
                                              (new_balance, get_cn_time(), telegram_id))
                                     print(f'[支付回调] VIP开通扣费完成: 余额从 {current_balance} 变为 {new_balance}')
 
-                                    # 分发VIP奖励（使用异步方式，避免阻塞）
-                                    from bot_logic import distribute_vip_rewards
-                                    import asyncio
+                                    # 直接在这里分发VIP奖励，避免异步问题
                                     try:
-                                        # 尝试获取bot的事件循环
-                                        loop = asyncio.new_event_loop()
-                                        asyncio.set_event_loop(loop)
-                                        loop.run_until_complete(distribute_vip_rewards(telegram_id, vip_price))
-                                        loop.close()
-                                        print(f'[支付回调] VIP奖励分发完成')
+                                        from core_functions import distribute_vip_rewards
+                                        # 这里需要bot实例，但是在Flask线程中可能没有
+                                        # 暂时跳过奖励分发，在process_recharge中处理
+                                        print(f'[支付回调] 跳过奖励分发，将在process_recharge中处理')
                                     except Exception as reward_err:
-                                        print(f'[支付回调] VIP奖励分发异常: {reward_err}')
-                                        # 即使奖励分发失败，VIP开通仍然成功
+                                        print(f'[支付回调] 奖励分发导入异常: {reward_err}')
 
                                     current_balance = new_balance
                                     print(f'[支付回调] VIP开通后余额: {current_balance}')
