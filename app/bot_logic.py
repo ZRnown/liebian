@@ -506,7 +506,8 @@ async def confirm_vip_callback(event):
         f'✅ 查看裂变数据\n'
         f'✅ 获得下级开通VIP的奖励\n'
         f'✅ 加入上级群组\n'
-        f'✅ 推广赚钱'
+        f'✅ 推广赚钱',
+        buttons=[[Button.inline('🔙 返回主菜单', b'back_to_profile')]]
     )
     await event.answer()
 
@@ -1698,13 +1699,22 @@ async def show_resource_categories(event, page=1, is_new=False):
     end = start + per_page
     page_categories = categories[start:end]
 
-    # 构建文本列表（编号 + 名称），下方放一列按钮用于进入分类资源
+    # 构建文本列表（编号 + 名称），下方放按钮（每行3个）用于进入分类资源
     text_lines = [f'📁 行业资源\n\n共 {total} 个分类 （第 {page}/{total_pages} 页）\n']
     buttons = []
     for idx, cat in enumerate(page_categories, start + 1):
         text_lines.append(f'{idx}. {cat["name"]}')
-        # 每个分类一行按钮（分类名称作为按钮）
-        buttons.append([Button.inline(cat["name"], f'cat_{cat["id"]}'.encode())])
+
+    # 每行3个按钮排列
+    current_row = []
+    for cat in page_categories:
+        current_row.append(Button.inline(cat["name"], f'cat_{cat["id"]}'.encode()))
+        if len(current_row) == 3:
+            buttons.append(current_row)
+            current_row = []
+    # 处理剩余的按钮
+    if current_row:
+        buttons.append(current_row)
 
     # 分页控制按钮
     nav = []
