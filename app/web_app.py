@@ -1737,8 +1737,19 @@ def api_update_recharge_status(recharge_id):
             return jsonify({'success': True, 'message': '该订单已是已支付状态，无需重复处理'})
 
         # 1. 标记数据库状态
+        # 【修复点】根据金额判断是否标记为"开通"
+        config = get_system_config()
+        vip_price = float(config.get('vip_price', 10))
+        remark_text = '管理员手动通过'
+
+        # 检查是否是VIP订单（基于金额判断）
+        is_vip_order = False
+        if amount >= vip_price:
+            is_vip_order = True
+            remark_text = '开通'  # 关键：这就把类型改成了"开通VIP"
+
         c.execute('UPDATE recharge_records SET status = ?, remark = ? WHERE id = ?',
-                 ('completed', '管理员手动通过', recharge_id))
+                 ('completed', remark_text, recharge_id))
 
         # 2. 给用户加余额 (重要！)
         c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?', (amount, member_id))
@@ -1754,9 +1765,9 @@ def api_update_recharge_status(recharge_id):
                 bot_logic.process_recharge_queue.append({
                     'member_id': member_id,
                     'amount': amount,
-                    'is_vip_order': True  # 强制视为VIP订单处理
+                    'is_vip_order': is_vip_order  # 传递正确的标志
                 })
-                print(f"[Web后台手动通过] 已将订单 {order_id} 推送给机器人处理VIP逻辑")
+                print(f"[Web后台手动通过] 已将订单 {order_id} 推送给机器人处理VIP逻辑，VIP订单: {is_vip_order}")
         except Exception as e:
             print(f"[Web后台手动通过] 推送机器人队列失败: {e}")
 

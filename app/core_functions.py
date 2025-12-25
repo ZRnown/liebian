@@ -538,6 +538,14 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                 # 链条本身就是捡漏账号
                 candidate_id = upline_id
                 is_rewarding_fallback = True
+            # 记录那个“不争气”的上级ID，以便发通知
+            missed_upline_id = None
+
+            # --- 步骤A：确定这一层的原始接收者 ---
+            if is_fallback_in_chain:
+                # 链条本身就是捡漏账号
+                candidate_id = upline_id
+                is_rewarding_fallback = True
             else:
                 # 真实用户，检查条件
                 c.execute('SELECT username, is_vip, is_group_bound, is_bot_admin, is_joined_upline FROM members WHERE telegram_id = ?', (upline_id,))
@@ -547,12 +555,34 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                     candidate_id = upline_id # 真实用户达标
                     is_rewarding_fallback = False
                 else:
-                    # 真实用户不达标，记录错过收益并标记需要找替补
+                    # 真实用户不达标
                     if row:
-                        # 更新错过收益
+                        missed_upline_id = upline_id # 标记这个倒霉蛋
+
+                        # 【修复点】立即更新错过收益
                         c.execute('UPDATE members SET missed_balance = missed_balance + ? WHERE telegram_id = ?',
                                  (reward_amount, upline_id))
-                        print(f"[错过收益] 用户 {row[0] or upline_id} 错过 {reward_amount} U (第{level}层)")
+
+                        # 【修复点】发送错过通知
+                        try:
+                            reason = []
+                            if not row[1]: reason.append("未开通VIP")
+                            if not row[2]: reason.append("未绑定群组")
+                            if not row[3]: reason.append("未设置群管")
+                            if not row[4]: reason.append("未加群任务")
+                            reason_str = "、".join(reason)
+
+                            await bot.send_message(
+                                upline_id,
+                                f"💸 **您刚刚错过了一笔收益！**\n\n"
+                                f"损失金额: {reward_amount} U\n"
+                                f"原因: {reason_str}\n"
+                                f"来源: 下级 @{source_username} 开通VIP\n\n"
+                                f"💡 请尽快完成任务，以免再次错过！"
+                            )
+                            print(f"[错过通知] 已发送给用户 {row[0] or upline_id}，金额 {reward_amount} U")
+                        except Exception as notify_err:
+                            print(f"[错过通知失败] 用户 {upline_id}: {notify_err}")
                     candidate_id = None
                     is_rewarding_fallback = True
 
@@ -611,37 +641,20 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                 c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?',
                          (reward_amount, reward_amount, target_id_to_reward))
 
-                # 生成详细的收益说明
-                if is_rewarding_fallback and not is_fallback_in_chain:
-                    # 真实上级不符合条件，转入捡漏
-                    upline_username = "未知用户"
-                    if 'row' in locals() and row and row[0]:
-                        upline_username = row[0]
-                    elif upline_id:
-                        upline_username = str(upline_id)
-
-                    # 确定具体不符合的条件
-                    if row:
-                        if not row[1]:
-                            reason = "未开通VIP"
-                        elif not row[2]:
-                            reason = "未绑定群组"
-                        elif not row[3]:
-                            reason = "未设置机器人管理员"
-                        elif not row[4]:
-                            reason = "未加入上层群组"
-                        else:
-                            reason = "未完成任务"
+                # 【修复点】收益记录说明优化
+                # 只有真正收到钱的人(target_id_to_reward)才会有一条 earnings_records
+                desc = f'第{level}层下级开通VIP'
+                if is_rewarding_fallback:
+                    if missed_upline_id:
+                        # 是因为上级没完成任务所以捡漏的
+                        # 获取上级用户名
+                        c.execute('SELECT username FROM members WHERE telegram_id = ?', (missed_upline_id,))
+                        upline_row = c.fetchone()
+                        upline_name = upline_row[0] if upline_row and upline_row[0] else str(missed_upline_id)
+                        desc += f' (上级 {upline_name} 未达标转入)'
                     else:
-                        reason = "用户不存在"
-
-                    desc = f'上级{upline_username}{reason}（转入捡漏）'
-                elif is_fallback_in_chain:
-                    # 链条中本身就是捡漏账号
-                    desc = f'无上级（转入捡漏）'
-                else:
-                    # 正常发放给真实上级
-                    desc = f'第{level}层下级开通VIP'
+                        # 链条本身就是捡漏或者无上级
+                        desc += ' (无上级自动捡漏)'
 
                 c.execute('''INSERT INTO earnings_records (upgraded_user, earning_user, amount, description, create_time)
                            VALUES (?, ?, ?, ?, ?)''',
