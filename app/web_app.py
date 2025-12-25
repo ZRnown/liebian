@@ -956,40 +956,21 @@ def api_get_earnings():
                         username = m_row[0]
                     else:
                         username = str(member_id)
-            # 获取升级者显示名和状态检查
-            upgraded_name = ''
-            detailed_description = row[5] or ''  # 原始说明
+            # 直接读取数据库中的 description
+            detailed_description = row[5] or ''
+
+            # 如果是旧数据（没有详细说明），可以保留一点简单的兼容逻辑，或者直接显示
+            if not detailed_description:
+                detailed_description = "收益记录"
+
             try:
                 if upgraded_user_id:
                     upm = DB.get_member(upgraded_user_id)
                     upgraded_name = f"@{upm['username']}" if upm and upm.get('username') else str(upgraded_user_id)
-
-                    # 详细说明：检查上级状态
-                    if not upm:
-                        detailed_description = "无上级用户"
-                    else:
-                        # 检查上级是否完成任务
-                        is_vip = upm.get('is_vip', False)
-                        is_group_bound = upm.get('is_group_bound', False)
-                        is_bot_admin = upm.get('is_bot_admin', False)
-                        is_joined_upline = upm.get('is_joined_upline', False)
-
-                        if not is_vip:
-                            detailed_description = "上级未开通VIP"
-                        elif not is_group_bound:
-                            detailed_description = "上级未绑定群组"
-                        elif not is_bot_admin:
-                            detailed_description = "上级未设置机器人管理员"
-                        elif not is_joined_upline:
-                            detailed_description = "上级未加入上层群组"
-                        else:
-                            detailed_description = row[5] or "下级开通VIP奖励"
                 else:
                     upgraded_name = '-'
-                    detailed_description = "无上级用户"
             except:
                 upgraded_name = str(upgraded_user_id) if upgraded_user_id else '-'
-                detailed_description = row[5] or "收益记录"
             
             records.append({
                 'id': row[0],

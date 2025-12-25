@@ -487,7 +487,7 @@ def generate_vip_success_message(telegram_id, amount, vip_price, current_balance
 
 async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
     """
-    统一处理VIP开通后的分红逻辑（终极修复版：全链路去重）
+    统一处理VIP开通后的分红逻辑（终极修复版：全链路去重 + 详细说明记录）
     """
     import sys
     import os
@@ -533,73 +533,73 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
             target_id_to_reward = None
             is_rewarding_fallback = False
 
+            # 【关键修改】用于存储具体的失败原因描述
+            record_description = ""
             # --- 步骤A：确定这一层的原始接收者 ---
             if is_fallback_in_chain:
-                # 链条本身就是捡漏账号
+                # 链条本身就是捡漏账号（说明这一层没有真实上级）
                 candidate_id = upline_id
                 is_rewarding_fallback = True
-            # 记录那个“不争气”的上级ID，以便发通知
-            missed_upline_id = None
-
-            # --- 步骤A：确定这一层的原始接收者 ---
-            if is_fallback_in_chain:
-                # 链条本身就是捡漏账号
-                candidate_id = upline_id
-                is_rewarding_fallback = True
+                record_description = f"第{level}层无上级（自动捡漏）"
             else:
                 # 真实用户，检查条件
                 c.execute('SELECT username, is_vip, is_group_bound, is_bot_admin, is_joined_upline FROM members WHERE telegram_id = ?', (upline_id,))
                 row = c.fetchone()
 
+                # 获取上级显示名称
+                upline_name = str(upline_id)
+                if row and row[0]:
+                    upline_name = f"@{row[0]}"
+
                 if row and row[1] and row[2] and row[3] and row[4]:
-                    candidate_id = upline_id # 真实用户达标
+                    # 真实用户达标
+                    candidate_id = upline_id
                     is_rewarding_fallback = False
+                    record_description = f"第{level}层下级开通VIP"
                 else:
                     # 真实用户不达标
-                    if row:
-                        missed_upline_id = upline_id # 标记这个倒霉蛋
-
-                        # 【修复点】立即更新错过收益
-                        c.execute('UPDATE members SET missed_balance = missed_balance + ? WHERE telegram_id = ?',
-                                 (reward_amount, upline_id))
-
-                        # 【修复点】发送错过通知
-                        try:
-                            reason = []
-                            if not row[1]: reason.append("未开通VIP")
-                            if not row[2]: reason.append("未绑定群组")
-                            if not row[3]: reason.append("未设置群管")
-                            if not row[4]: reason.append("未加群任务")
-                            reason_str = "、".join(reason)
-
-                            await bot.send_message(
-                                upline_id,
-                                f"💸 **您刚刚错过了一笔收益！**\n\n"
-                                f"损失金额: {reward_amount} U\n"
-                                f"原因: {reason_str}\n"
-                                f"来源: 下级 @{source_username} 开通VIP\n\n"
-                                f"💡 请尽快完成任务，以免再次错过！"
-                            )
-                            print(f"[错过通知] 已发送给用户 {row[0] or upline_id}，金额 {reward_amount} U")
-                        except Exception as notify_err:
-                            print(f"[错过通知失败] 用户 {upline_id}: {notify_err}")
                     candidate_id = None
                     is_rewarding_fallback = True
 
-            # --- 步骤B：如果需要捡漏，或者原始捡漏账号重复了，寻找新替补 ---
-            if is_rewarding_fallback:
-                # 算法：从 (level-1) 开始尝试，找到一个没用过的捡漏账号
-                # 如果 chain 里自带的捡漏账号(candidate_id)已经被用过了，也必须换！
+                    # 【关键修改】构建详细的失败原因
+                    fail_reasons = []
+                    if not row:
+                        fail_reasons.append("用户不存在")
+                    else:
+                        if not row[1]: fail_reasons.append("未VIP")
+                        if not row[2]: fail_reasons.append("未绑群")
+                        if not row[3]: fail_reasons.append("未设置群管")
+                        if not row[4]: fail_reasons.append("未加群")
 
-                # 1. 确定搜索起点
+                    reason_str = ",".join(fail_reasons)
+                    # 这里的格式就是您想要的：显示具体哪个上级没完成
+                    record_description = f"上级 {upline_name} {reason_str}（转入捡漏）"
+                    # 记录错过收益通知
+                    if row:
+                        c.execute('UPDATE members SET missed_balance = missed_balance + ? WHERE telegram_id = ?',
+                                 (reward_amount, upline_id))
+                        # 发送通知给那个不争气的上级
+                        try:
+                            await bot.send_message(
+                                upline_id,
+                                f"💸 **错失收益通知**\n\n"
+                                f"您错过了 {reward_amount} U 的收益！\n"
+                                f"原因: {reason_str}\n"
+                                f"来源: 下级 @{source_username} (第{level}层) 开通VIP\n\n"
+                                f"请尽快完成任务，以免再次错过！"
+                            )
+                        except: pass
+
+            # --- 步骤B：如果需要捡漏，寻找替补 ---
+            if is_rewarding_fallback:
                 start_index = (level - 1) % len(all_valid_fbs) if all_valid_fbs else 0
                 found_fb = None
 
-                # 2. 优先检查 chain 自带的那个捡漏号是否可用（如果是 chain fallback）
+                # 优先检查 chain 自带的那个捡漏号
                 if candidate_id and candidate_id in all_valid_fbs and candidate_id not in used_ids_in_this_round:
                     found_fb = candidate_id
                 else:
-                    # 3. 轮询查找未使用的捡漏号
+                    # 轮询查找
                     if all_valid_fbs:
                         for i in range(len(all_valid_fbs)):
                             idx = (start_index + i) % len(all_valid_fbs)
@@ -607,10 +607,7 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                             if fb_candidate not in used_ids_in_this_round:
                                 found_fb = fb_candidate
                                 break
-
-                        # 4. 兜底：如果所有号都用光了，被迫复用当前层对应的号
-                        if found_fb is None:
-                            found_fb = all_valid_fbs[start_index]
+                        if found_fb is None: found_fb = all_valid_fbs[start_index]
 
                 target_id_to_reward = found_fb
             else:
@@ -618,7 +615,7 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
 
             # --- 步骤C：执行发放 ---
             if target_id_to_reward:
-                # 如果是捡漏账号，确保在members表存在
+                # 确保账号存在
                 if is_rewarding_fallback:
                     c.execute('SELECT id FROM members WHERE telegram_id = ?', (target_id_to_reward,))
                     if not c.fetchone():
@@ -634,33 +631,18 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                 else:
                     reward_stats['real'] += 1
 
-                # 标记该ID本轮已使用
                 used_ids_in_this_round.add(int(target_id_to_reward))
 
-                # 更新余额和日志
+                # 更新余额
                 c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?',
                          (reward_amount, reward_amount, target_id_to_reward))
 
-                # 【修复点】收益记录说明优化
-                # 只有真正收到钱的人(target_id_to_reward)才会有一条 earnings_records
-                desc = f'第{level}层下级开通VIP'
-                if is_rewarding_fallback:
-                    if missed_upline_id:
-                        # 是因为上级没完成任务所以捡漏的
-                        # 获取上级用户名
-                        c.execute('SELECT username FROM members WHERE telegram_id = ?', (missed_upline_id,))
-                        upline_row = c.fetchone()
-                        upline_name = upline_row[0] if upline_row and upline_row[0] else str(missed_upline_id)
-                        desc += f' (上级 {upline_name} 未达标转入)'
-                    else:
-                        # 链条本身就是捡漏或者无上级
-                        desc += ' (无上级自动捡漏)'
-
+                # 【关键修改】写入数据库时使用上面构建好的详细说明
                 c.execute('''INSERT INTO earnings_records (upgraded_user, earning_user, amount, description, create_time)
                            VALUES (?, ?, ?, ?, ?)''',
-                           (telegram_id, target_id_to_reward, reward_amount, desc, get_cn_time()))
+                           (telegram_id, target_id_to_reward, reward_amount, record_description, get_cn_time()))
 
-                # 通知真实用户
+                # 通知
                 if not is_rewarding_fallback:
                     try:
                         await bot.send_message(target_id_to_reward,
