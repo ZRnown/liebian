@@ -1409,13 +1409,32 @@ async def verify_groups_callback(event):
             for g in not_joined:
                 group_name = g.get('group_name') or (g['link'].split('t.me/')[-1].split('/')[0] if 't.me/' in g['link'] else g['link'])
                 idx = g.get('display_index', g.get('level', '?'))
-                text += f"  ❌ {idx}. [{group_name}]({g['link']})\n"
+                link = g['link']
+                # 确保链接格式正确，避免Markdown解析错误
+                if link and (link.startswith('http://') or link.startswith('https://') or link.startswith('@')):
+                    # 对链接中的特殊字符进行转义
+                    safe_link = link.replace('(', '\\(').replace(')', '\\)')
+                    text += f"  ❌ {idx}. [{group_name}]({safe_link})\n"
+                else:
+                    # 如果链接格式不正确，只显示名称不加链接
+                    text += f"  ❌ {idx}. {group_name}\n"
             text += "\n⚠️ **重要提示**：请加入以上未加入的群组，才能获得分红！"
     
     try:
         await event.edit(text, parse_mode='markdown')
-    except:
-        await event.respond(text, parse_mode='markdown')
+    except Exception as e:
+        print(f"[verify_groups] edit失败，尝试respond: {e}")
+        try:
+            await event.respond(text, parse_mode='markdown')
+        except Exception as e2:
+            print(f"[verify_groups] respond也失败: {e2}")
+            # 如果Markdown也失败，尝试不使用Markdown
+            try:
+                plain_text = text.replace('[', '').replace(']', '').replace('(', '').replace(')', '').replace('*', '').replace('_', '')
+                await event.respond(plain_text)
+            except Exception as e3:
+                print(f"[verify_groups] 所有发送方式都失败: {e3}")
+                await event.answer("验证完成，但显示结果时出现错误", alert=True)
 
 @bot.on(events.NewMessage(pattern='/bind_group'))
 async def bind_group_cmd(event):
@@ -1499,8 +1518,8 @@ async def view_fission_handler(event):
     total_vip = 0
     buttons = []
 
-    # 显示层级按钮：从高层到低层（例如 10 -> 1），满足用户要求倒序显示
-    for level in range(config['level_count'], 0, -1):
+    # 显示层级按钮：从低层到高层（例如 1 -> 10），第一层在最上面，第十层在最下面
+    for level in range(1, config['level_count'] + 1):
         if level == 1:
             c.execute("""
                 SELECT COUNT(*), SUM(CASE WHEN is_vip = 1 THEN 1 ELSE 0 END)
@@ -1782,9 +1801,9 @@ async def category_callback(event):
             # 安全转义中括号和圆括号 in markdown link text
             safe_name = name.replace('[','\\[').replace(']','\\]').replace('(','\\(').replace(')','\\)')
             if link:
-                text_lines.append(f'{icon} [{safe_name} ({count_str})]({link})')
+                text_lines.append(f'{icon} [{safe_name}]({link}) {count_str}')
             else:
-                text_lines.append(f'{icon} {safe_name} ({count_str})')
+                text_lines.append(f'{icon} {safe_name} {count_str}')
 
         text = '\n'.join(text_lines)
 

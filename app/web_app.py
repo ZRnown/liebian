@@ -21,7 +21,9 @@ except ImportError:
     process_recharge = None
     admin_manual_vip_handler = None
     notify_queue = []
-    pending_broadcasts = []
+    # 注意：这里不应该重新赋值pending_broadcasts，否则会覆盖导入的变量
+    if 'pending_broadcasts' not in globals():
+        pending_broadcasts = []
 
 # 初始化Flask
 template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
