@@ -70,24 +70,34 @@ def process_vip_upgrade_sync(telegram_id, vip_price, config, deduct_balance=True
 
         member = DB.get_member(telegram_id)
         if not member:
+            print(f"[VIP开通同步] 用户不存在: {telegram_id}")
             return False, "用户不存在"
 
         if member.get('is_vip'):
+            print(f"[VIP开通同步] 用户已是VIP: {telegram_id}")
             return False, "用户已是VIP"
+
+        print(f"[VIP开通同步] 用户信息: telegram_id={telegram_id}, 当前余额={member.get('balance', 0)}, VIP价格={vip_price}, 需要扣费={deduct_balance}")
 
         # 检查余额（如果需要扣费）
         if deduct_balance:
             if member.get('balance', 0) < vip_price:
+                print(f"[VIP开通同步] 余额不足: 需要{vip_price}, 当前{member.get('balance', 0)}")
                 return False, "余额不足"
             # 扣除VIP费用
             new_balance = member['balance'] - vip_price
+            print(f"[VIP开通同步] 扣费前余额: {member['balance']}, 扣费后余额: {new_balance}")
             DB.update_member(telegram_id, balance=new_balance, is_vip=1, vip_time=get_cn_time())
+            print(f"[VIP开通同步] 数据库更新完成: balance={new_balance}, is_vip=1")
         else:
             # 不扣费，直接开通
             DB.update_member(telegram_id, is_vip=1, vip_time=get_cn_time())
+            print(f"[VIP开通同步] 不扣费开通VIP完成")
 
         # 分发VIP奖励
+        print(f"[VIP开通同步] 开始分发奖励")
         distribute_vip_rewards(telegram_id, vip_price)
+        print(f"[VIP开通同步] 奖励分发完成")
 
         return True, {'new_balance': member.get('balance', 0) if not deduct_balance else new_balance}
     except Exception as e:
@@ -317,25 +327,40 @@ def payment_notify():
                             vip_price = config.get('vip_price', 10)
 
                             if is_vip_order and current_balance >= vip_price and not is_vip:
-                                # 自动开通VIP（需要扣费）
+                                # 自动开通VIP（需要扣费）- 在同一个数据库连接中进行
+                                print(f'[支付回调] 开始VIP开通: telegram_id={telegram_id}, 当前余额={current_balance}, VIP价格={vip_price}')
                                 try:
-                                    # 直接调用同步VIP开通逻辑，并扣除余额
-                                    success, result = process_vip_upgrade_sync(telegram_id, vip_price, config, deduct_balance=True)
-                                    if success:
-                                        print(f'[支付回调] VIP自动开通成功: telegram_id={telegram_id}')
-                                        # 重新获取最新余额
-                                        c.execute('SELECT balance FROM members WHERE telegram_id = ?', (telegram_id,))
-                                        updated_balance_row = c.fetchone()
-                                        current_balance = updated_balance_row[0] if updated_balance_row else current_balance
-                                    else:
-                                        print(f'[支付回调] VIP自动开通失败: {result}')
+                                    # 直接在当前连接中扣费并开通VIP
+                                    new_balance = current_balance - vip_price
+                                    c.execute('UPDATE members SET balance = ?, is_vip = 1, vip_time = ? WHERE telegram_id = ?',
+                                             (new_balance, get_cn_time(), telegram_id))
+                                    print(f'[支付回调] VIP开通扣费完成: 余额从 {current_balance} 变为 {new_balance}')
+
+                                    # 分发VIP奖励（使用异步方式，避免阻塞）
+                                    from bot_logic import distribute_vip_rewards
+                                    import asyncio
+                                    try:
+                                        # 尝试获取bot的事件循环
+                                        loop = asyncio.new_event_loop()
+                                        asyncio.set_event_loop(loop)
+                                        loop.run_until_complete(distribute_vip_rewards(telegram_id, vip_price))
+                                        loop.close()
+                                        print(f'[支付回调] VIP奖励分发完成')
+                                    except Exception as reward_err:
+                                        print(f'[支付回调] VIP奖励分发异常: {reward_err}')
+                                        # 即使奖励分发失败，VIP开通仍然成功
+
+                                    current_balance = new_balance
+                                    print(f'[支付回调] VIP开通后余额: {current_balance}')
                                 except Exception as vip_err:
                                     print(f'[支付回调] VIP自动开通异常: {vip_err}')
+                                    import traceback
+                                    traceback.print_exc()
 
                             conn.commit()
 
                             # 发送通知
-                            if is_vip_order and current_balance >= vip_price:
+                            if is_vip_order and not is_vip:  # 如果是VIP订单且开通前不是VIP，则说明VIP开通成功
                                 msg = f"🎉 充值成功！VIP已开通！\n\n💰 充值金额: {amount} U\n💎 VIP费用: {vip_price} U\n💵 当前余额: {current_balance} U\n\n您现在可以:\n✅ 查看裂变数据\n✅ 获得下级开通VIP的奖励\n✅ 加入上级群组\n✅ 推广赚钱\n\n感谢您的支持!"
                             else:
                                 msg = f"✅ 充值成功\n\n💰 金额: {amount} USDT\n📝 订单号: {out_trade_no}\n\n余额已到账，感谢您的支持！"

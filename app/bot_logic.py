@@ -563,7 +563,6 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                         f'💰 充值金额: {amount} U\n'
                         f'💳 VIP费用: {vip_price} U\n'
                         f'💵 当前余额: {new_balance} U\n\n'
-                        f'📊 捡漏账号获得 {stats["fallback"]} 笔分红\n\n'
                         f'⚠️ 重要：请立即完成以下操作\n\n'
                         f'1️⃣ 绑定您的群组\n'
                         f'2️⃣ 加入上层群组（共{len(upline_groups)}个）\n'
