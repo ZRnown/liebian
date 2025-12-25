@@ -44,6 +44,18 @@ def load_user(user_id):
 @app.before_request
 def api_require_login_for_api():
     try:
+        # 【核心修复】定义白名单，允许支付回调不登录也能访问
+        whitelist = [
+            '/api/payment/notify',     # 支付回调
+            '/api/payment/test',       # 测试接口
+            '/login'                   # 登录接口
+        ]
+
+        # 如果请求路径完全匹配白名单，直接放行
+        if request.path in whitelist:
+            return None
+
+        # 如果是API请求且不在白名单内，才检查登录状态
         if request.path.startswith('/api/') and not current_user.is_authenticated:
             return jsonify({'success': False, 'message': '未登录'}), 401
     except Exception:
@@ -292,29 +304,30 @@ def payment_notify():
                 data = {}
         print(f'[支付回调] 最终数据: {data}')
 
-        # 支付方可能使用不同大小写的 sign 字段
-        sign = ''
-        for k in list(data.keys()):
-            if k.lower() == 'sign':
-                sign = data.pop(k, '')
-                break
+        # 2. 签名验证准备
+        sign_received = ''
+        filtered_params = {}
 
-        # 过滤掉remark（不参与签名）和sign（已移除）之外的参数
-        # 保留所有非空参数用于签名验证（除了remark和sign）
-        filtered_data = {}
         for k, v in data.items():
-            if v is not None and v != '' and k.lower() not in ['remark', 'sign']:
-                filtered_data[k] = str(v)  # 确保所有值都是字符串
+            val_str = str(v)
+            if k.lower() == 'sign':
+                sign_received = val_str
+                continue
+            if k.lower() == 'remark': # 【重要】文档规定remark不参与签名
+                continue
+            if val_str == '': # 空值不参与
+                continue
+            filtered_params[k] = val_str
 
-        print(f'[支付回调] 原始数据: {data}')
-        print(f'[支付回调] 过滤后的参数: {filtered_data}')
-        print(f'[支付回调] 使用密钥: {PAYMENT_CONFIG.get("key", "")}')
+        # 3. 验证签名
+        my_key = PAYMENT_CONFIG.get('key', '')
+        sorted_keys = sorted(filtered_params.keys())
+        sign_str = '&'.join([f'{k}={filtered_params[k]}' for k in sorted_keys])
+        sign_str_with_key = f"{sign_str}&key={my_key}"
+        calc_sign = hashlib.md5(sign_str_with_key.encode('utf-8')).hexdigest().upper()
 
-        calculated_sign = generate_payment_sign(filtered_data, PAYMENT_CONFIG.get('key', ''))
-        print(f'[支付回调] 签名验证: recv_sign={sign}, calc_sign={calculated_sign}')
-
-        if not sign or sign.upper() != calculated_sign.upper():
-            print(f'[支付回调] 签名验证失败')
+        if sign_received.upper() != calc_sign:
+            print(f'[支付回调] 签名验证失败: 收到={sign_received}, 计算={calc_sign}')
             return 'fail'
         
         print(f'[支付回调] 检查支付状态: status={data.get("status")}, callbacks={data.get("callbacks")}')
