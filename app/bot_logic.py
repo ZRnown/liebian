@@ -529,75 +529,49 @@ async def send_recharge_notification(telegram_id, amount):
         print(f'[充值通知] 发送失败: {e}')
 
 async def process_recharge(telegram_id, amount, is_vip_order=False):
-    """处理充值到账"""
+    """处理充值后续逻辑（开通VIP、分红、通知）"""
     try:
         config = get_system_config()
         member = DB.get_member(telegram_id)
-        if member:
-            # 【修复】不再重复增加余额，因为支付回调或后台手动标记时已经增加了
-            new_balance = member['balance']  # 使用当前余额，不再加amount
-            
-            # 如果是VIP充值订单且余额足够，自动开通VIP
-            vip_price = compute_vip_price_from_config(config)
-            print(f'[process_recharge] 检查VIP开通: is_vip_order={is_vip_order}, new_balance={new_balance}, vip_price={vip_price}, is_vip={member["is_vip"]}')
-            if is_vip_order and new_balance >= vip_price and not member['is_vip']:
-                print(f'[process_recharge] 开始VIP开通: telegram_id={telegram_id}, 余额={new_balance}')
-                # 【核心修复】调用统一处理函数
-                success, result = await process_vip_upgrade(telegram_id, vip_price, config)
+        if not member:
+            return False
 
-                if success:
-                    print(f'[process_recharge] VIP开通成功: result={result}')
-                    stats = result['stats']
-                    new_balance = result['new_balance']
-                    print(f'[process_recharge] VIP开通后余额: {new_balance}')
-                else:
-                    print(f'[process_recharge] VIP开通失败: {result}')
-                    
-                    # 获取上层群列表
-                    upline_groups = []
-                    chain = get_upline_chain(telegram_id, int(config['level_count']))
-                    for item in chain:
-                        if not item.get('is_fallback'):
-                            up_member = DB.get_member(item['id'])
-                            if up_member and up_member['group_link']:
-                                upline_groups.append({
-                                    'level': item['level'],
-                                    'username': up_member['username'],
-                                    'group_link': up_member['group_link']
-                                })
-                    
-                    group_list_text = '\n'.join([f'  {g["level"]}. @{g["username"]}的群' for g in upline_groups[:5]])
-                    await bot.send_message(
-                        telegram_id,
-                        f'🎉 充值成功！VIP已开通！\n\n'
-                        f'💰 充值金额: {amount} U\n'
-                        f'💳 VIP费用: {vip_price} U\n'
-                        f'💵 当前余额: {new_balance} U\n\n'
-                        f'⚠️ 重要：请立即完成以下操作\n\n'
-                        f'1️⃣ 绑定您的群组\n'
-                        f'2️⃣ 加入上层群组（共{len(upline_groups)}个）\n'
-                        f'{group_list_text}\n\n'
-                        f'💡 完成以上操作后，您的下级开通VIP时\n'
-                        f'   您才能获得分红！',
-                        parse_mode='markdown'
-                    )
-                    return True
-            else:
-                # 普通充值通知
+        # Web端已经增加了余额，这里直接获取最新余额
+        current_balance = member['balance']
+        vip_price = compute_vip_price_from_config(config)
+
+        # 检查是否需要开通VIP
+        # 条件：是VIP订单 + 不是VIP + 余额足够
+        if is_vip_order and not member['is_vip'] and current_balance >= vip_price:
+            print(f'[充值处理] 开始VIP自动开通: telegram_id={telegram_id}, 余额={current_balance}')
+            # 1. 扣除余额 & 更新VIP状态
+            new_balance = current_balance - vip_price
+            DB.update_member(telegram_id, balance=new_balance, is_vip=1, vip_time=get_cn_time())
+
+            # 2. 更新层级路径
+            update_level_path(telegram_id)
+
+            # 3. 分发奖励 (调用 core_functions 中修复后的函数)
+            from core_functions import distribute_vip_rewards, generate_vip_success_message
+            await distribute_vip_rewards(bot, telegram_id, vip_price, config)
+
+            # 4. 发送详细通知
+            msg = generate_vip_success_message(telegram_id, amount, vip_price, new_balance)
+            await bot.send_message(telegram_id, msg, parse_mode='markdown')
+
+        else:
+            # 普通充值，或者余额不足以开通VIP
+            # 如果不是VIP订单，或者是VIP订单但余额不足，发送普通到账通知
+            # (Web端可能已经发了，这里可以判断一下，或者仅作为保险)
+            if not is_vip_order:
                 await bot.send_message(
                     telegram_id,
-                    f'🎉 充值成功!\n\n'
-                    f'充值金额: {amount} U\n'
-                    f'当前余额: {new_balance} U\n\n'
-                    f'💡 余额可用于开通VIP或提现'
+                    f'✅ 充值到账通知\n\n💰 金额: {amount} U\n💵 当前余额: {current_balance} U'
                 )
-                return True
-        return False
     except Exception as e:
-        print(f"处理充值失败: {e}")
+        print(f"[充值处理异常] {e}")
         import traceback
         traceback.print_exc()
-        return False
 
 # ==================== 管理员手动开通VIP ====================
 

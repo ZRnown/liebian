@@ -161,29 +161,39 @@ async def check_payment_task(bot, order):
             await asyncio.sleep(interval_time_in_seconds)
 
 async def payment_timeout_handler(bot, order):
-    """处理订单超时"""
-    await asyncio.sleep(check_duration_seconds)
-    
+    """处理订单超时（修复版：增加状态二次检查）"""
+    # 等待有效期结束
+    check_duration = 1200 # 20分钟
+    await asyncio.sleep(check_duration)
+
     order_number = order['order_number']
-    
+    telegram_id = order['telegram_id']
+
+    # 1. 清理内存中的任务记录
     if order_number in payment_orders:
-        # 取消支付检查任务
-        if order_number in payment_tasks:
-            payment_task, _ = payment_tasks[order_number]
-            payment_task.cancel()
-            del payment_tasks[order_number]
-        
-        # 删除订单
         del payment_orders[order_number]
-        
-        # 通知用户订单超时
-        try:
-            await bot.send_message(
-                order['telegram_id'],
-                f'⏰ 订单超时\n\n订单号: {order_number}\n金额: {order["amount"]} U\n\n请重新创建充值订单'
-            )
-        except:
-            pass
+    if order_number in payment_tasks:
+        del payment_tasks[order_number]
+
+    try:
+        # 2. 【核心修复】查询数据库最终状态
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute("SELECT status FROM recharge_records WHERE order_id = ?", (order_number,))
+        row = c.fetchone()
+        conn.close()
+
+        # 如果数据库显示已完成，直接退出，不发送超时通知
+        if row and row[0] == 'completed':
+            print(f"[超时检查] 订单 {order_number} 已支付成功，停止超时逻辑")
+            return
+        # 3. 确实超时了，发送通知
+        await bot.send_message(
+            telegram_id,
+            f'⏰ 订单已超时\n\n订单号: {order_number}\n金额: {order["amount"]} U\n\n如果您已支付但未到账，请联系客服。'
+        )
+    except Exception as e:
+        print(f"[超时处理错误] {e}")
 
 async def create_recharge_order(bot, event, amount, is_vip_order=False):
     """创建充值订单"""

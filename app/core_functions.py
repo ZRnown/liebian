@@ -404,10 +404,10 @@ def update_level_path(telegram_id):
 def get_fallback_account(level):
     """
     获取指定层级的捡漏账号
-    
+
     Args:
         level: 层级数 (1-10)
-    
+
     Returns:
         int: 捡漏账号的telegram_id
     """
@@ -417,202 +417,195 @@ def get_fallback_account(level):
     from app.config import DB_PATH
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    
+
     # 按顺序获取捡漏账号
     c.execute('SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id LIMIT 1 OFFSET ?',
              (level - 1,))
     row = c.fetchone()
     conn.close()
-    
+
     return row[0] if row else None
 
 
+# 【新增】生成VIP开通成功后的详细文案
+def generate_vip_success_message(telegram_id, amount, vip_price, current_balance):
+    """生成符合要求的VIP开通文案"""
+    try:
+        from app.config import DB_PATH
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        # 获取系统配置的层数
+        c.execute("SELECT value FROM system_config WHERE key = 'level_count'")
+        row = c.fetchone()
+        level_count = int(row[0]) if row else 10
+        conn.close()
+
+        # 获取上级群列表
+        upline_chain = get_upline_chain(telegram_id, level_count)
+        upline_groups_text = ""
+        group_count = 0
+
+        # 再次连接获取上级详细信息
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        for item in upline_chain:
+            if item.get('is_fallback'): continue # 跳过捡漏账号的群
+
+            uid = item['id']
+            lvl = item['level']
+            c.execute("SELECT username, group_link FROM members WHERE telegram_id = ?", (uid,))
+            u_row = c.fetchone()
+
+            if u_row and u_row[1]: # 有群链接
+                # 简单处理群名
+                g_link = u_row[1]
+                u_name = u_row[0] or f"用户{uid}"
+                upline_groups_text += f"{lvl}. @{u_name}的群\n"
+                group_count += 1
+
+        conn.close()
+
+        msg = (
+            f"🎉 充值成功！VIP已开通！\n\n"
+            f"💰 充值金额: {amount} U\n"
+            f"💎 VIP费用: {vip_price} U\n"
+            f"💵 当前余额: {current_balance} U\n\n"
+            f"⚠️ 重要：请立即完成以下操作\n\n"
+            f"1️⃣ 绑定您的群组\n"
+            f"2️⃣ 加入上层群组（共{group_count}个）\n"
+            f"{upline_groups_text}\n"
+            f"完成以上操作后，您的下级开通VIP时\n"
+            f"您才能获得分红！"
+        )
+        return msg
+    except Exception as e:
+        print(f"[生成文案错误] {e}")
+        return f"🎉 VIP开通成功！\n花费: {vip_price}U\n余额: {current_balance}U"
+
+
+# 【核心修复】分红逻辑：解决捡漏账号重复问题
 async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
-    """
-    统一处理VIP开通后的分红逻辑
-    
-    :param bot: 机器人客户端
-    :param telegram_id: 开通VIP的用户ID
-    :param pay_amount: 支付金额（用于日志）
-    :param config: 系统配置字典
-    :return: dict {'real': 真实上级获得奖励数, 'fallback': 捡漏账号获得奖励数}
-    """
+    # ... (保留原有导入)
     import sys
     import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from app.config import DB_PATH
-    
+
     level_count = int(config.get('level_count', 10))
     reward_amount = float(config.get('level_reward', 1))
-    
-    # 获取完整的上级链（包含自动补位的捡漏账号）
+
     chain = get_upline_chain(telegram_id, level_count)
-    
-    # 获取开通者信息用于通知
+
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('SELECT username FROM members WHERE telegram_id = ?', (telegram_id,))
     user_row = c.fetchone()
     source_username = user_row[0] if user_row else str(telegram_id)
     conn.close()
-    
+
     reward_stats = {'real': 0, 'fallback': 0}
-    used_fallbacks = set()
+
+    # 记录本轮已获得奖励的捡漏账号ID，防止同一单内重复奖励同一个捡漏号
+    used_fallbacks_in_this_round = set()
+
+    # 预先加载所有活跃捡漏账号（按ID排序）
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id ASC')
+    all_fb_rows = c.fetchall()
+    all_valid_fbs = [r[0] for r in all_fb_rows if r[0] is not None]
+    conn.close()
 
     for item in chain:
         level = item['level']
         upline_id = item['id']
-        is_fallback = item['is_fallback']
-        
-        # 【关键修复】如果 ID 无效，直接跳过，防止污染数据库
-        if not upline_id or str(upline_id) == 'None' or upline_id == 'None':
-            print(f"[分红] 跳过无效ID: Level {level}, ID={upline_id}")
-            continue
-        
+        is_fallback_in_chain = item['is_fallback']
+
+        # 如果ID无效跳过
+        if not upline_id or str(upline_id) == 'None': continue
+
         conn = sqlite3.connect(DB_PATH, timeout=10)
         c = conn.cursor()
-        
+
         try:
-            if is_fallback:
-                # --- 捡漏账号逻辑 ---
-                # 【关键修复】再次验证 ID 有效性（双重保险）
-                if not upline_id or str(upline_id) == 'None' or upline_id == 'None':
-                    print(f"[分红] 跳过无效的捡漏账号ID: Level {level}, ID={upline_id}")
-                    conn.commit()
-                    conn.close()
-                    continue
-                
-                # 1. 确保捡漏账号在 members 表存在（为了收益能显示）
-                c.execute('SELECT id FROM members WHERE telegram_id = ?', (upline_id,))
-                if not c.fetchone():
-                    # 获取用户名
-                    c.execute('SELECT username FROM fallback_accounts WHERE telegram_id = ?', (upline_id,))
-                    fb_row = c.fetchone()
-                    fb_name = fb_row[0] if fb_row and fb_row[0] else f'fallback_{upline_id}'
-                    # 插入members表，标记为VIP（确保 upline_id 有值）
-                    c.execute('''INSERT OR IGNORE INTO members (telegram_id, username, is_vip, register_time) 
-                                 VALUES (?, ?, 1, ?)''', (upline_id, fb_name, get_cn_time()))
-                
-                # 2. 发放奖励
-                c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?', 
-                         (reward_amount, reward_amount, upline_id))
-                
-                # 3. 更新 fallback_accounts 表统计
-                c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?',
-                         (reward_amount, upline_id))
-                
-                # 4. 记录日志（记录：谁升级 -> 谁获得收益）
-                c.execute('''INSERT INTO earnings_records
-                           (upgraded_user, earning_user, amount, description, create_time)
-                           VALUES (?, ?, ?, ?, ?)''',
-                        (telegram_id, upline_id, reward_amount,
-                         f'第{level}层下级开通VIP', get_cn_time()))
-                
-                reward_stats['fallback'] += 1
-                # 标记已分配给该捡漏账号，防止同一次分配重复发放
-                try:
-                    used_fallbacks.add(int(upline_id))
-                except:
-                    pass
-                
+            target_id_to_reward = None
+            is_rewarding_fallback = False
+            if is_fallback_in_chain:
+                # 链条本身就是捡漏账号
+                target_id_to_reward = upline_id
+                is_rewarding_fallback = True
             else:
-                # --- 真实上级逻辑 ---
-                # 【核心修复】检查上级是否完成任务（is_joined_upline = 1）
-                # 如果未完成任务，直接用捡漏账号代替，而不是烧伤
+                # 真实用户，检查条件
                 c.execute('SELECT is_vip, is_group_bound, is_bot_admin, is_joined_upline FROM members WHERE telegram_id = ?', (upline_id,))
                 row = c.fetchone()
-                
-                should_reward = False
-                if row:
-                    is_vip, is_bound, is_admin, is_joined = row
-                    # 【核心修复】判断条件：VIP + 绑定群 + 机器人管理员 + 完成加群任务
-                    if is_vip and is_bound and is_admin and is_joined:
-                        should_reward = True
-                
-                if should_reward:
-                    # 发放奖励给真实上级
-                    c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?', 
-                             (reward_amount, reward_amount, upline_id))
-                    
-                    # 记录日志：升级用户 -> 获益用户
-                    c.execute('''INSERT INTO earnings_records
-                               (upgraded_user, earning_user, amount, description, create_time)
-                               VALUES (?, ?, ?, ?, ?)''',
-                            (telegram_id, upline_id, reward_amount,
-                             f'第{level}层下级开通VIP', get_cn_time()))
-                    
-                    reward_stats['real'] += 1
-                    
-                    # 发送通知
-                    try:
-                        await bot.send_message(upline_id, 
-                            f'🎉 获得 {reward_amount} U 奖励\n来源：第 {level} 层下级 @{source_username} 开通VIP')
-                    except: 
-                        pass
+
+                # 条件：VIP + 绑群 + 群管 + 加群任务完成
+                if row and row[0] and row[1] and row[2] and row[3]:
+                    target_id_to_reward = upline_id # 真实用户达标
                 else:
-                    # 【核心修复】上级未完成任务或不存在 -> 直接用捡漏账号代替（不烧伤）
-                    # 获取该层对应的捡漏账号
-                    c.execute('SELECT telegram_id FROM fallback_accounts WHERE is_active = 1 ORDER BY id ASC')
-                    fbs = c.fetchall()
-                    # 过滤掉 None 值
-                    valid_fbs = [r[0] for r in fbs if r[0] is not None]
-                    
-                    if valid_fbs:
-                        # 选择一个尚未被本次分配使用的捡漏账号
-                        # 如果所有都被使用了，跳过该层分配（不重复分配）
-                        backup_fb_id = None
-                        for offset in range(len(valid_fbs)):
-                            candidate = valid_fbs[(level - 1 + offset) % len(valid_fbs)]
-                            if candidate not in used_fallbacks:
-                                backup_fb_id = candidate
+                    # 真实用户未达标 -> 寻找替补
+                    # 【核心算法】从捡漏池中找一个未在本轮使用的
+                    # 算法：优先使用 (level-1) 对应的捡漏号，如果已被用，则往后顺延
+                    if all_valid_fbs:
+                        start_index = (level - 1) % len(all_valid_fbs)
+                        found_fb = None
+
+                        # 尝试找一个没用过的
+                        for i in range(len(all_valid_fbs)):
+                            idx = (start_index + i) % len(all_valid_fbs)
+                            candidate = all_valid_fbs[idx]
+                            if candidate not in used_fallbacks_in_this_round:
+                                found_fb = candidate
                                 break
-                        # 如果没有可用的捡漏账号（都被使用了），跳过该层分配
-                        if backup_fb_id is None:
-                            print(f"[分红] 警告: Level {level} 所有捡漏账号都已被使用，跳过分配")
-                            conn.commit()
-                            conn.close()
-                            continue
-                        
-                        # 【关键修复】再次检查 ID 有效性
-                        if not backup_fb_id or str(backup_fb_id) == 'None' or backup_fb_id == 'None':
-                            print(f"[分红] 跳过无效的捡漏账号ID: Level {level}, ID={backup_fb_id}")
-                            conn.commit()
-                            conn.close()
-                            continue
-                        
-                        # 确保捡漏账号在members表存在
-                        c.execute('SELECT id FROM members WHERE telegram_id = ?', (backup_fb_id,))
-                        if not c.fetchone():
-                            c.execute('SELECT username FROM fallback_accounts WHERE telegram_id = ?', (backup_fb_id,))
-                            fb_row = c.fetchone()
-                            fb_name = fb_row[0] if fb_row and fb_row[0] else f'fallback_{backup_fb_id}'
-                            c.execute('''INSERT OR IGNORE INTO members (telegram_id, username, is_vip, register_time) 
-                                         VALUES (?, ?, 1, ?)''', (backup_fb_id, fb_name, get_cn_time()))
-                        
-                        # 发放奖励给捡漏账号
-                        c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?',
-                                 (reward_amount, reward_amount, backup_fb_id))
-                        c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?',
-                                 (reward_amount, backup_fb_id))
-                        c.execute('''INSERT INTO earnings_records
-                                   (upgraded_user, earning_user, amount, description, create_time)
-                                   VALUES (?, ?, ?, ?, ?)''',
-                                (telegram_id, backup_fb_id, reward_amount,
-                                 f'第{level}层下级开通VIP', get_cn_time()))
-                        reward_stats['fallback'] += 1
-                        try:
-                            used_fallbacks.add(int(backup_fb_id))
-                        except:
-                            pass
-                    else:
-                        print(f"[分红] 警告: Level {level} 没有可用的捡漏账号，奖励丢失")
+
+                        # 如果所有号都被用过了（极端情况），就还是用对应层级的那个（允许重复，总比不发好）
+                        if found_fb is None:
+                            found_fb = all_valid_fbs[start_index]
+
+                        target_id_to_reward = found_fb
+                        is_rewarding_fallback = True
+
+            # 执行奖励发放
+            if target_id_to_reward:
+                # 如果是捡漏账号，确保在members表存在
+                if is_rewarding_fallback:
+                    c.execute('SELECT id FROM members WHERE telegram_id = ?', (target_id_to_reward,))
+                    if not c.fetchone():
+                        c.execute('SELECT username FROM fallback_accounts WHERE telegram_id = ?', (target_id_to_reward,))
+                        fb_name = c.fetchone()
+                        name = fb_name[0] if fb_name else f'fallback_{target_id_to_reward}'
+                        c.execute('INSERT OR IGNORE INTO members (telegram_id, username, is_vip, register_time) VALUES (?, ?, 1, ?)',
+                                 (target_id_to_reward, name, get_cn_time()))
+
+                    c.execute('UPDATE fallback_accounts SET total_earned = total_earned + ? WHERE telegram_id = ?',
+                             (reward_amount, target_id_to_reward))
+                    reward_stats['fallback'] += 1
+                    used_fallbacks_in_this_round.add(int(target_id_to_reward))
+                else:
+                    reward_stats['real'] += 1
+
+                # 更新余额和日志
+                c.execute('UPDATE members SET balance = balance + ?, total_earned = total_earned + ? WHERE telegram_id = ?',
+                         (reward_amount, reward_amount, target_id_to_reward))
+
+                desc = f'第{level}层下级开通VIP' + ('(捡漏)' if is_rewarding_fallback else '')
+                c.execute('''INSERT INTO earnings_records (upgraded_user, earning_user, amount, description, create_time)
+                           VALUES (?, ?, ?, ?, ?)''',
+                           (telegram_id, target_id_to_reward, reward_amount, desc, get_cn_time()))
+
+                # 通知真实用户
+                if not is_rewarding_fallback:
+                    try:
+                        await bot.send_message(target_id_to_reward,
+                            f'🎉 获得 {reward_amount} U 奖励\n来源：第 {level} 层下级 @{source_username} 开通VIP')
+                    except: pass
 
             conn.commit()
         except Exception as e:
             print(f"[分红分配错误] Level {level}: {e}")
-            import traceback
-            traceback.print_exc()
         finally:
             conn.close()
-            
+
     return reward_stats
