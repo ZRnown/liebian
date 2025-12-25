@@ -60,6 +60,20 @@ PAYMENT_CONFIG = {
     'version': '1.0'
 }
 
+# 添加一个简单的测试端点来验证回调URL是否可访问
+@app.route('/api/payment/test', methods=['GET'])
+def test_payment_callback():
+    """测试支付回调URL是否可访问"""
+    return jsonify({
+        'status': 'ok',
+        'message': '支付回调URL可正常访问',
+        'timestamp': get_cn_time(),
+        'config': {
+            'notify_url': PAYMENT_CONFIG.get('notify_url'),
+            'has_key': bool(PAYMENT_CONFIG.get('key'))
+        }
+    })
+
 import hashlib
 import requests as req
 

@@ -324,14 +324,18 @@ async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=Tru
         return False, "用户已是VIP"
     
     # 2. 扣除余额（如果需要）
+    print(f'[process_vip_upgrade] 开始处理: telegram_id={telegram_id}, deduct_balance={deduct_balance}, 当前余额={member["balance"]}, vip_price={vip_price}')
     if deduct_balance:
         if member['balance'] < vip_price:
+            print(f'[process_vip_upgrade] 余额不足: 需要{vip_price}, 当前{member["balance"]}')
             return False, "余额不足"
         new_balance = member['balance'] - vip_price
+        print(f'[process_vip_upgrade] 扣费: {member["balance"]} -> {new_balance}')
         DB.update_member(telegram_id, balance=new_balance, is_vip=1, vip_time=get_cn_time())
     else:
         # 管理员赠送，不扣除余额
         new_balance = member['balance']
+        print(f'[process_vip_upgrade] 管理员赠送VIP: 余额保持{new_balance}')
         DB.update_member(telegram_id, is_vip=1, vip_time=get_cn_time())
     
     # 3. 更新层级路径
@@ -530,18 +534,24 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
         config = get_system_config()
         member = DB.get_member(telegram_id)
         if member:
-            new_balance = member['balance'] + amount
-            DB.update_member(telegram_id, balance=new_balance)
+            # 【修复】不再重复增加余额，因为支付回调或后台手动标记时已经增加了
+            new_balance = member['balance']  # 使用当前余额，不再加amount
             
             # 如果是VIP充值订单且余额足够，自动开通VIP
             vip_price = compute_vip_price_from_config(config)
+            print(f'[process_recharge] 检查VIP开通: is_vip_order={is_vip_order}, new_balance={new_balance}, vip_price={vip_price}, is_vip={member["is_vip"]}')
             if is_vip_order and new_balance >= vip_price and not member['is_vip']:
+                print(f'[process_recharge] 开始VIP开通: telegram_id={telegram_id}, 余额={new_balance}')
                 # 【核心修复】调用统一处理函数
                 success, result = await process_vip_upgrade(telegram_id, vip_price, config)
-                
+
                 if success:
+                    print(f'[process_recharge] VIP开通成功: result={result}')
                     stats = result['stats']
                     new_balance = result['new_balance']
+                    print(f'[process_recharge] VIP开通后余额: {new_balance}')
+                else:
+                    print(f'[process_recharge] VIP开通失败: {result}')
                     
                     # 获取上层群列表
                     upline_groups = []
