@@ -306,7 +306,7 @@ def payment_notify():
                             remark_row = c.fetchone()
                             is_vip_order = remark_row and remark_row[0] == "开通"
 
-                            # 获取当前余额用于后续判断
+                            # 获取更新后的余额用于后续判断（加款后的余额）
                             c.execute('SELECT balance, is_vip FROM members WHERE telegram_id = ?', (telegram_id,))
                             member_row = c.fetchone()
                             current_balance = member_row[0] if member_row else 0
@@ -317,10 +317,10 @@ def payment_notify():
                             vip_price = config.get('vip_price', 10)
 
                             if is_vip_order and current_balance >= vip_price and not is_vip:
-                                # 自动开通VIP
+                                # 自动开通VIP（需要扣费）
                                 try:
-                                    # 直接调用同步VIP开通逻辑
-                                    success, result = process_vip_upgrade_sync(telegram_id, vip_price, config, deduct_balance=False)
+                                    # 直接调用同步VIP开通逻辑，并扣除余额
+                                    success, result = process_vip_upgrade_sync(telegram_id, vip_price, config, deduct_balance=True)
                                     if success:
                                         print(f'[支付回调] VIP自动开通成功: telegram_id={telegram_id}')
                                         # 重新获取最新余额
@@ -2041,6 +2041,22 @@ def api_manual_vip(telegram_id):
 
 def run_web():
     """Web 启动入口"""
+    global PAYMENT_CONFIG
+
+    # Load payment config from database
+    try:
+        config = get_system_config()
+        PAYMENT_CONFIG.update({
+            'api_url': config.get('payment_url', PAYMENT_CONFIG.get('api_url', '')),
+            'partner_id': str(config.get('payment_user_id', PAYMENT_CONFIG.get('partner_id', ''))),
+            'key': config.get('payment_token', PAYMENT_CONFIG.get('key', '')),
+            'pay_type': config.get('payment_channel', PAYMENT_CONFIG.get('pay_type', 'trc20')),
+            'payment_rate': float(config.get('payment_rate', PAYMENT_CONFIG.get('payment_rate', 1.0))),
+        })
+        print(f"[Web启动] 已加载支付配置: URL={PAYMENT_CONFIG['api_url']}, PartnerID={PAYMENT_CONFIG['partner_id']}")
+    except Exception as e:
+        print(f"[Web启动] 加载支付配置失败: {e}")
+
     # Ensure recharge_records has a remark column for admin notes
     try:
         conn = get_db_conn()

@@ -506,7 +506,7 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                            (upgraded_user, earning_user, amount, description, create_time)
                            VALUES (?, ?, ?, ?, ?)''',
                         (telegram_id, upline_id, reward_amount,
-                         f'第{level}层（无上级，转入捡漏账号）', get_cn_time()))
+                         f'第{level}层下级开通VIP', get_cn_time()))
                 
                 reward_stats['fallback'] += 1
                 # 标记已分配给该捡漏账号，防止同一次分配重复发放
@@ -558,17 +558,20 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                     valid_fbs = [r[0] for r in fbs if r[0] is not None]
                     
                     if valid_fbs:
-                        # 使用 (level-1) % len 来确定分配给哪个捡漏账号
-                        # 选择一个尚未被本次分配使用的捡漏账号，优先避免重复
+                        # 选择一个尚未被本次分配使用的捡漏账号
+                        # 如果所有都被使用了，跳过该层分配（不重复分配）
                         backup_fb_id = None
                         for offset in range(len(valid_fbs)):
                             candidate = valid_fbs[(level - 1 + offset) % len(valid_fbs)]
                             if candidate not in used_fallbacks:
                                 backup_fb_id = candidate
                                 break
+                        # 如果没有可用的捡漏账号（都被使用了），跳过该层分配
                         if backup_fb_id is None:
-                            # 全部都用过了，回退到原始取余选择
-                            backup_fb_id = valid_fbs[(level - 1) % len(valid_fbs)]
+                            print(f"[分红] 警告: Level {level} 所有捡漏账号都已被使用，跳过分配")
+                            conn.commit()
+                            conn.close()
+                            continue
                         
                         # 【关键修复】再次检查 ID 有效性
                         if not backup_fb_id or str(backup_fb_id) == 'None' or backup_fb_id == 'None':
@@ -595,7 +598,7 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                                    (upgraded_user, earning_user, amount, description, create_time)
                                    VALUES (?, ?, ?, ?, ?)''',
                                 (telegram_id, backup_fb_id, reward_amount,
-                                 f'第{level}层（上级未完成任务，转入捡漏）', get_cn_time()))
+                                 f'第{level}层下级开通VIP', get_cn_time()))
                         reward_stats['fallback'] += 1
                         try:
                             used_fallbacks.add(int(backup_fb_id))
