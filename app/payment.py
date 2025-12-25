@@ -161,36 +161,46 @@ async def check_payment_task(bot, order):
             await asyncio.sleep(interval_time_in_seconds)
 
 async def payment_timeout_handler(bot, order):
-    """处理订单超时（修复版：增加状态二次检查）"""
-    # 等待有效期结束
-    check_duration = 1200 # 20分钟
+    """处理订单超时（修复版：增加状态二次检查，完美解决手动入款却提示超时的问题）
+
+    问题根源：
+    - 三方支付后台显示"等待支付"是正常的（因为管理员没真付钱）
+    - 本地机器人后台显示"已完成"是管理员手动操作的结果
+    - 机器人倒计时任务醒来后，没有检查数据库状态就发超时通知
+
+    解决方案：
+    - 在发送超时通知前，先去数据库检查订单状态
+    - 如果数据库状态已是completed，直接拦截超时通知
+    """
+    # 1. 等待订单有效期（例如20分钟 = 1200秒）
+    check_duration = 1200
     await asyncio.sleep(check_duration)
 
     order_number = order['order_number']
     telegram_id = order['telegram_id']
 
-    # 1. 清理内存中的任务记录
+    # 2. 清理内存中的任务记录（停止轮询区块链）
     if order_number in payment_orders:
         del payment_orders[order_number]
     if order_number in payment_tasks:
         del payment_tasks[order_number]
 
     try:
-        # 2. 【核心修复】查询数据库最终状态
+        # 3. 【关键步骤】去数据库查最新的状态
         conn = get_db_conn()
         c = conn.cursor()
         c.execute("SELECT status FROM recharge_records WHERE order_id = ?", (order_number,))
         row = c.fetchone()
         conn.close()
 
-        # 如果数据库显示已完成，直接退出，不发送超时通知
+        # 4. 如果数据库显示已完成（管理员手动点过或回调成功），直接退出，什么都不发
         if row and row[0] == 'completed':
-            print(f"[超时检查] 订单 {order_number} 已支付成功，停止超时逻辑")
+            print(f"[超时检查] 订单 {order_number} 已由管理员手动完成或支付成功，拦截超时通知")
             return
-        # 3. 确实超时了，发送通知
+        # 5. 只有状态确实不是 completed 时，才发超时通知
         await bot.send_message(
             telegram_id,
-            f'⏰ 订单已超时\n\n订单号: {order_number}\n金额: {order["amount"]} U\n\n如果您已支付但未到账，请联系客服。'
+            f'⏰ 订单已关闭\n\n订单号: {order_number}\n金额: {order["amount"]} U\n\n提示：如果您已支付但未到账，请联系人工客服处理。'
         )
     except Exception as e:
         print(f"[超时处理错误] {e}")

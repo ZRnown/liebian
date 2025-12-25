@@ -1673,38 +1673,31 @@ def api_update_recharge_status(recharge_id):
             conn.close()
             return jsonify({'success': True, 'message': '该订单已是已支付状态，无需重复处理'})
 
-        # 标记为已支付，并为用户增加余额
-        c.execute('UPDATE recharge_records SET status = ? WHERE id = ?', ('completed', recharge_id))
-        # 如果表中存在 remark 字段，且管理员通过后台标记为已支付（通常表示开通），写备注为"开通"
-        try:
-            c.execute("PRAGMA table_info(recharge_records)")
-            cols = [r[1] for r in c.fetchall()]
-            if 'remark' in cols:
-                c.execute('UPDATE recharge_records SET remark = ? WHERE id = ?', ('开通', recharge_id))
-        except Exception:
-            pass
+        # 1. 标记数据库状态
+        c.execute('UPDATE recharge_records SET status = ?, remark = ? WHERE id = ?',
+                 ('completed', '管理员手动通过', recharge_id))
+
+        # 2. 给用户加余额 (重要！)
         c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?', (amount, member_id))
         conn.commit()
         conn.close()
 
-        # 【核心修复】统一走异步充值处理逻辑（process_recharge：自动开VIP + 条件检测 + 捡漏账号）
+        # 3. 【核心】告诉机器人去处理业务（开VIP、分红、发通知）
+        # 这会触发 bot_logic.process_recharge，它会自动识别余额是否足够开VIP
         try:
-            # 将任务推入 bot_logic 的队列，由 bot 在自身事件循环中消费（线程安全）
             import bot_logic
             if hasattr(bot_logic, 'process_recharge_queue'):
-                bot_logic.process_recharge_queue.append({'member_id': member_id, 'amount': amount, 'is_vip_order': True})
-                try:
-                    print(f'[后台充值状态修改] 已将充值任务加入 bot_logic.process_recharge_queue: member_id={member_id}, amount={amount}, queue_len={len(bot_logic.process_recharge_queue)}')
-                except:
-                    print(f'[后台充值状态修改] 已将充值任务加入 bot_logic.process_recharge_queue: member_id={member_id}, amount={amount}')
-            else:
-                print(f'[后台充值状态修改] bot_logic.process_recharge_queue 不存在，无法入队: member_id={member_id}, amount={amount}')
-        except Exception as async_err:
-            print(f'[后台充值状态修改] 将任务加入队列失败: {async_err}')
-            import traceback
-            traceback.print_exc()
+                # 推入队列，让机器人线程去扣款、开通VIP、发分红
+                bot_logic.process_recharge_queue.append({
+                    'member_id': member_id,
+                    'amount': amount,
+                    'is_vip_order': True  # 强制视为VIP订单处理
+                })
+                print(f"[Web后台手动通过] 已将订单 {order_id} 推送给机器人处理VIP逻辑")
+        except Exception as e:
+            print(f"[Web后台手动通过] 推送机器人队列失败: {e}")
 
-        return jsonify({'success': True, 'message': '已标记为已支付并触发统一充值处理逻辑'})
+        return jsonify({'success': True, 'message': '已手动通过，VIP开通和分红将在几秒内自动处理'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
