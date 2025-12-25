@@ -1324,11 +1324,11 @@ def api_broadcast_send():
 @app.route('/api/bot-configs')
 @login_required
 def api_bot_configs():
-    """获取Bot配置列表 (修复版: 返回完整对象)"""
+    """获取Bot配置列表 (修复版: 返回完整对象结构)"""
     try:
         conn = get_db_conn()
         c = conn.cursor()
-        # 从 bot_configs 表读取，而不是 system_config
+        # 从 bot_configs 表读取详细信息，而不是从 system_config 读取简单字符串
         c.execute("SELECT id, bot_token, bot_username, is_active, create_time FROM bot_configs ORDER BY id DESC")
         rows = c.fetchall()
         conn.close()
@@ -1343,8 +1343,7 @@ def api_bot_configs():
                 'create_time': row[4] or ''
             })
 
-        # 前端可能期望 'tokens' 字段，我们返回 'configs' 或兼容处理
-        # 如果您的前端是旧版，可能需要调整。假设前端是新版表格：
+        # 返回 configs 字段，前端表格才能正确渲染
         return jsonify({'success': True, 'configs': configs, 'tokens': configs})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -2160,6 +2159,65 @@ def run_web():
 
     print("🌐 Web管理后台启动中...")
     app.run(debug=False, host='0.0.0.0', port=5051, use_reloader=False)
+
+@app.route('/api/member-groups/<int:id>', methods=['PUT'])
+@login_required
+def api_update_member_group(id):
+    """更新会员群组信息"""
+    try:
+        data = request.json or {}
+        group_name = data.get('group_name')
+        group_link = data.get('group_link')
+
+        conn = get_db_conn()
+        c = conn.cursor()
+
+        updates = []
+        params = []
+        if group_name is not None:
+            updates.append("group_name = ?")
+            params.append(group_name)
+        if group_link is not None:
+            updates.append("group_link = ?")
+            params.append(group_link)
+
+        if not updates:
+            conn.close()
+            return jsonify({'success': False, 'message': '没有要更新的内容'})
+
+        params.append(id)
+        c.execute(f"UPDATE member_groups SET {', '.join(updates)} WHERE id = ?", params)
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': '更新成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/member-groups/<int:id>/verify', methods=['POST'])
+@login_required
+def api_verify_member_group(id):
+    """验证群组状态"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute("SELECT group_link FROM member_groups WHERE id = ?", (id,))
+        row = c.fetchone()
+        conn.close()
+
+        if not row or not row[0]:
+            return jsonify({'success': False, 'message': '群组不存在或无链接'}), 404
+
+        # 这里仅返回成功，真正的验证逻辑由后台定时任务 check_member_status_task 处理
+        # 前端收到成功后会提示用户稍后查看
+        return jsonify({
+            'success': True,
+            'message': '验证请求已提交，后台系统将自动检测该群组状态，请稍后刷新页面查看结果。'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 
 __all__ = ['app', 'run_web']
 
