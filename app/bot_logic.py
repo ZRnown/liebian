@@ -2805,118 +2805,103 @@ async def process_notify_queue():
 # ==================== 后台定时任务 ====================
 
 async def auto_broadcast_timer():
-    """定时自动群发 - 根据设置的间隔时间自动发送消息"""
+    """定时自动群发 - 根据 assignment 中每条消息的 broadcast_interval 和 last_sent_time 调度发送"""
     import json
-    last_broadcast_time = 0
-    
+    from datetime import datetime
+
+    check_interval_seconds = 10  # 每10秒扫描一次
+
     while True:
         try:
-            await asyncio.sleep(10)  # 每10秒检查一次
-            
-            print("[定时群发] 正在检查...", flush=True)
-            
+            await asyncio.sleep(check_interval_seconds)
+            now_ts = time.time()
+            print("[定时群发] 扫描分配任务...", flush=True)
+
             conn = get_db_conn()
             c = conn.cursor()
-            
-            # 检查是否开启定时群发
+
+            # 全局开关：允许管理员关闭定时分发
             c.execute("SELECT value FROM system_config WHERE key = 'broadcast_enabled'")
             row = c.fetchone()
-            broadcast_enabled = row[0] == '1' if row else False
-            
+            broadcast_enabled = row[0] == '1' if row else True
             if not broadcast_enabled:
                 conn.close()
                 continue
-            
-            # 获取间隔时间（分钟）
-            c.execute("SELECT value FROM system_config WHERE key = 'broadcast_interval'")
-            row = c.fetchone()
-            interval_minutes = int(row[0]) if row else 200
-            interval_seconds = interval_minutes * 60
-            
-            # 检查是否到达发送时间
-            current_time = time.time()
-            if current_time - last_broadcast_time < interval_seconds:
+
+            # 查询所有启用分配：关联 member_groups、broadcast_assignments、broadcast_messages
+            c.execute("""
+                SELECT ba.id, ba.group_id, ba.message_id, ba.last_sent_time,
+                       mg.group_link, mg.group_name,
+                       bm.content, bm.image_url, bm.video_url, bm.buttons, bm.buttons_per_row, bm.broadcast_interval, bm.create_time
+                FROM broadcast_assignments ba
+                JOIN broadcast_messages bm ON ba.message_id = bm.id
+                JOIN member_groups mg ON ba.group_id = mg.id
+                WHERE ba.is_active = 1 AND bm.is_active = 1 AND mg.schedule_broadcast = 1
+                ORDER BY bm.create_time ASC, bm.id ASC
+            """)
+            rows = c.fetchall()
+
+            if not rows:
                 conn.close()
                 continue
-            
-            # 获取启用的群发消息
-            c.execute("SELECT id, title, content, image_url, video_url, buttons, buttons_per_row FROM broadcast_messages WHERE is_active = 1 LIMIT 1")
-            msg = c.fetchone()
-            
-            if not msg:
-                conn.close()
-                continue
-            
-            msg_id, title, msg_content, image_url, video_url, buttons_json, buttons_per_row = msg
-            
-            # 解析按钮
-            inline_buttons = None
-            btn_count = 0
-            if buttons_json:
+
+            to_enqueue = []
+            for r in rows:
+                assign_id, group_id, message_id, last_sent_time, group_link, group_name, content, image_url, video_url, buttons_json, buttons_per_row, b_interval, bm_create = r
                 try:
-                    buttons_data = json.loads(buttons_json)
-                    if buttons_data:
-                        per_row = buttons_per_row or 2
-                        button_rows = []
-                        current_row = []
-                        for btn in buttons_data:
-                            if btn.get('name') and btn.get('url'):
-                                current_row.append(Button.url(btn['name'], btn['url']))
-                                if len(current_row) >= per_row:
-                                    button_rows.append(current_row)
-                                    current_row = []
-                        if current_row:
-                            button_rows.append(current_row)
-                        if button_rows:
-                            inline_buttons = button_rows
-                            btn_count = len(buttons_data)
-                except Exception as e:
-                    print(f"[定时群发] 解析按钮失败: {e}")
+                    interval_minutes = int(b_interval) if b_interval else 120
+                except:
+                    interval_minutes = 120
+                interval_seconds = interval_minutes * 60
 
-            # 获取所有群组
-            c.execute("SELECT group_link, group_name FROM member_groups WHERE schedule_broadcast = 1")
-            groups = c.fetchall()
+                # parse last_sent_time (ISO) to timestamp
+                last_ts = 0
+                if last_sent_time:
+                    try:
+                        # handle timezone-aware ISO strings
+                        dt = datetime.fromisoformat(last_sent_time)
+                        last_ts = dt.timestamp()
+                    except Exception:
+                        try:
+                            last_ts = float(last_sent_time)
+                        except:
+                            last_ts = 0
 
-            if not groups:
-                conn.close()
-                continue
+                # if never sent or interval elapsed, enqueue
+                if now_ts - last_ts >= interval_seconds:
+                    # prepare message content (simple: content only; buttons/media handled by process_broadcast_queue)
+                    to_enqueue.append({
+                        'assign_id': assign_id,
+                        'group_id': group_id,
+                        'group_link': group_link,
+                        'group_name': group_name,
+                        'message_id': message_id,
+                        'content': content or '',
+                        'image_url': image_url or '',
+                        'video_url': video_url or '',
+                        'buttons': buttons_json or '',
+                        'buttons_per_row': buttons_per_row or 2
+                    })
 
-            print(f"[定时群发] 开始发送消息到 {len(groups)} 个群组, 按钮数: {btn_count}")
+            # 插入到 broadcast_queue 并更新 last_sent_time
+            if to_enqueue:
+                now_iso = get_cn_time()
+                for item in to_enqueue:
+                    try:
+                        # insert queue entry
+                        c.execute('INSERT INTO broadcast_queue (group_link, group_name, message, status, create_time) VALUES (?, ?, ?, ?, ?)',
+                                  (item['group_link'], item['group_name'], item['content'], 'pending', now_iso))
+                        # update last_sent_time for assignment
+                        c.execute('UPDATE broadcast_assignments SET last_sent_time = ? WHERE id = ?', (now_iso, item['assign_id']))
+                    except Exception as e:
+                        print(f"[定时群发] 入队失败 assign_id={item['assign_id']}: {e}")
+                conn.commit()
+                print(f"[定时群发] 已入队 {len(to_enqueue)} 条消息")
 
-            sent_count = 0
-            for group_link, group_name in groups:
-                try:
-                    if group_link and 't.me/' in group_link:
-                        chat_username = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
-                        if not chat_username.startswith('+'):
-                            # 发送消息（带按钮）
-                            if image_url:
-                                # 处理本地上传的图片路径
-                                file_path = image_url
-                                if image_url.startswith('/static/uploads/'):
-                                    file_path = '/www/wwwroot/154.201.68.178:5051' + image_url
-                                await bot.send_file(f'@{chat_username}', file_path, caption=msg_content, buttons=inline_buttons)
-                            elif video_url:
-                                # 处理本地上传的视频路径
-                                file_path = video_url
-                                if video_url.startswith('/static/uploads/'):
-                                    file_path = '/www/wwwroot/154.201.68.178:5051' + video_url
-                                await bot.send_file(f'@{chat_username}', file_path, caption=msg_content, buttons=inline_buttons)
-                            else:
-                                await bot.send_message(f'@{chat_username}', msg_content, buttons=inline_buttons)
-                            sent_count += 1
-                            print(f"[定时群发] 已发送到 {group_name}")
-                            await asyncio.sleep(2)
-                except Exception as e:
-                    print(f"[定时群发] 发送到 {group_name} 失败: {e}")
-
-            last_broadcast_time = current_time
-            print(f"[定时群发] 本次发送完成，成功 {sent_count}/{len(groups)} 个群")
-            
             conn.close()
         except Exception as e:
             print(f"[定时群发] 错误: {e}")
-            await asyncio.sleep(60)
+            await asyncio.sleep(30)
 
 async def process_broadcast_queue():
     """处理群发队列（数据库队列）"""

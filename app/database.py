@@ -178,6 +178,18 @@ def init_db():
         create_time TEXT
     )''')
 
+    # 群发分配表：记录哪些群被分配了哪些群发内容，以及启用状态和最后发送时间
+    c.execute('''CREATE TABLE IF NOT EXISTS broadcast_assignments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER,
+        message_id INTEGER,
+        is_active INTEGER DEFAULT 1,
+        create_time TEXT,
+        last_sent_time TEXT,
+        FOREIGN KEY (group_id) REFERENCES member_groups(id),
+        FOREIGN KEY (message_id) REFERENCES broadcast_messages(id)
+    )''')
+
     # 会员群组表
     c.execute('''CREATE TABLE IF NOT EXISTS member_groups (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -941,6 +953,9 @@ def upgrade_broadcast_table():
     except: pass
     try:
         c.execute('ALTER TABLE broadcast_messages ADD COLUMN schedule_time TEXT')
+    except: pass
+    try:
+        c.execute('ALTER TABLE broadcast_messages ADD COLUMN broadcast_interval INTEGER DEFAULT 120')
     except: pass
     try:
         c.execute('ALTER TABLE broadcast_messages ADD COLUMN broadcast_interval INTEGER DEFAULT 120')

@@ -172,6 +172,30 @@
     </div>
 </div>
 
+<!-- 选择群发内容模态框（用于选群发 / 一键群发） -->
+<div id="selectBroadcastModal" class="modal fixed inset-0 bg-slate-900/50 z-[60] items-center justify-center backdrop-blur-sm hidden">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl m-4 max-h-[80vh] overflow-y-auto">
+        <div class="p-4 border-b border-slate-200 flex justify-between items-center">
+            <h3 class="text-base font-bold text-slate-900">选择群发内容</h3>
+            <button onclick="closeModal('selectBroadcastModal')" class="text-slate-400 hover:text-slate-600"><i class="ti ti-x text-xl"></i></button>
+        </div>
+        <div class="p-4">
+            <p id="selectBroadcastInfo" class="text-sm text-slate-600 mb-3"></p>
+            <div id="broadcastList" class="space-y-2 border rounded p-2 max-h-72 overflow-y-auto">
+                <!-- 动态加载群发消息列表 -->
+                <div class="text-center text-slate-400 py-6" id="broadcastLoading">加载中...</div>
+            </div>
+
+            <div class="flex gap-3 mt-4">
+                <button onclick="assignSelectedBroadcasts()" class="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg">分配到选中群</button>
+                <button onclick="sendSelectedBroadcasts()" class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg">立即发送</button>
+                <div class="flex-1"></div>
+                <button onclick="closeModal('selectBroadcastModal')" class="px-4 py-2 border rounded-lg text-sm">取消</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <style>
 .modal.show { display: flex !important; }
 </style>
@@ -445,6 +469,120 @@ async function sendBroadcast() {
         showToast('错误', error.message, 'error');
     }
 }
+
+// --------- 新增：选择并分配/发送群发内容逻辑 ----------
+let modalTargetGroups = []; // 要操作的群组id
+let broadcastMessagesCache = [];
+
+function openSelectBroadcastModal(targetGroupIds) {
+    modalTargetGroups = targetGroupIds || [];
+    document.getElementById('selectBroadcastInfo').textContent = `将对 ${modalTargetGroups.length} 个群进行操作`;
+    document.getElementById('broadcastList').innerHTML = '<div class="text-center text-slate-400 py-6" id="broadcastLoading">加载中...</div>';
+    showModal('selectBroadcastModal');
+    loadBroadcastMessagesForModal();
+}
+
+async function loadBroadcastMessagesForModal() {
+    try {
+        const res = await fetch('/api/broadcast/messages');
+        const data = await res.json();
+        const msgs = data.messages || [];
+        broadcastMessagesCache = msgs;
+
+        if (!msgs.length) {
+            document.getElementById('broadcastList').innerHTML = '<div class="text-center text-slate-400 py-6">暂无群发内容</div>';
+            return;
+        }
+
+        const html = msgs.map(m => {
+            return `<div class="p-2 border rounded flex items-start gap-3">
+                <div class="w-6"><input type="checkbox" class="select-broadcast-checkbox" data-id="${m.id}"></div>
+                <div class="flex-1">
+                    <div class="font-medium">${m.title || '未命名'}</div>
+                    <div class="text-xs text-slate-600">${(m.content || '').substring(0,200)}</div>
+                </div>
+                <div class="text-xs text-slate-500">间隔: ${m.broadcast_interval || 120} 分钟</div>
+            </div>`;
+        }).join('');
+        document.getElementById('broadcastList').innerHTML = html;
+    } catch (error) {
+        document.getElementById('broadcastList').innerHTML = '<div class="text-center text-red-500 py-6">加载失败</div>';
+    }
+}
+
+function broadcastSelected() {
+    if (selectedGroups.size === 0) {
+        showToast('提示', '请先选择要群发的群组', 'error');
+        return;
+    }
+    openSelectBroadcastModal([...selectedGroups]);
+}
+
+function broadcastAll() {
+    if (allGroups.length === 0) {
+        showToast('提示', '暂无群组可群发', 'error');
+        return;
+    }
+    openSelectBroadcastModal(allGroups.map(g => g.id));
+}
+
+async function assignSelectedBroadcasts() {
+    const checkboxes = Array.from(document.querySelectorAll('.select-broadcast-checkbox')).filter(cb => cb.checked);
+    if (checkboxes.length === 0) {
+        showToast('提示', '请选择要分配的群发内容', 'error');
+        return;
+    }
+    if (modalTargetGroups.length === 0) {
+        showToast('提示', '没有目标群组', 'error');
+        return;
+    }
+
+    try {
+        // 对每个群组和每个消息发起 assignment 请求
+        for (const gid of modalTargetGroups) {
+            for (const cb of checkboxes) {
+                const mid = parseInt(cb.dataset.id);
+                await fetch(`/api/member-groups/${gid}/broadcasts`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message_id: mid, is_active: 1 })
+                });
+            }
+        }
+        showToast('成功', `已将 ${checkboxes.length} 条内容分配到 ${modalTargetGroups.length} 个群`);
+        closeModal('selectBroadcastModal');
+    } catch (error) {
+        showToast('失败', '分配失败', 'error');
+    }
+}
+
+async function sendSelectedBroadcasts() {
+    const checkboxes = Array.from(document.querySelectorAll('.select-broadcast-checkbox')).filter(cb => cb.checked);
+    if (checkboxes.length === 0) {
+        showToast('提示', '请选择要发送的群发内容', 'error');
+        return;
+    }
+    if (modalTargetGroups.length === 0) {
+        showToast('提示', '没有目标群组', 'error');
+        return;
+    }
+
+    const message_ids = checkboxes.map(cb => parseInt(cb.dataset.id));
+    try {
+        for (const gid of modalTargetGroups) {
+            await fetch(`/api/member-groups/${gid}/broadcast/send`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message_ids: message_ids })
+            });
+        }
+        showToast('成功', `已提交发送任务给 ${modalTargetGroups.length} 个群`);
+        closeModal('selectBroadcastModal');
+    } catch (error) {
+        showToast('失败', '发送失败', 'error');
+    }
+}
+
 
 function showModal(id) { document.getElementById(id).classList.add('show'); }
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }

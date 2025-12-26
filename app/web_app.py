@@ -471,6 +471,140 @@ def api_add_member():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+@app.route('/api/member-groups/<int:group_id>/broadcasts', methods=['GET'])
+@login_required
+def api_get_group_broadcasts(group_id):
+    """获取某个群可用的群发列表以及该群已分配的条目状态"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        # 获取所有群发消息
+        c.execute("""SELECT id, title, content, image_url, video_url, buttons, buttons_per_row, broadcast_interval, is_active, create_time
+                     FROM broadcast_messages WHERE is_active = 1 ORDER BY id ASC""")
+        msgs = c.fetchall()
+
+        # 获取该群的分配记录
+        c.execute("SELECT message_id, is_active, last_sent_time FROM broadcast_assignments WHERE group_id = ?", (group_id,))
+        assigns = {r[0]: {'is_active': r[1], 'last_sent_time': r[2]} for r in c.fetchall()}
+        conn.close()
+
+        messages = []
+        for row in msgs:
+            mid = row[0]
+            messages.append({
+                'id': mid,
+                'title': row[1],
+                'content': row[2],
+                'image_url': row[3] or '',
+                'video_url': row[4] or '',
+                'buttons': row[5] or '[]',
+                'buttons_per_row': row[6] or 2,
+                'broadcast_interval': row[7] or 120,
+                'is_active': row[8],
+                'create_time': row[9] or '',
+                'assigned': mid in assigns,
+                'assignment': assigns.get(mid)
+            })
+
+        return jsonify({'success': True, 'messages': messages})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/member-groups/<int:group_id>/broadcasts', methods=['POST'])
+@login_required
+def api_assign_broadcast_to_group(group_id):
+    """为某个群分配一条群发消息（或更新激活状态）"""
+    try:
+        data = request.get_json() or {}
+        message_id = int(data.get('message_id') or 0)
+        is_active = 1 if data.get('is_active') else 0
+        if not message_id:
+            return jsonify({'success': False, 'message': 'message_id 必填'}), 400
+
+        conn = get_db_conn()
+        c = conn.cursor()
+        # 检查群是否存在
+        c.execute('SELECT id, group_link FROM member_groups WHERE id = ?', (group_id,))
+        g = c.fetchone()
+        if not g:
+            conn.close()
+            return jsonify({'success': False, 'message': '群组不存在'}), 404
+
+        # 插入或更新 assignment
+        c.execute('SELECT id FROM broadcast_assignments WHERE group_id = ? AND message_id = ?', (group_id, message_id))
+        row = c.fetchone()
+        now = get_cn_time()
+        if row:
+            c.execute('UPDATE broadcast_assignments SET is_active = ?, create_time = ? WHERE id = ?', (is_active, now, row[0]))
+        else:
+            c.execute('INSERT INTO broadcast_assignments (group_id, message_id, is_active, create_time) VALUES (?, ?, ?, ?)',
+                      (group_id, message_id, is_active, now))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '分配已保存'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/member-groups/<int:group_id>/broadcasts/<int:message_id>', methods=['DELETE'])
+@login_required
+def api_unassign_broadcast_from_group(group_id, message_id):
+    """取消某条消息对某群的分配"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('DELETE FROM broadcast_assignments WHERE group_id = ? AND message_id = ?', (group_id, message_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': '已取消分配'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/member-groups/<int:group_id>/broadcast/send', methods=['POST'])
+@login_required
+def api_group_send_broadcasts(group_id):
+    """立即向某个群发送选中的群发内容；如果未指定 message_ids，则发送该群已分配且启用的所有消息"""
+    try:
+        data = request.get_json() or {}
+        message_ids = data.get('message_ids') or []
+
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('SELECT group_link, group_name FROM member_groups WHERE id = ?', (group_id,))
+        g = c.fetchone()
+        if not g:
+            conn.close()
+            return jsonify({'success': False, 'message': '群组不存在'}), 404
+        group_link, group_name = g[0], g[1]
+
+        if not message_ids:
+            # 取该群已分配且启用的消息
+            c.execute('SELECT message_id FROM broadcast_assignments WHERE group_id = ? AND is_active = 1 ORDER BY id ASC', (group_id,))
+            message_ids = [r[0] for r in c.fetchall()]
+
+        if not message_ids:
+            conn.close()
+            return jsonify({'success': False, 'message': '没有可发送的群发内容'}), 400
+
+        # 获取待发送消息内容并写入 broadcast_queue
+        placeholders = ','.join(['?' for _ in message_ids])
+        c.execute(f'SELECT id, title, content, image_url, video_url, buttons FROM broadcast_messages WHERE id IN ({placeholders}) ORDER BY id ASC', message_ids)
+        rows = c.fetchall()
+        now = get_cn_time()
+        for row in rows:
+            msg_text = row[2] or ''
+            # 简单记录到队列；Bot 线程会读取 broadcast_queue 发送
+            c.execute('INSERT INTO broadcast_queue (group_link, group_name, message, status, create_time) VALUES (?, ?, ?, ?, ?)',
+                      (group_link, group_name, msg_text, 'pending', now))
+
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': f'已将 {len(rows)} 条消息加入群 {group_name} 的发送队列'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/member/<int:telegram_id>/graph')
 @login_required
 def api_member_graph(telegram_id):
