@@ -942,6 +942,9 @@ def upgrade_broadcast_table():
     try:
         c.execute('ALTER TABLE broadcast_messages ADD COLUMN schedule_time TEXT')
     except: pass
+    try:
+        c.execute('ALTER TABLE broadcast_messages ADD COLUMN broadcast_interval INTEGER DEFAULT 120')
+    except: pass
     conn.commit()
     conn.close()
 

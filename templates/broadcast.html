@@ -14,17 +14,6 @@
         </button>
     </div>
 
-    <!-- 定时群发设置 -->
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 p-4">
-        <div class="flex flex-wrap items-center gap-4">
-            <div class="flex items-center gap-2">
-                <span class="text-sm text-slate-600">定时群发间隔</span>
-                <input type="number" id="broadcastInterval" value="120" min="1" class="w-20 px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-center">
-                <span class="text-sm text-slate-600">分钟</span>
-                <button onclick="saveInterval()" class="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg">保存</button>
-            </div>
-        </div>
-    </div>
 
     <!-- 群发内容列表 -->
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -138,8 +127,19 @@
                     <!-- 动态添加的按钮行 -->
                 </div>
             </div>
-            
-            
+
+            <!-- 定时群发设置 -->
+            <div class="mb-4 border-t pt-4">
+                <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm font-medium text-slate-700">定时群发间隔</span>
+                        <input type="number" id="broadcastInterval" value="120" min="1" class="w-20 px-3 py-2 text-sm border border-slate-200 rounded-lg text-center">
+                        <span class="text-sm text-slate-600">分钟</span>
+                    </div>
+                </div>
+                <div class="text-xs text-slate-500 mt-1">设置为0表示不启用定时群发</div>
+            </div>
+
             <div class="flex gap-3 pt-2">
                 <button onclick="closeModal('messageModal')" class="flex-1 px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">取消</button>
                 <button onclick="previewMessage()" class="px-4 py-2 text-sm bg-purple-500 hover:bg-purple-600 text-white rounded-lg">预览</button>
@@ -330,6 +330,7 @@ function showAddModal() {
     document.getElementById('videoPreview').classList.add('hidden');
     document.getElementById('buttonsPerRow').value = '2';
     document.getElementById('buttonsList').innerHTML = '';
+    document.getElementById('broadcastInterval').value = '120';
     showModal('messageModal');
 }
 
@@ -454,7 +455,8 @@ async function saveMessage() {
         image_url: document.getElementById('imageUrl').value,
         video_url: document.getElementById('videoUrl').value,
         buttons: JSON.stringify(getButtons()),
-        buttons_per_row: parseInt(document.getElementById('buttonsPerRow').value)
+        buttons_per_row: parseInt(document.getElementById('buttonsPerRow').value),
+        broadcast_interval: parseInt(document.getElementById('broadcastInterval').value) || 0
     };
     
     try {
@@ -509,7 +511,8 @@ async function editMessage(id) {
             vidPreview.querySelector('video').src = m.video_url;
         }
         document.getElementById('buttonsPerRow').value = m.buttons_per_row || 2;
-        
+        document.getElementById('broadcastInterval').value = m.broadcast_interval || 120;
+
         // 加载按钮
         document.getElementById('buttonsList').innerHTML = '';
         buttonCount = 0;
@@ -540,19 +543,6 @@ async function deleteMessage(id) {
     }
 }
 
-async function saveInterval() {
-    const interval = document.getElementById('broadcastInterval').value;
-    try {
-        await fetch('/api/settings', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({key: 'broadcast_interval', value: interval})
-        });
-        showToast('成功', `定时间隔已设为 ${interval} 分钟`);
-    } catch (error) {
-        showToast('失败', '保存失败', 'error');
-    }
-}
 
 function showModal(id) { document.getElementById(id).classList.add('show'); }
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }

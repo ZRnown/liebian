@@ -1227,7 +1227,7 @@ def api_get_broadcast_messages():
         conn = get_db_conn()
         c = conn.cursor()
         c.execute("""SELECT id, title, content, media_type, media_url, is_active, create_time,
-                    image_url, video_url, buttons, buttons_per_row
+                    image_url, video_url, buttons, buttons_per_row, broadcast_interval
                     FROM broadcast_messages ORDER BY id DESC""")
         rows = c.fetchall()
         messages = []
@@ -1243,7 +1243,8 @@ def api_get_broadcast_messages():
                 'image_url': row[7] or '',
                 'video_url': row[8] or '',
                 'buttons': row[9] or '[]',
-                'buttons_per_row': row[10] or 2
+                'buttons_per_row': row[10] or 2,
+                'broadcast_interval': row[11] or 120
             })
         conn.close()
         return jsonify({'success': True, 'messages': messages})
@@ -1378,15 +1379,16 @@ def api_create_broadcast_message():
         video_url = data.get('video_url') or ''
         buttons = data.get('buttons') or '[]'
         buttons_per_row = int(data.get('buttons_per_row', 2) or 2)
+        broadcast_interval = int(data.get('broadcast_interval', 120) or 120)
         now = get_cn_time()
 
         conn = get_db_conn()
         c = conn.cursor()
         c.execute('''
             INSERT INTO broadcast_messages
-            (title, content, media_type, media_url, is_active, create_time, image_url, video_url, buttons, buttons_per_row)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (title, content, None, None, 1, now, image_url, video_url, buttons, buttons_per_row))
+            (title, content, media_type, media_url, is_active, create_time, image_url, video_url, buttons, buttons_per_row, broadcast_interval)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (title, content, None, None, 1, now, image_url, video_url, buttons, buttons_per_row, broadcast_interval))
         conn.commit()
         conn.close()
         return jsonify({'success': True, 'message': '创建成功'})
@@ -1400,7 +1402,7 @@ def api_get_broadcast_message(id):
     try:
         conn = get_db_conn()
         c = conn.cursor()
-        c.execute('SELECT id, title, content, image_url, video_url, buttons, buttons_per_row, is_active, create_time FROM broadcast_messages WHERE id = ?', (id,))
+        c.execute('SELECT id, title, content, image_url, video_url, buttons, buttons_per_row, is_active, broadcast_interval, create_time FROM broadcast_messages WHERE id = ?', (id,))
         row = c.fetchone()
         conn.close()
         if not row:
@@ -1414,7 +1416,8 @@ def api_get_broadcast_message(id):
             'buttons': row[5] or '[]',
             'buttons_per_row': row[6] or 2,
             'is_active': row[7],
-            'create_time': row[8] or ''
+            'broadcast_interval': row[8] or 120,
+            'create_time': row[9] or ''
         }
         return jsonify({'success': True, 'message': msg})
     except Exception as e:
@@ -1432,15 +1435,16 @@ def api_update_broadcast_message(id):
         video_url = data.get('video_url') or ''
         buttons = data.get('buttons') or '[]'
         buttons_per_row = int(data.get('buttons_per_row', 2) or 2)
+        broadcast_interval = int(data.get('broadcast_interval', 120) or 120)
         is_active = 1 if data.get('is_active', True) else 0
 
         conn = get_db_conn()
         c = conn.cursor()
         c.execute('''
             UPDATE broadcast_messages
-            SET title = ?, content = ?, image_url = ?, video_url = ?, buttons = ?, buttons_per_row = ?, is_active = ?
+            SET title = ?, content = ?, image_url = ?, video_url = ?, buttons = ?, buttons_per_row = ?, broadcast_interval = ?, is_active = ?
             WHERE id = ?
-        ''', (title, content, image_url, video_url, buttons, buttons_per_row, is_active, id))
+        ''', (title, content, image_url, video_url, buttons, buttons_per_row, broadcast_interval, is_active, id))
         conn.commit()
         conn.close()
         return jsonify({'success': True, 'message': '更新成功'})
