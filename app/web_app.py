@@ -10,7 +10,7 @@ from flask_login import LoginManager, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from database import DB, WebDB, AdminUser, get_system_config, get_db_conn, get_cn_time
-from config import UPLOAD_DIR
+from config import UPLOAD_DIR, BASE_DIR
 
 # 延迟导入bot，避免循环依赖
 try:
@@ -1628,7 +1628,8 @@ def api_upload_file():
         # 生成文件名
         import uuid
         filename = f"{uuid.uuid4().hex}_{file.filename}"
-        file_path = os.path.join(os.path.dirname(__file__), 'static', 'uploads', filename)
+        # 使用配置中的 UPLOAD_DIR（通常为 <BASE_DIR>/static/uploads）
+        file_path = os.path.join(UPLOAD_DIR, filename)
 
         # 确保上传目录存在
         os.makedirs(os.path.dirname(file_path), exist_ok=True)

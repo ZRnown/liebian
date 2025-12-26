@@ -2951,22 +2951,36 @@ async def process_broadcast_queue():
                             if send_image:
                                 file_path = send_image
                                 if send_image.startswith('/static/uploads/'):
-                                    # prefer local file path if exists relative to project root
-                                    local_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), send_image.lstrip('/'))
+                                    # prefer local file path using UPLOAD_DIR from config
+                                    try:
+                                        from config import UPLOAD_DIR
+                                        filename = os.path.basename(send_image)
+                                        local_path = os.path.join(UPLOAD_DIR, filename)
+                                    except Exception:
+                                        local_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), send_image.lstrip('/'))
+
                                     if os.path.exists(local_path):
                                         await bot.send_file(f'@{chat_username}', local_path, caption=send_text)
                                     else:
-                                        # fallback to sending as URL
+                                        # fallback to sending as URL and log error
+                                        print(f"[群发错误] 找不到本地图片文件: {local_path}")
                                         await bot.send_message(f'@{chat_username}', send_text + '\n' + send_image)
                                 else:
                                     await bot.send_message(f'@{chat_username}', send_text + '\n' + send_image)
                             elif send_video:
                                 file_path = send_video
                                 if send_video.startswith('/static/uploads/'):
-                                    local_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), send_video.lstrip('/'))
+                                    try:
+                                        from config import UPLOAD_DIR
+                                        filename = os.path.basename(send_video)
+                                        local_path = os.path.join(UPLOAD_DIR, filename)
+                                    except Exception:
+                                        local_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), send_video.lstrip('/'))
+
                                     if os.path.exists(local_path):
                                         await bot.send_file(f'@{chat_username}', local_path, caption=send_text)
                                     else:
+                                        print(f"[群发错误] 找不到本地视频文件: {local_path}")
                                         await bot.send_message(f'@{chat_username}', send_text + '\n' + send_video)
                                 else:
                                     await bot.send_message(f'@{chat_username}', send_text + '\n' + send_video)
