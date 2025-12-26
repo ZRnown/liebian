@@ -536,10 +536,10 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
         member = DB.get_member(telegram_id)
         if not member:
             return False
-
+            
         # Web端已经增加了余额，这里直接获取最新余额
         current_balance = member['balance']
-        vip_price = compute_vip_price_from_config(config)
+            vip_price = compute_vip_price_from_config(config)
 
         # 检查是否需要开通VIP
         # 条件：是VIP订单 + 不是VIP + 余额足够
@@ -548,7 +548,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
             # 1. 扣除余额 & 更新VIP状态
             new_balance = current_balance - vip_price
             DB.update_member(telegram_id, balance=new_balance, is_vip=1, vip_time=get_cn_time())
-
+                    
             # 2. 更新层级路径
             update_level_path(telegram_id)
 
@@ -560,7 +560,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
             msg = generate_vip_success_message(telegram_id, amount, vip_price, new_balance)
             await bot.send_message(telegram_id, msg, parse_mode='markdown')
 
-        else:
+            else:
             # 普通充值，或者余额不足以开通VIP
             # 如果不是VIP订单，或者是VIP订单但余额不足，发送普通到账通知
             # (Web端可能已经发了，这里可以判断一下，或者仅作为保险)
@@ -1425,7 +1425,7 @@ async def verify_groups_callback(event):
     except Exception as e:
         print(f"[verify_groups] edit失败，尝试respond: {e}")
         try:
-            await event.respond(text, parse_mode='markdown')
+        await event.respond(text, parse_mode='markdown')
         except Exception as e2:
             print(f"[verify_groups] respond也失败: {e2}")
             # 如果Markdown也失败，尝试不使用Markdown

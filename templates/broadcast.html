@@ -17,15 +17,8 @@
     <!-- 定时群发设置 -->
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-4 p-4">
         <div class="flex flex-wrap items-center gap-4">
-            <div class="flex items-center gap-3">
-                <span class="text-sm font-medium text-slate-700">开启定时群发</span>
-                <label class="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" id="broadcastSwitch" onchange="toggleBroadcast()" class="sr-only peer">
-                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
-                </label>
-            </div>
             <div class="flex items-center gap-2">
-                <span class="text-sm text-slate-600">设置时间 分</span>
+                <span class="text-sm text-slate-600">定时群发间隔</span>
                 <input type="number" id="broadcastInterval" value="120" min="1" class="w-20 px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-center">
                 <span class="text-sm text-slate-600">分钟</span>
                 <button onclick="saveInterval()" class="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg">保存</button>
@@ -40,11 +33,12 @@
                 <thead class="bg-slate-100 text-slate-600 font-semibold">
                     <tr>
                         <th class="px-4 py-3 text-left">ID</th>
-                        
+                        <th class="px-4 py-3 text-left">名称</th>
                         <th class="px-4 py-3 text-left">内容预览</th>
                         <th class="px-4 py-3 text-center">媒体</th>
                         <th class="px-4 py-3 text-center">按钮数</th>
                         <th class="px-4 py-3 text-center">状态</th>
+                        <th class="px-4 py-3 text-center">定时开关</th>
                         <th class="px-4 py-3 text-left">创建时间</th>
                         <th class="px-4 py-3 text-center">操作</th>
                     </tr>
@@ -77,7 +71,13 @@
         </div>
         <div class="p-4">
             <input type="hidden" id="editingId">
-            
+
+            <!-- 群发名称 -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-700 mb-1">群发名称</label>
+                <input type="text" id="messageTitle" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="输入群发内容名称..." maxlength="100">
+            </div>
+
             <div class="mb-4">
                 <div class="flex items-center justify-between mb-1">
                     <label class="text-sm font-medium text-slate-700">文本内容</label>
@@ -298,28 +298,28 @@ async function loadMessages() {
 
 function displayMessages(messages) {
     if (!messages || messages.length === 0) {
-        document.getElementById('messagesList').innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">暂无群发内容，点击"添加群发内容"创建</td></tr>';
+        document.getElementById('messagesList').innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">暂无群发内容，点击"添加群发内容"创建</td></tr>';
         return;
     }
 
     const html = messages.map(m => {
         const buttons = m.buttons ? JSON.parse(m.buttons || '[]') : [];
         const hasMedia = m.image_url || m.video_url;
+        const scheduleStatus = m.schedule_enabled ? '<span class="text-green-600">开启</span>' : '<span class="text-slate-400">关闭</span>';
         return `
         <tr class="hover:bg-slate-50">
             <td class="px-4 py-3">${m.id}</td>
-            
+            <td class="px-4 py-3 font-medium text-slate-900">${m.title || '未命名'}</td>
             <td class="px-4 py-3 text-slate-600 max-w-xs truncate">${(m.content || '').substring(0, 40)}...</td>
             <td class="px-4 py-3 text-center">
                 ${hasMedia ? '<span class="text-green-600"><i class="ti ti-photo"></i></span>' : '<span class="text-slate-300">-</span>'}
             </td>
             <td class="px-4 py-3 text-center">${buttons.length}</td>
             <td class="px-4 py-3 text-center">${m.is_active ? '<span class="text-green-600">启用</span>' : '<span class="text-slate-400">停用</span>'}</td>
+            <td class="px-4 py-3 text-center">${scheduleStatus}</td>
             <td class="px-4 py-3 text-slate-500">${m.create_time ? m.create_time.split(' ')[0] : '-'}</td>
             <td class="px-4 py-3">
                 <div class="flex items-center justify-center gap-1">
-                    <button onclick="selectMessage(${m.id})" class="px-2 py-1 text-xs rounded bg-green-500 hover:bg-green-600 text-white font-medium">选用</button>
-                    <button onclick="copyMessage(${m.id})" class="px-2 py-1 text-xs rounded bg-slate-500 hover:bg-slate-600 text-white font-medium">复制</button>
                     <button onclick="editMessage(${m.id})" class="px-2 py-1 text-xs rounded bg-blue-500 hover:bg-blue-600 text-white font-medium">编辑</button>
                     <button onclick="deleteMessage(${m.id})" class="px-2 py-1 text-xs rounded bg-red-500 hover:bg-red-600 text-white font-medium">删除</button>
                 </div>
@@ -335,6 +335,7 @@ function showAddModal() {
     document.getElementById('modalTitle').textContent = '添加群发内容';
     document.getElementById('editingId').value = '';
 
+    document.getElementById('messageTitle').value = '';
     document.getElementById('messageContent').value = '';
     document.getElementById('imageUrl').value = '';
     document.getElementById('videoUrl').value = '';
@@ -467,7 +468,7 @@ document.getElementById('enableSchedule').addEventListener('change', function() 
 
 async function saveMessage() {
     const data = {
-        title: document.getElementById('messageContent').value.substring(0, 20) || '群发消息',
+        title: document.getElementById('messageTitle').value.trim() || '未命名群发',
         content: document.getElementById('messageContent').value,
         image_url: document.getElementById('imageUrl').value,
         video_url: document.getElementById('videoUrl').value,
@@ -513,6 +514,7 @@ async function editMessage(id) {
         document.getElementById('modalTitle').textContent = '编辑群发内容';
         document.getElementById('editingId').value = m.id;
 
+        document.getElementById('messageTitle').value = m.title || '';
         document.getElementById('messageContent').value = m.content || '';
         document.getElementById('imageUrl').value = m.image_url || '';
         document.getElementById('videoUrl').value = m.video_url || '';
@@ -562,34 +564,6 @@ async function deleteMessage(id) {
     }
 }
 
-function selectMessage(id) {
-    // 存储选中的消息ID，供其他页面使用
-    localStorage.setItem('selectedBroadcastId', id);
-    showToast('已选用', '群发内容已选中，可在会员管理或群管理中使用');
-}
-
-function copyMessage(id) {
-    // 复制消息内容
-    const row = document.querySelector(`tr button[onclick="selectMessage(${id})"]`).closest('tr');
-    const content = row.querySelector('td:nth-child(3)').textContent;
-    navigator.clipboard.writeText(content);
-    showToast('已复制', '内容已复制');
-}
-
-async function toggleBroadcast() {
-    const enabled = document.getElementById('broadcastSwitch').checked ? '1' : '0';
-    try {
-        await fetch('/api/settings', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({key: 'broadcast_enabled', value: enabled})
-        });
-        showToast('成功', enabled === '1' ? '已开启定时群发' : '已关闭定时群发');
-    } catch (error) {
-        showToast('失败', '更新失败', 'error');
-    }
-}
-
 async function saveInterval() {
     const interval = document.getElementById('broadcastInterval').value;
     try {
@@ -604,24 +578,11 @@ async function saveInterval() {
     }
 }
 
-async function loadBroadcastStatus() {
-    try {
-        const response = await fetch('/api/settings');
-        const data = await response.json();
-        const settings = data.settings || data;
-        document.getElementById('broadcastSwitch').checked = settings.broadcast_enabled === '1' || settings.broadcast_enabled === 1;
-        document.getElementById('broadcastInterval').value = settings.broadcast_interval || 120;
-    } catch (error) {
-        console.error('加载状态失败:', error);
-    }
-}
-
 function showModal(id) { document.getElementById(id).classList.add('show'); }
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }
 
 document.addEventListener('DOMContentLoaded', () => {
     loadMessages();
-    loadBroadcastStatus();
 });
 </script>
 {% endblock %}

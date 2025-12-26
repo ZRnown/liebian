@@ -318,7 +318,7 @@ def payment_notify():
         if sign_received.upper() != calc_sign:
             print('[支付回调] 签名验证失败')
             return 'fail'
-
+        
         # 3. 业务处理
         status = str(raw_data.get('status'))
         out_trade_no = raw_data.get('out_trade_no')
@@ -376,9 +376,9 @@ def payment_notify():
                 except Exception as q_err:
                     print(f"[支付回调] 推送队列失败: {q_err}")
 
-            conn.close()
-            return 'success'
-
+                conn.close()
+                return 'success'
+        
         return 'success'
     except Exception as e:
         print(f'[支付回调] 异常: {e}')
@@ -1468,6 +1468,43 @@ def api_delete_broadcast_message(id):
         return jsonify({'success': True, 'message': '删除成功'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/upload', methods=['POST'])
+@login_required
+def api_upload_file():
+    """上传文件API"""
+    try:
+        file = request.files.get('file')
+        if not file:
+            return jsonify({'success': False, 'message': '没有文件'}), 400
+
+        # 检查文件大小（50MB）
+        if file.content_length and file.content_length > 50 * 1024 * 1024:
+            return jsonify({'success': False, 'message': '文件大小超过50MB'}), 400
+
+        # 检查文件类型
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/avi', 'video/mov']
+        if file.content_type not in allowed_types:
+            return jsonify({'success': False, 'message': '不支持的文件类型'}), 400
+
+        # 生成文件名
+        import uuid
+        filename = f"{uuid.uuid4().hex}_{file.filename}"
+        file_path = os.path.join(os.path.dirname(__file__), 'static', 'uploads', filename)
+
+        # 确保上传目录存在
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+        # 保存文件
+        file.save(file_path)
+
+        # 返回文件URL
+        file_url = f"/static/uploads/{filename}"
+        return jsonify({'success': True, 'url': file_url, 'message': '上传成功'})
+
+    except Exception as e:
+        print(f"上传文件错误: {e}")
+        return jsonify({'success': False, 'message': '上传失败'}), 500
 
 @app.route('/api/welcome-messages')
 @login_required

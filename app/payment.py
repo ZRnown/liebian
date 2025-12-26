@@ -175,10 +175,10 @@ async def payment_timeout_handler(bot, order):
     # 1. 等待订单有效期（例如20分钟 = 1200秒）
     check_duration = 1200
     await asyncio.sleep(check_duration)
-
+    
     order_number = order['order_number']
     telegram_id = order['telegram_id']
-
+    
     # 2. 清理内存中的任务记录（停止轮询区块链）
     if order_number in payment_orders:
         del payment_orders[order_number]
@@ -198,10 +198,10 @@ async def payment_timeout_handler(bot, order):
             print(f"[超时检查] 订单 {order_number} 已由管理员手动完成或支付成功，拦截超时通知")
             return
         # 5. 只有状态确实不是 completed 时，才发超时通知
-        await bot.send_message(
+            await bot.send_message(
             telegram_id,
             f'⏰ 订单已关闭\n\n订单号: {order_number}\n金额: {order["amount"]} U\n\n提示：如果您已支付但未到账，请联系人工客服处理。'
-        )
+            )
     except Exception as e:
         print(f"[超时处理错误] {e}")
 
