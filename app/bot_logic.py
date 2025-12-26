@@ -539,7 +539,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
             
         # Web端已经增加了余额，这里直接获取最新余额
         current_balance = member.get('balance', 0)
-            vip_price = compute_vip_price_from_config(config)
+        vip_price = compute_vip_price_from_config(config)
 
         # 若为VIP订单且用户尚未VIP且余额足够：扣费、开通、分红、通知
         if is_vip_order and not member.get('is_vip', False) and current_balance >= vip_price:
@@ -557,7 +557,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                 await bot.send_message(telegram_id, msg, parse_mode='markdown')
             except Exception as e:
                 print(f"[充值处理] 发送通知失败: {e}")
-                else:
+        else:
             # 普通充值或余额不足：如果不是VIP订单，发送普通到账通知
             if not is_vip_order:
                 try:
@@ -567,7 +567,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                     )
                 except Exception as e:
                     print(f"[充值处理] 发送普通通知失败: {e}")
-                    return True
+        return True
     except Exception as e:
         print(f"[充值处理异常] {e}")
         import traceback
@@ -1425,7 +1425,7 @@ async def verify_groups_callback(event):
     except Exception as e:
         print(f"[verify_groups] edit失败，尝试respond: {e}")
         try:
-        await event.respond(text, parse_mode='markdown')
+            await event.respond(text, parse_mode='markdown')
         except Exception as e2:
             print(f"[verify_groups] respond也失败: {e2}")
             # 如果Markdown也失败，尝试不使用Markdown
@@ -2901,7 +2901,7 @@ async def auto_broadcast_timer():
                                   (item['group_link'], item['group_name'], msg_payload, 'pending', now_iso))
                         # update last_sent_time for assignment
                         c.execute('UPDATE broadcast_assignments SET last_sent_time = ? WHERE id = ?', (now_iso, item['assign_id']))
-                except Exception as e:
+                    except Exception as e:
                         print(f"[定时群发] 入队失败 assign_id={item.get('assign_id')}: {e}")
                 conn.commit()
                 print(f"[定时群发] 已入队 {len(to_enqueue)} 条消息")
