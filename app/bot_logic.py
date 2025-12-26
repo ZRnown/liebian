@@ -78,6 +78,60 @@ BTN_VIP = '💎 开通会员'
 BTN_MY_PROMOTE = '💫 我的推广'
 BTN_EARNINGS = '📊 收益记录'
 
+
+async def send_vip_required_prompt(event_or_id, reply_method='respond'):
+    """给未开通VIP的用户发送统一提示文案，支持 event 或 telegram_id"""
+    try:
+        if isinstance(event_or_id, int):
+            telegram_id = event_or_id
+            member = DB.get_member(telegram_id)
+        else:
+            original = event_or_id
+            try:
+                original_sender_id = original.sender_id
+                original.sender_id = get_main_account_id(original_sender_id, getattr(original.sender, 'username', None))
+            except Exception:
+                pass
+            member = DB.get_member(original.sender_id)
+            telegram_id = original.sender_id
+
+        config = get_system_config()
+        vip_price = config.get('vip_price', 10)
+        balance = member['balance'] if member else 0
+
+        text = "抱歉 您还不是VIP\n\n"
+        text += "不能使用此功能 请先开通VIP\n"
+        text += "点击下方「开通VIP」按钮 开通在来哦\n\n"
+        text += f"💰 VIP价格: {vip_price} U\n"
+        text += f"💵 当前余额: {balance} U\n"
+
+        buttons = []
+        # 如果余额足够，提供余额开通按钮；否则提供充值入口
+        if balance >= vip_price:
+            buttons = [[Button.inline('💎 余额开通VIP', b'confirm_vip')]]
+        else:
+            buttons = [[Button.inline('💳 充值开通VIP', b'recharge_for_vip')], [Button.inline('💎 购买VIP', b'open_vip')]]
+
+        if isinstance(event_or_id, int):
+            try:
+                await bot.send_message(telegram_id, text, buttons=buttons)
+            except Exception:
+                pass
+        else:
+            # event-like
+            try:
+                if reply_method == 'respond':
+                    await event_or_id.respond(text, buttons=buttons)
+                else:
+                    await event_or_id.answer(text, alert=True)
+            except Exception:
+                try:
+                    await event_or_id.answer(text, alert=True)
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[VIP提示] 发送失败: {e}")
+
 # 初始化机器人
 if USE_PROXY:
     if PROXY_TYPE.lower() == 'socks5':
@@ -874,6 +928,11 @@ async def set_group_callback(event):
     if not member:
         await event.answer('请先发送 /start 注册')
         return
+
+    # VIP check
+    if not member.get('is_vip'):
+        await send_vip_required_prompt(event)
+        return
     
     # 切换到群链接输入时，清理备用号等待状态
     waiting_for_backup.pop(event.sender_id, None)
@@ -898,6 +957,11 @@ async def set_backup_callback(event):
     if not member:
         await event.answer('请先发送 /start 注册')
         return
+
+    # VIP check
+    if not member.get('is_vip'):
+        await send_vip_required_prompt(event)
+        return
     
     # 切换到备用号输入时，清理群链接等待状态
     waiting_for_group_link.pop(event.sender_id, None)
@@ -919,9 +983,14 @@ async def earnings_history_callback(event):
     except:
         pass
     member = DB.get_member(event.sender_id)
-    
+
     if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
+        return
+
+    # VIP check
+    if not member.get('is_vip'):
+        await send_vip_required_prompt(event)
         return
     
     conn = DB.get_conn()
@@ -1495,18 +1564,8 @@ async def view_fission_handler(event):
         return
 
     if not member['is_vip']:
-        text = '❌ 您还未开通VIP\n\n'
-        text += f'开通VIP后可获得以下权益:\n'
-        text += f'✅ 查看裂变数据\n'
-        text += f'✅ 获得下级开通VIP的奖励\n'
-        text += f'✅ 加入上级群组\n\n'
-        text += f'💰 VIP价格: {config["vip_price"]} U'
-        _fb_groups = get_fallback_resource("group")
-        if _fb_groups:
-            fb_links = '\n'.join([g.get('link', '') for g in _fb_groups if g.get('link')])
-            if fb_links:
-                text += f"\n\n💡 推荐群组:\n{fb_links}"
-        await event.respond(text)
+        # 使用统一的卡片式提示（贴近您提供的图片文案，做了语言通顺优化）
+        await send_vip_required_prompt(event)
         return
 
     conn = get_db_conn()
@@ -1777,14 +1836,9 @@ async def promote_handler(event):
         await event.respond('请先发送 /start 注册')
         return
     
-    # 未开通 VIP，禁止使用推广功能
+    # 未开通 VIP，禁止使用推广功能（统一卡片提示）
     if not member['is_vip']:
-        await event.respond(
-            "抱歉，您还不是 VIP\n\n"
-            "不能使用此功能，请先开通 VIP\n"
-            "点击下方「开通 VIP」按钮即可开通",
-            buttons=[[Button.inline('💎 开通 VIP', b'open_vip')]]
-        )
+        await send_vip_required_prompt(event)
         return
     
     # 未完成上级加群任务
@@ -2135,7 +2189,12 @@ async def my_promote_handler(event):
     if not member:
         await event.respond('请先发送 /start 注册')
         return
-    
+
+    # VIP check: 如果未开通，发送统一卡片提示
+    if not member.get('is_vip'):
+        await send_vip_required_prompt(event)
+        return
+
     # 获取下级统计
     counts = DB.get_downline_count(event.sender_id, config['level_count'])
     total_members = sum(c['total'] for c in counts)
