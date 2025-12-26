@@ -38,7 +38,6 @@
                         <th class="px-4 py-3 text-center">媒体</th>
                         <th class="px-4 py-3 text-center">按钮数</th>
                         <th class="px-4 py-3 text-center">状态</th>
-                        <th class="px-4 py-3 text-center">定时开关</th>
                         <th class="px-4 py-3 text-left">创建时间</th>
                         <th class="px-4 py-3 text-center">操作</th>
                     </tr>
@@ -140,16 +139,6 @@
                 </div>
             </div>
             
-            <!-- 定时设置 -->
-            <div class="mb-4 border-t pt-4">
-                <div class="flex items-center gap-4">
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" id="enableSchedule" class="w-4 h-4 rounded">
-                        <span class="text-sm font-medium text-slate-700">定时发送</span>
-                    </label>
-                    <input type="datetime-local" id="scheduleTime" class="px-3 py-2 text-sm border border-slate-200 rounded-lg" disabled>
-                </div>
-            </div>
             
             <div class="flex gap-3 pt-2">
                 <button onclick="closeModal('messageModal')" class="flex-1 px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">取消</button>
@@ -298,14 +287,13 @@ async function loadMessages() {
 
 function displayMessages(messages) {
     if (!messages || messages.length === 0) {
-        document.getElementById('messagesList').innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">暂无群发内容，点击"添加群发内容"创建</td></tr>';
+        document.getElementById('messagesList').innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">暂无群发内容，点击"添加群发内容"创建</td></tr>';
         return;
     }
 
     const html = messages.map(m => {
         const buttons = m.buttons ? JSON.parse(m.buttons || '[]') : [];
         const hasMedia = m.image_url || m.video_url;
-        const scheduleStatus = m.schedule_enabled ? '<span class="text-green-600">开启</span>' : '<span class="text-slate-400">关闭</span>';
         return `
         <tr class="hover:bg-slate-50">
             <td class="px-4 py-3">${m.id}</td>
@@ -316,7 +304,6 @@ function displayMessages(messages) {
             </td>
             <td class="px-4 py-3 text-center">${buttons.length}</td>
             <td class="px-4 py-3 text-center">${m.is_active ? '<span class="text-green-600">启用</span>' : '<span class="text-slate-400">停用</span>'}</td>
-            <td class="px-4 py-3 text-center">${scheduleStatus}</td>
             <td class="px-4 py-3 text-slate-500">${m.create_time ? m.create_time.split(' ')[0] : '-'}</td>
             <td class="px-4 py-3">
                 <div class="flex items-center justify-center gap-1">
@@ -343,9 +330,6 @@ function showAddModal() {
     document.getElementById('videoPreview').classList.add('hidden');
     document.getElementById('buttonsPerRow').value = '2';
     document.getElementById('buttonsList').innerHTML = '';
-    document.getElementById('enableSchedule').checked = false;
-    document.getElementById('scheduleTime').disabled = true;
-    document.getElementById('scheduleTime').value = '';
     showModal('messageModal');
 }
 
@@ -462,9 +446,6 @@ function previewMessage() {
     showModal('previewModal');
 }
 
-document.getElementById('enableSchedule').addEventListener('change', function() {
-    document.getElementById('scheduleTime').disabled = !this.checked;
-});
 
 async function saveMessage() {
     const data = {
@@ -473,9 +454,7 @@ async function saveMessage() {
         image_url: document.getElementById('imageUrl').value,
         video_url: document.getElementById('videoUrl').value,
         buttons: JSON.stringify(getButtons()),
-        buttons_per_row: parseInt(document.getElementById('buttonsPerRow').value),
-        schedule_enabled: document.getElementById('enableSchedule').checked ? 1 : 0,
-        schedule_time: document.getElementById('scheduleTime').value
+        buttons_per_row: parseInt(document.getElementById('buttonsPerRow').value)
     };
     
     try {
@@ -530,9 +509,6 @@ async function editMessage(id) {
             vidPreview.querySelector('video').src = m.video_url;
         }
         document.getElementById('buttonsPerRow').value = m.buttons_per_row || 2;
-        document.getElementById('enableSchedule').checked = m.schedule_enabled;
-        document.getElementById('scheduleTime').disabled = !m.schedule_enabled;
-        document.getElementById('scheduleTime').value = m.schedule_time || '';
         
         // 加载按钮
         document.getElementById('buttonsList').innerHTML = '';

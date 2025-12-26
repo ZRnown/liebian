@@ -1227,7 +1227,7 @@ def api_get_broadcast_messages():
         conn = get_db_conn()
         c = conn.cursor()
         c.execute("""SELECT id, title, content, media_type, media_url, is_active, create_time,
-                    image_url, video_url, buttons, buttons_per_row, schedule_enabled, schedule_time
+                    image_url, video_url, buttons, buttons_per_row
                     FROM broadcast_messages ORDER BY id DESC""")
         rows = c.fetchall()
         messages = []
@@ -1243,9 +1243,7 @@ def api_get_broadcast_messages():
                 'image_url': row[7] or '',
                 'video_url': row[8] or '',
                 'buttons': row[9] or '[]',
-                'buttons_per_row': row[10] or 2,
-                'schedule_enabled': row[11] or 0,
-                'schedule_time': row[12] or ''
+                'buttons_per_row': row[10] or 2
             })
         conn.close()
         return jsonify({'success': True, 'messages': messages})
@@ -1380,17 +1378,15 @@ def api_create_broadcast_message():
         video_url = data.get('video_url') or ''
         buttons = data.get('buttons') or '[]'
         buttons_per_row = int(data.get('buttons_per_row', 2) or 2)
-        schedule_enabled = 1 if data.get('schedule_enabled') else 0
-        schedule_time = data.get('schedule_time') or ''
         now = get_cn_time()
 
         conn = get_db_conn()
         c = conn.cursor()
         c.execute('''
             INSERT INTO broadcast_messages
-            (title, content, media_type, media_url, is_active, create_time, image_url, video_url, buttons, buttons_per_row, schedule_enabled, schedule_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (title, content, None, None, 1, now, image_url, video_url, buttons, buttons_per_row, schedule_enabled, schedule_time))
+            (title, content, media_type, media_url, is_active, create_time, image_url, video_url, buttons, buttons_per_row)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (title, content, None, None, 1, now, image_url, video_url, buttons, buttons_per_row))
         conn.commit()
         conn.close()
         return jsonify({'success': True, 'message': '创建成功'})
@@ -1404,7 +1400,7 @@ def api_get_broadcast_message(id):
     try:
         conn = get_db_conn()
         c = conn.cursor()
-        c.execute('SELECT id, title, content, image_url, video_url, buttons, buttons_per_row, is_active, schedule_enabled, schedule_time, create_time FROM broadcast_messages WHERE id = ?', (id,))
+        c.execute('SELECT id, title, content, image_url, video_url, buttons, buttons_per_row, is_active, create_time FROM broadcast_messages WHERE id = ?', (id,))
         row = c.fetchone()
         conn.close()
         if not row:
@@ -1418,9 +1414,7 @@ def api_get_broadcast_message(id):
             'buttons': row[5] or '[]',
             'buttons_per_row': row[6] or 2,
             'is_active': row[7],
-            'schedule_enabled': row[8],
-            'schedule_time': row[9] or '',
-            'create_time': row[10] or ''
+            'create_time': row[8] or ''
         }
         return jsonify({'success': True, 'message': msg})
     except Exception as e:
@@ -1438,17 +1432,15 @@ def api_update_broadcast_message(id):
         video_url = data.get('video_url') or ''
         buttons = data.get('buttons') or '[]'
         buttons_per_row = int(data.get('buttons_per_row', 2) or 2)
-        schedule_enabled = 1 if data.get('schedule_enabled') else 0
-        schedule_time = data.get('schedule_time') or ''
         is_active = 1 if data.get('is_active', True) else 0
 
         conn = get_db_conn()
         c = conn.cursor()
         c.execute('''
             UPDATE broadcast_messages
-            SET title = ?, content = ?, image_url = ?, video_url = ?, buttons = ?, buttons_per_row = ?, schedule_enabled = ?, schedule_time = ?, is_active = ?
+            SET title = ?, content = ?, image_url = ?, video_url = ?, buttons = ?, buttons_per_row = ?, is_active = ?
             WHERE id = ?
-        ''', (title, content, image_url, video_url, buttons, buttons_per_row, schedule_enabled, schedule_time, is_active, id))
+        ''', (title, content, image_url, video_url, buttons, buttons_per_row, is_active, id))
         conn.commit()
         conn.close()
         return jsonify({'success': True, 'message': '更新成功'})
