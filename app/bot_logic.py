@@ -538,37 +538,37 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
             return False
             
         # Web端已经增加了余额，这里直接获取最新余额
-        current_balance = member['balance']
-        vip_price = compute_vip_price_from_config(config)
+        current_balance = member.get('balance', 0)
+            vip_price = compute_vip_price_from_config(config)
 
-        # 检查是否需要开通VIP
-        # 条件：是VIP订单 + 不是VIP + 余额足够
-        if is_vip_order and not member['is_vip'] and current_balance >= vip_price:
+        # 如果是VIP订单且用户尚未是VIP且余额足够，则由Bot端负责扣费并开通VIP和分红
+        if is_vip_order and not member.get('is_vip', False) and current_balance >= vip_price:
             print(f'[充值处理] 开始VIP自动开通: telegram_id={telegram_id}, 余额={current_balance}')
-            # 1. 扣除余额 & 更新VIP状态
+            # 扣除余额并设置VIP
             new_balance = current_balance - vip_price
             DB.update_member(telegram_id, balance=new_balance, is_vip=1, vip_time=get_cn_time())
-                    
-            # 2. 更新层级路径
+
+            # 更新层级路径
             update_level_path(telegram_id)
 
-            # 3. 分发奖励 (调用 core_functions 中修复后的函数)
+            # 分发奖励并发送通知（调用 core_functions）
             from core_functions import distribute_vip_rewards, generate_vip_success_message
             await distribute_vip_rewards(bot, telegram_id, vip_price, config)
-
-            # 4. 发送详细通知
             msg = generate_vip_success_message(telegram_id, amount, vip_price, new_balance)
-            await bot.send_message(telegram_id, msg, parse_mode='markdown')
-
-        else:
-            # 普通充值，或者余额不足以开通VIP
-            # 如果不是VIP订单，或者是VIP订单但余额不足，发送普通到账通知
-            # (Web端可能已经发了，这里可以判断一下，或者仅作为保险)
+            try:
+                await bot.send_message(telegram_id, msg, parse_mode='markdown')
+            except Exception:
+                pass
+            else:
+            # 普通充值或余额不足：发送普通到账通知（如果不是VIP订单）
             if not is_vip_order:
+                try:
                 await bot.send_message(
                     telegram_id,
-                    f'✅ 充值到账通知\n\n💰 金额: {amount} U\n💵 当前余额: {current_balance} U'
+                        f'✅ 充值到账通知\n\n💰 金额: {amount} U\n💵 当前余额: {current_balance} U'
                 )
+                except Exception:
+                    pass
     except Exception as e:
         print(f"[充值处理异常] {e}")
         import traceback
@@ -1425,7 +1425,7 @@ async def verify_groups_callback(event):
     except Exception as e:
         print(f"[verify_groups] edit失败，尝试respond: {e}")
         try:
-            await event.respond(text, parse_mode='markdown')
+        await event.respond(text, parse_mode='markdown')
         except Exception as e2:
             print(f"[verify_groups] respond也失败: {e2}")
             # 如果Markdown也失败，尝试不使用Markdown
@@ -2810,16 +2810,16 @@ async def auto_broadcast_timer():
     from datetime import datetime
 
     check_interval_seconds = 10  # 每10秒扫描一次
-
+    
     while True:
         try:
             await asyncio.sleep(check_interval_seconds)
             now_ts = time.time()
             print("[定时群发] 扫描分配任务...", flush=True)
-
+            
             conn = get_db_conn()
             c = conn.cursor()
-
+            
             # 全局开关：允许管理员关闭定时分发
             c.execute("SELECT value FROM system_config WHERE key = 'broadcast_enabled'")
             row = c.fetchone()
@@ -2827,7 +2827,7 @@ async def auto_broadcast_timer():
             if not broadcast_enabled:
                 conn.close()
                 continue
-
+            
             # 查询所有启用分配：关联 member_groups、broadcast_assignments、broadcast_messages
             c.execute("""
                 SELECT ba.id, ba.group_id, ba.message_id, ba.last_sent_time,
@@ -2844,7 +2844,7 @@ async def auto_broadcast_timer():
             if not rows:
                 conn.close()
                 continue
-
+            
             to_enqueue = []
             for r in rows:
                 assign_id, group_id, message_id, last_sent_time, group_link, group_name, content, image_url, video_url, buttons_json, buttons_per_row, b_interval, bm_create = r
@@ -2888,16 +2888,24 @@ async def auto_broadcast_timer():
                 now_iso = get_cn_time()
                 for item in to_enqueue:
                     try:
-                        # insert queue entry
+                        # insert queue entry (store JSON if item contains media)
+                        import json as _json
+                        msg_payload = _json.dumps({
+                            'content': item.get('content') or '',
+                            'image_url': item.get('image_url') or '',
+                            'video_url': item.get('video_url') or '',
+                            'buttons': item.get('buttons') or '',
+                            'buttons_per_row': item.get('buttons_per_row') or 2
+                        }, ensure_ascii=False)
                         c.execute('INSERT INTO broadcast_queue (group_link, group_name, message, status, create_time) VALUES (?, ?, ?, ?, ?)',
-                                  (item['group_link'], item['group_name'], item['content'], 'pending', now_iso))
+                                  (item['group_link'], item['group_name'], msg_payload, 'pending', now_iso))
                         # update last_sent_time for assignment
                         c.execute('UPDATE broadcast_assignments SET last_sent_time = ? WHERE id = ?', (now_iso, item['assign_id']))
-                    except Exception as e:
-                        print(f"[定时群发] 入队失败 assign_id={item['assign_id']}: {e}")
+                except Exception as e:
+                        print(f"[定时群发] 入队失败 assign_id={item.get('assign_id')}: {e}")
                 conn.commit()
                 print(f"[定时群发] 已入队 {len(to_enqueue)} 条消息")
-
+            
             conn.close()
         except Exception as e:
             print(f"[定时群发] 错误: {e}")
@@ -2921,7 +2929,78 @@ async def process_broadcast_queue():
                     if group_link and 't.me/' in group_link:
                         chat_username = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
                         if not chat_username.startswith('+'):
-                            await bot.send_message(f'@{chat_username}', message)
+                            # 支持 message 存储为纯文本或 JSON 字符串（包含 content/image_url/video_url/buttons）
+                            send_text = None
+                            send_image = None
+                            send_video = None
+                            send_buttons = None
+                            try:
+                                import json as _json
+                                parsed = _json.loads(message)
+                                if isinstance(parsed, dict):
+                                    send_text = parsed.get('content') or ''
+                                    send_image = parsed.get('image_url') or ''
+                                    send_video = parsed.get('video_url') or ''
+                                    send_buttons = parsed.get('buttons') or ''
+                                else:
+                                    send_text = str(parsed)
+                            except Exception:
+                                send_text = message
+
+                            # send file if image or video present
+                            if send_image:
+                                file_path = send_image
+                                if send_image.startswith('/static/uploads/'):
+                                    # prefer local file path if exists relative to project root
+                                    local_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), send_image.lstrip('/'))
+                                    if os.path.exists(local_path):
+                                        await bot.send_file(f'@{chat_username}', local_path, caption=send_text)
+                                    else:
+                                        # fallback to sending as URL
+                                        await bot.send_message(f'@{chat_username}', send_text + '\n' + send_image)
+                                else:
+                                    await bot.send_message(f'@{chat_username}', send_text + '\n' + send_image)
+                            elif send_video:
+                                file_path = send_video
+                                if send_video.startswith('/static/uploads/'):
+                                    local_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), send_video.lstrip('/'))
+                                    if os.path.exists(local_path):
+                                        await bot.send_file(f'@{chat_username}', local_path, caption=send_text)
+                                    else:
+                                        await bot.send_message(f'@{chat_username}', send_text + '\n' + send_video)
+                                else:
+                                    await bot.send_message(f'@{chat_username}', send_text + '\n' + send_video)
+                            else:
+                                # try to build buttons if any
+                                buttons_obj = None
+                                if send_buttons:
+                                    try:
+                                        import json as _json2
+                                        btns = _json2.loads(send_buttons)
+                                        per_row = 2
+                                        # if buttons_per_row present in parsed, use it
+                                        if isinstance(parsed, dict) and parsed.get('buttons_per_row'):
+                                            per_row = int(parsed.get('buttons_per_row') or per_row)
+                                        rows = []
+                                        row_buf = []
+                                        for b in btns:
+                                            if b.get('name') and b.get('url'):
+                                                row_buf.append(Button.url(b['name'], b['url']))
+                                                if len(row_buf) >= per_row:
+                                                    rows.append(row_buf)
+                                                    row_buf = []
+                                        if row_buf:
+                                            rows.append(row_buf)
+                                        if rows:
+                                            buttons_obj = rows
+                                    except Exception:
+                                        buttons_obj = None
+
+                                if buttons_obj:
+                                    await bot.send_message(f'@{chat_username}', send_text, buttons=buttons_obj)
+                                else:
+                                    await bot.send_message(f'@{chat_username}', send_text)
+
                             c.execute("UPDATE broadcast_queue SET status = 'sent', result = '发送成功' WHERE id = ?", (task_id,))
                             print(f"[群发队列] 已发送到 {group_name}")
                         else:

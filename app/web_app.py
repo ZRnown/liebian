@@ -594,10 +594,18 @@ def api_group_send_broadcasts(group_id):
         rows = c.fetchall()
         now = get_cn_time()
         for row in rows:
-            msg_text = row[2] or ''
-            # 简单记录到队列；Bot 线程会读取 broadcast_queue 发送
+            # build a JSON payload containing content and media
+            msg_obj = {
+                'content': row[2] or '',
+                'image_url': row[3] or '',
+                'video_url': row[4] or '',
+                'buttons': row[5] or '',
+            }
+            import json
+            msg_json = json.dumps(msg_obj, ensure_ascii=False)
+            # 写入队列；Bot 线程会解析 JSON 并发送媒体/按钮等
             c.execute('INSERT INTO broadcast_queue (group_link, group_name, message, status, create_time) VALUES (?, ?, ?, ?, ?)',
-                      (group_link, group_name, msg_text, 'pending', now))
+                      (group_link, group_name, msg_json, 'pending', now))
 
         conn.commit()
         conn.close()
