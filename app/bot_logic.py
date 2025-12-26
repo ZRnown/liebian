@@ -541,38 +541,38 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
         current_balance = member.get('balance', 0)
             vip_price = compute_vip_price_from_config(config)
 
-        # 如果是VIP订单且用户尚未是VIP且余额足够，则由Bot端负责扣费并开通VIP和分红
+        # 若为VIP订单且用户尚未VIP且余额足够：扣费、开通、分红、通知
         if is_vip_order and not member.get('is_vip', False) and current_balance >= vip_price:
             print(f'[充值处理] 开始VIP自动开通: telegram_id={telegram_id}, 余额={current_balance}')
-            # 扣除余额并设置VIP
             new_balance = current_balance - vip_price
             DB.update_member(telegram_id, balance=new_balance, is_vip=1, vip_time=get_cn_time())
-
-            # 更新层级路径
             update_level_path(telegram_id)
-
-            # 分发奖励并发送通知（调用 core_functions）
             from core_functions import distribute_vip_rewards, generate_vip_success_message
-            await distribute_vip_rewards(bot, telegram_id, vip_price, config)
+            try:
+                await distribute_vip_rewards(bot, telegram_id, vip_price, config)
+            except Exception as e:
+                print(f"[充值处理] 分发奖励出错: {e}")
             msg = generate_vip_success_message(telegram_id, amount, vip_price, new_balance)
             try:
                 await bot.send_message(telegram_id, msg, parse_mode='markdown')
-            except Exception:
-                pass
-            else:
-            # 普通充值或余额不足：发送普通到账通知（如果不是VIP订单）
+            except Exception as e:
+                print(f"[充值处理] 发送通知失败: {e}")
+                else:
+            # 普通充值或余额不足：如果不是VIP订单，发送普通到账通知
             if not is_vip_order:
                 try:
-                await bot.send_message(
-                    telegram_id,
-                        f'✅ 充值到账通知\n\n💰 金额: {amount} U\n💵 当前余额: {current_balance} U'
-                )
-                except Exception:
-                    pass
+                    await bot.send_message(
+                        telegram_id,
+                        f'✅ 充值到账通知\\n\\n💰 金额: {amount} U\\n💵 当前余额: {current_balance} U'
+                    )
+                except Exception as e:
+                    print(f"[充值处理] 发送普通通知失败: {e}")
+                    return True
     except Exception as e:
         print(f"[充值处理异常] {e}")
         import traceback
         traceback.print_exc()
+        return False
 
 # ==================== 管理员手动开通VIP ====================
 
