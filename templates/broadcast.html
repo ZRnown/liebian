@@ -129,17 +129,7 @@
                 </div>
             </div>
 
-            <!-- 定时群发设置 -->
-            <div class="mb-4 border-t pt-4">
-                <div class="flex items-center gap-4">
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm font-medium text-slate-700">定时群发间隔</span>
-                        <input type="number" id="broadcastInterval" value="120" min="1" class="w-20 px-3 py-2 text-sm border border-slate-200 rounded-lg text-center">
-                        <span class="text-sm text-slate-600">分钟</span>
-                    </div>
-                </div>
-                <div class="text-xs text-slate-500 mt-1">设置为0表示不启用定时群发</div>
-            </div>
+            <!-- 定时群发间隔已移至列表，可在列表直接设置每条消息的间隔（分钟） -->
 
             <div class="flex gap-3 pt-2">
                 <button onclick="closeModal('messageModal')" class="flex-1 px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">取消</button>
@@ -337,7 +327,7 @@ function showAddModal() {
     document.getElementById('videoPreview').classList.add('hidden');
     document.getElementById('buttonsPerRow').value = '2';
     document.getElementById('buttonsList').innerHTML = '';
-    document.getElementById('broadcastInterval').value = '120';
+    // broadcastInterval removed from modal; interval is set in list
     showModal('messageModal');
 }
 
@@ -456,14 +446,13 @@ function previewMessage() {
 
 
 async function saveMessage() {
-    const data = {
+        const data = {
         title: document.getElementById('messageTitle').value.trim() || '未命名群发',
         content: document.getElementById('messageContent').value,
         image_url: document.getElementById('imageUrl').value,
         video_url: document.getElementById('videoUrl').value,
         buttons: JSON.stringify(getButtons()),
-        buttons_per_row: parseInt(document.getElementById('buttonsPerRow').value),
-        broadcast_interval: parseInt(document.getElementById('broadcastInterval').value) || 0
+        buttons_per_row: parseInt(document.getElementById('buttonsPerRow').value)
     };
     
     try {
@@ -518,7 +507,7 @@ async function editMessage(id) {
             vidPreview.querySelector('video').src = m.video_url;
         }
         document.getElementById('buttonsPerRow').value = m.buttons_per_row || 2;
-        document.getElementById('broadcastInterval').value = m.broadcast_interval || 120;
+        // broadcastInterval removed from modal; per-message interval is edited in list
 
         // 加载按钮
         document.getElementById('buttonsList').innerHTML = '';
