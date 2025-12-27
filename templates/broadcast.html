@@ -27,12 +27,13 @@
                         <th class="px-4 py-3 text-center">媒体</th>
                         <th class="px-4 py-3 text-center">按钮数</th>
                         <th class="px-4 py-3 text-center">状态</th>
+                        <th class="px-4 py-3 text-center">间隔(分钟)</th>
                         <th class="px-4 py-3 text-left">创建时间</th>
                         <th class="px-4 py-3 text-center">操作</th>
                     </tr>
                 </thead>
                 <tbody id="messagesList" class="divide-y divide-slate-100">
-                    <tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">加载中...</td></tr>
+                    <tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -287,7 +288,7 @@ async function loadMessages() {
 
 function displayMessages(messages) {
     if (!messages || messages.length === 0) {
-        document.getElementById('messagesList').innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">暂无群发内容，点击"添加群发内容"创建</td></tr>';
+        document.getElementById('messagesList').innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">暂无群发内容，点击\"添加群发内容\"创建</td></tr>';
         return;
     }
 
@@ -304,6 +305,12 @@ function displayMessages(messages) {
             </td>
             <td class="px-4 py-3 text-center">${buttons.length}</td>
             <td class="px-4 py-3 text-center">${m.is_active ? '<span class="text-green-600">启用</span>' : '<span class="text-slate-400">停用</span>'}</td>
+            <td class="px-4 py-3 text-center">
+                <div class="flex items-center justify-center gap-2">
+                    <input id="interval_${m.id}" type="number" min="0" value="${m.broadcast_interval || 0}" class="w-20 px-2 py-1 text-sm border border-slate-200 rounded text-center">
+                    <button onclick="saveInterval(${m.id})" class="px-2 py-1 text-xs rounded bg-indigo-500 hover:bg-indigo-600 text-white font-medium">保存</button>
+                </div>
+            </td>
             <td class="px-4 py-3 text-slate-500">${m.create_time ? m.create_time.split(' ')[0] : '-'}</td>
             <td class="px-4 py-3">
                 <div class="flex items-center justify-center gap-1">
@@ -540,6 +547,28 @@ async function deleteMessage(id) {
         }
     } catch (error) {
         showToast('删除失败', error.message, 'error');
+    }
+}
+
+async function saveInterval(id) {
+    const input = document.getElementById(`interval_${id}`);
+    if (!input) return;
+    const val = parseInt(input.value) || 0;
+    try {
+        const response = await fetch(`/api/broadcast/message/${id}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ broadcast_interval: val })
+        });
+        const result = await response.json();
+        if (result.success) {
+            showToast('成功', '已保存间隔');
+            loadMessages(); // refresh list to reflect server values
+        } else {
+            showToast('失败', result.message || '保存失败', 'error');
+        }
+    } catch (err) {
+        showToast('错误', err.message, 'error');
     }
 }
 
