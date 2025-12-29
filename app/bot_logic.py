@@ -132,7 +132,35 @@ async def send_vip_required_prompt(event_or_id, reply_method='respond'):
     except Exception as e:
         print(f"[VIP提示] 发送失败: {e}")
 
+def get_active_bot_tokens():
+    """获取所有活跃的机器人token"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('SELECT bot_token FROM bot_configs WHERE is_active = 1 ORDER BY id ASC')
+        rows = c.fetchall()
+        conn.close()
+        return [row[0] for row in rows if row[0]]
+    except Exception as e:
+        print(f"[机器人初始化] 获取活跃token失败: {e}")
+        return [BOT_TOKEN]  # 回退到默认token
+
+def select_bot_token():
+    """选择一个机器人token（轮流或随机选择）"""
+    active_tokens = get_active_bot_tokens()
+    if not active_tokens:
+        print("[机器人初始化] 没有活跃的机器人token，使用默认token")
+        return BOT_TOKEN
+
+    # 简单轮流选择（可以改为随机或更复杂的策略）
+    import time
+    index = int(time.time()) % len(active_tokens)
+    selected_token = active_tokens[index]
+    print(f"[机器人初始化] 选择机器人token {index + 1}/{len(active_tokens)}: {selected_token[:20]}...")
+    return selected_token
+
 # 初始化机器人
+selected_token = select_bot_token()
 if USE_PROXY:
     if PROXY_TYPE.lower() == 'socks5':
         proxy = (socks.SOCKS5, PROXY_HOST, PROXY_PORT)
@@ -142,9 +170,11 @@ if USE_PROXY:
         proxy = (socks.HTTP, PROXY_HOST, PROXY_PORT)
     else:
         proxy = (socks.SOCKS5, PROXY_HOST, PROXY_PORT)
-    bot = TelegramClient('bot', API_ID, API_HASH, proxy=proxy).start(bot_token=BOT_TOKEN)
+    bot = TelegramClient('bot', API_ID, API_HASH, proxy=proxy).start(bot_token=selected_token)
 else:
-    bot = TelegramClient(MemorySession(), API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+    bot = TelegramClient(MemorySession(), API_ID, API_HASH).start(bot_token=selected_token)
+
+print(f"[机器人初始化] 机器人启动成功，使用token: {selected_token[:20]}...")
 
 # 全局队列
 pending_broadcasts = []
@@ -1578,23 +1608,47 @@ async def view_fission_handler(event):
     total_vip = 0
     buttons = []
 
-    # 显示层级按钮：从低层到高层（例如 1 -> 10），第一层在最上面，第十层在最下面
-    for level in range(1, config['level_count'] + 1):
-        if level == 1:
-            c.execute("""
-                SELECT COUNT(*), SUM(CASE WHEN is_vip = 1 THEN 1 ELSE 0 END)
-                FROM members WHERE referrer_id = ?
-            """, (member['telegram_id'],))
-        else:
-            c.execute("""
-                SELECT COUNT(*), SUM(CASE WHEN is_vip = 1 THEN 1 ELSE 0 END)
-                FROM members
-                WHERE level_path LIKE ?
-            """, (f'%,{member["id"]},%',))
+    # 获取各级下级用户
+    level_users = {}  # 存储每一层的用户ID列表
 
-        result = c.fetchone()
-        level_total = result[0] if result[0] else 0
-        level_vip = result[1] if result[1] else 0
+    # 第1层：直接上级是当前用户的用户
+    c.execute("""
+        SELECT telegram_id FROM members WHERE referrer_id = ?
+    """, (member['telegram_id'],))
+    level_users[1] = [row[0] for row in c.fetchall()]
+
+    # 计算第1层的统计
+    level_total = len(level_users[1])
+    c.execute("""
+        SELECT COUNT(*) FROM members WHERE referrer_id = ? AND is_vip = 1
+    """, (member['telegram_id'],))
+    level_vip = c.fetchone()[0]
+    total_members += level_total
+    total_vip += level_vip
+
+    # 第2层及以上：上级是上一层用户的用户
+    for level in range(2, config['level_count'] + 1):
+        if not level_users[level-1]:  # 如果上一层没有用户，这一层肯定也没有
+            level_users[level] = []
+            continue
+
+        # 查询上级在上一层用户中的所有用户
+        placeholders = ','.join(['?' for _ in level_users[level-1]])
+        c.execute(f"""
+            SELECT telegram_id FROM members WHERE referrer_id IN ({placeholders})
+        """, level_users[level-1])
+        level_users[level] = [row[0] for row in c.fetchall()]
+
+        # 计算这一层的统计
+        level_total = len(level_users[level])
+        if level_users[level]:
+            placeholders = ','.join(['?' for _ in level_users[level]])
+            c.execute(f"""
+                SELECT COUNT(*) FROM members WHERE telegram_id IN ({placeholders}) AND is_vip = 1
+            """, level_users[level])
+            level_vip = c.fetchone()[0]
+        else:
+            level_vip = 0
 
         total_members += level_total
         total_vip += level_vip
@@ -1691,59 +1745,15 @@ async def flv_level_callback(event):
 
 @bot.on(events.CallbackQuery(pattern=b'fission_main_menu'))
 async def fission_main_menu_callback(event):
-    """查看裂变数据 - 返回主菜单"""
+    """返回主菜单"""
     try:
-        telegram_id = get_main_account_id(event.sender_id)
-        config = get_system_config()
-        member = DB.get_member(telegram_id)
-
-        if not member or not member['is_vip']:
-            await event.answer("状态异常", alert=True)
-            return
-
-        conn = get_db_conn()
-        c = conn.cursor()
-
-        text = '📊 我的裂变数据\n'
-        text += '━━━━━━━━━━━━━━\n\n'
-
-        total_members = 0
-        total_vip = 0
-        buttons = []
-
-        # 重新生成层级按钮
-        for level in range(config['level_count'], 0, -1):
-            if level == 1:
-                c.execute("SELECT COUNT(*), SUM(CASE WHEN is_vip = 1 THEN 1 ELSE 0 END) FROM members WHERE referrer_id = ?", (member['telegram_id'],))
-            else:
-                c.execute("SELECT COUNT(*), SUM(CASE WHEN is_vip = 1 THEN 1 ELSE 0 END) FROM members WHERE level_path LIKE ?", (f'%,{member["id"]},%',))
-
-            result = c.fetchone()
-            level_total = result[0] if result[0] else 0
-            level_vip = result[1] if result[1] else 0
-
-            total_members += level_total
-            total_vip += level_vip
-
-            btn_text = f'第{level}层: {level_total}人'
-            buttons.append([Button.inline(btn_text, f'flv_{level}_1'.encode())])
-
-        conn.close()
-
-        text += f'━━━━━━━━━━━━━━\n'
-        text += f'📈 团队总计：{total_members}人\n'
-        text += f'💎 VIP会员：{total_vip}人\n'
-
-        # 添加返回主菜单按钮
-        buttons.append([Button.inline('🔙 返回主菜单', b'back_handler')])
-
-        try:
-            await event.edit(text, buttons=buttons)
-        except:
-            await event.respond(text, buttons=buttons)
+        # 删除当前消息并发送主菜单
+        await event.delete()
+        # 触发主菜单
+        await start_handler(event)
     except Exception as e:
-        print(f"Main menu error: {e}")
-        await event.answer("加载失败", alert=True)
+        print(f"[fission_main_menu] 错误: {e}")
+        await event.answer('返回失败', alert=True)
 
 
 @bot.on(events.CallbackQuery(pattern=b'back_handler'))
@@ -1753,73 +1763,6 @@ async def back_handler_callback(event):
     # 触发 /start 效果或发送主菜单
     await start_handler(event)
 
-
-@bot.on(events.CallbackQuery(pattern=b'fission_main_menu'))
-async def fission_main_menu_callback(event):
-    """查看裂变数据 - 返回主菜单 (复用 view_fission_handler 逻辑)"""
-    try:
-        # 复用查看裂变数据的逻辑
-        from bot_logic import view_fission_handler
-        # 需要构造一个伪造的 message event 或者直接调用逻辑
-        # 为了简单，我们重新实现核心显示逻辑
-
-        telegram_id = get_main_account_id(event.sender_id)
-        config = get_system_config()
-        member = DB.get_member(telegram_id)
-
-        if not member or not member['is_vip']:
-            await event.answer("状态异常", alert=True)
-            return
-
-        conn = get_db_conn()
-        c = conn.cursor()
-
-        text = '📊 我的裂变数据\n'
-        text += '━━━━━━━━━━━━━━\n\n'
-
-        total_members = 0
-        total_vip = 0
-        buttons = []
-
-        for level in range(1, config['level_count'] + 1):
-            if level == 1:
-                c.execute("""
-                    SELECT COUNT(*), SUM(CASE WHEN is_vip = 1 THEN 1 ELSE 0 END)
-                    FROM members WHERE referrer_id = ?
-                """, (member['telegram_id'],))
-            else:
-                c.execute("""
-                    SELECT COUNT(*), SUM(CASE WHEN is_vip = 1 THEN 1 ELSE 0 END)
-                    FROM members
-                    WHERE level_path LIKE ?
-                """, (f'%,{member["id"]},%',))
-
-            result = c.fetchone()
-            level_total = result[0] if result[0] else 0
-            level_vip = result[1] if result[1] else 0
-
-            total_members += level_total
-            total_vip += level_vip
-
-            btn_text = f'第{level}层: {level_total}人'
-            buttons.append([Button.inline(btn_text, f'flv_{level}_1'.encode())])
-
-        conn.close()
-
-        text += f'━━━━━━━━━━━━━━\n'
-        text += f'📈 团队总计：{total_members}人\n'
-        text += f'💎 VIP会员：{total_vip}人\n'
-
-        # 修改这里：显示返回主菜单
-        buttons.append([Button.text(BTN_BACK, resize=True)])
-
-        try:
-            await event.edit(text, buttons=buttons)
-        except:
-            await event.respond(text, buttons=buttons)
-    except Exception as e:
-        print(f"Main menu error: {e}")
-        await event.answer("加载失败", alert=True)
 
 @bot.on(events.NewMessage(pattern=BTN_PROMOTE))
 async def promote_handler(event):
@@ -2194,7 +2137,7 @@ async def my_promote_handler(event):
     if not member.get('is_vip'):
         await send_vip_required_prompt(event)
         return
-
+    
     # 获取下级统计
     counts = DB.get_downline_count(event.sender_id, config['level_count'])
     total_members = sum(c['total'] for c in counts)
