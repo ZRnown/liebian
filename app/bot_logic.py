@@ -1608,56 +1608,49 @@ async def view_fission_handler(event):
     total_vip = 0
     buttons = []
 
-    # 获取各级下级用户
-    level_users = {}  # 存储每一层的用户ID列表
+    # 获取各级下级用户并生成按钮（固定10层，从第10层到第1层）
+    level_counts = {}  # 存储每一层的人数
 
-    # 第1层：直接上级是当前用户的用户
-    c.execute("""
-        SELECT telegram_id FROM members WHERE referrer_id = ?
-    """, (member['telegram_id'],))
-    level_users[1] = [row[0] for row in c.fetchall()]
+    # 计算每一层的下级人数
+    current_level_users = [member['telegram_id']]  # 从自己开始
 
-    # 计算第1层的统计
-    level_total = len(level_users[1])
-    c.execute("""
-        SELECT COUNT(*) FROM members WHERE referrer_id = ? AND is_vip = 1
-    """, (member['telegram_id'],))
-    level_vip = c.fetchone()[0]
-    total_members += level_total
-    total_vip += level_vip
-
-    # 添加第1层按钮
-    btn_text = f'第1层: {level_total}人'
-    buttons.append([Button.inline(btn_text, f'flv_1_1'.encode())])
-
-    # 第2层及以上：上级是上一层用户的用户
-    for level in range(2, config['level_count'] + 1):
-        if not level_users[level-1]:  # 如果上一层没有用户，这一层肯定也没有
-            level_users[level] = []
+    for level in range(1, 11):  # 固定计算10层
+        if not current_level_users:
+            # 如果上一层没有用户，这一层肯定也是0
+            level_counts[level] = 0
             continue
 
-        # 查询上级在上一层用户中的所有用户
-        placeholders = ','.join(['?' for _ in level_users[level-1]])
+        # 查询当前层级的下级用户
+        placeholders = ','.join(['?' for _ in current_level_users])
         c.execute(f"""
             SELECT telegram_id FROM members WHERE referrer_id IN ({placeholders})
-        """, level_users[level-1])
-        level_users[level] = [row[0] for row in c.fetchall()]
+        """, current_level_users)
 
-        # 计算这一层的统计
-        level_total = len(level_users[level])
-        if level_users[level]:
-            placeholders = ','.join(['?' for _ in level_users[level]])
+        next_level_users = [row[0] for row in c.fetchall()]
+        level_count = len(next_level_users)
+
+        level_counts[level] = level_count
+        total_members += level_count
+
+        # 计算VIP数量
+        if next_level_users:
+            placeholders = ','.join(['?' for _ in next_level_users])
             c.execute(f"""
                 SELECT COUNT(*) FROM members WHERE telegram_id IN ({placeholders}) AND is_vip = 1
-            """, level_users[level])
+            """, next_level_users)
             level_vip = c.fetchone()[0]
         else:
             level_vip = 0
 
-        total_members += level_total
         total_vip += level_vip
 
-        btn_text = f'第{level}层: {level_total}人'
+        # 为下一层循环准备数据
+        current_level_users = next_level_users
+
+    # 生成按钮（从第10层到第1层倒序显示）
+    for level in range(10, 0, -1):
+        level_count = level_counts.get(level, 0)
+        btn_text = f'第{level}层: {level_count}人'
         buttons.append([Button.inline(btn_text, f'flv_{level}_1'.encode())])
 
     conn.close()
