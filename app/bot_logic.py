@@ -1626,6 +1626,10 @@ async def view_fission_handler(event):
     total_members += level_total
     total_vip += level_vip
 
+    # 添加第1层按钮
+    btn_text = f'第1层: {level_total}人'
+    buttons.append([Button.inline(btn_text, f'flv_1_1'.encode())])
+
     # 第2层及以上：上级是上一层用户的用户
     for level in range(2, config['level_count'] + 1):
         if not level_users[level-1]:  # 如果上一层没有用户，这一层肯定也没有
@@ -1747,10 +1751,32 @@ async def flv_level_callback(event):
 async def fission_main_menu_callback(event):
     """返回主菜单"""
     try:
-        # 删除当前消息并发送主菜单
-        await event.delete()
-        # 触发主菜单
-        await start_handler(event)
+        # 获取用户信息
+        telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
+        member = DB.get_member(telegram_id)
+
+        if not member:
+            await event.answer("❌ 用户信息不存在", alert=True)
+            return
+
+        # 生成主菜单内容（与start_handler相同）
+        sys_config = get_system_config()
+        pinned_ad = sys_config.get('pinned_ad', '')
+
+        welcome_text = (
+            f'👋 欢迎使用裂变推广机器人!\n\n'
+            f'👤 当前显示身份ID: `{telegram_id}`\n'
+            f'💎 VIP状态: {"✅ 已开通" if member["is_vip"] else "❌ 未开通"}\n'
+            f'💰 余额: {member["balance"]} U\n\n'
+            f'请选择功能:'
+        )
+
+        if pinned_ad:
+            welcome_text += f'\n\n━━━━━━━━━━━━━━━\n📢 {pinned_ad}'
+
+        # 编辑当前消息为新的主菜单内容
+        await event.edit(welcome_text, buttons=get_main_keyboard(telegram_id))
+
     except Exception as e:
         print(f"[fission_main_menu] 错误: {e}")
         await event.answer('返回失败', alert=True)
