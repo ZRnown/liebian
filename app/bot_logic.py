@@ -612,7 +612,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                 await bot.send_message(telegram_id, msg, parse_mode='markdown')
             except Exception as e:
                 print(f"[充值处理] 发送通知失败: {e}")
-        else:
+
             # 普通充值或余额不足：如果不是VIP订单，发送普通到账通知
             if not is_vip_order:
                 try:
@@ -622,7 +622,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
                     )
                 except Exception as e:
                     print(f"[充值处理] 发送普通通知失败: {e}")
-        return True
+                    return True
     except Exception as e:
         print(f"[充值处理异常] {e}")
         import traceback
@@ -983,7 +983,7 @@ async def earnings_history_callback(event):
     except:
         pass
     member = DB.get_member(event.sender_id)
-
+    
     if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
         return
@@ -2189,7 +2189,7 @@ async def my_promote_handler(event):
     if not member:
         await event.respond('请先发送 /start 注册')
         return
-
+    
     # VIP check: 如果未开通，发送统一卡片提示
     if not member.get('is_vip'):
         await send_vip_required_prompt(event)

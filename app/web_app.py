@@ -983,52 +983,110 @@ def api_broadcast_to_groups():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
-@app.route('/api/fallback-accounts')
+@app.route('/api/fallback-accounts', methods=['GET', 'POST'])
 @login_required
 def api_fallback_accounts():
-    """获取捡漏账号列表"""
+    """获取捡漏账号列表或添加新账号"""
     try:
         conn = get_db_conn()
         c = conn.cursor()
-        c.execute('''
-            SELECT fa.id, fa.telegram_id, fa.username, fa.group_link, fa.total_earned, fa.is_active,
-                   m.is_vip, m.balance
-            FROM fallback_accounts fa
-            LEFT JOIN members m ON fa.telegram_id = m.telegram_id
-            ORDER BY fa.id ASC
-        ''')
-        accounts = []
-        for row in c.fetchall():
-            telegram_id = row[1]
-            # 重新计算：统计 earnings_records 中，给该捡漏账号的所有含“捡漏”说明的收益
-            c2 = conn.cursor()
-            c2.execute('''
-                SELECT COALESCE(SUM(amount), 0) 
-                FROM earnings_records 
-                WHERE earning_user = ? AND description LIKE '%捡漏%'
-            ''', (telegram_id,))
-            calculated_total = c2.fetchone()[0] or 0
-            
-            stored_total = row[4] or 0
-            if abs(calculated_total - stored_total) > 0.01:
-                c.execute('UPDATE fallback_accounts SET total_earned = ? WHERE telegram_id = ?', 
-                         (calculated_total, telegram_id))
-                conn.commit()
-                stored_total = calculated_total
-            
-            accounts.append({
-                'id': row[0],
-                'telegram_id': telegram_id,
-                'username': row[2] or str(telegram_id),
-                'group_link': row[3] or '',
-                'total_earned': stored_total,
-                'is_active': row[5] if row[5] is not None else 1,
-                'is_vip': row[6] if row[6] is not None else 0,
-                'balance': row[7] if row[7] is not None else 0
-            })
-        conn.close()
-        return jsonify({'success': True, 'accounts': accounts})
+
+        if request.method == 'GET':
+            # 获取捡漏账号列表
+            c.execute('''
+                SELECT fa.id, fa.telegram_id, fa.username, fa.group_link, fa.total_earned, fa.is_active,
+                       m.is_vip, m.balance
+                FROM fallback_accounts fa
+                LEFT JOIN members m ON fa.telegram_id = m.telegram_id
+                ORDER BY fa.id ASC
+            ''')
+            accounts = []
+            for row in c.fetchall():
+                telegram_id = row[1]
+                # 重新计算：统计 earnings_records 中，给该捡漏账号的所有含"捡漏"说明的收益
+                c2 = conn.cursor()
+                c2.execute('''
+                    SELECT COALESCE(SUM(amount), 0)
+                    FROM earnings_records
+                    WHERE earning_user = ? AND description LIKE '%捡漏%'
+                ''', (telegram_id,))
+                calculated_total = c2.fetchone()[0] or 0
+
+                stored_total = row[4] or 0
+                if abs(calculated_total - stored_total) > 0.01:
+                    c.execute('UPDATE fallback_accounts SET total_earned = ? WHERE telegram_id = ?',
+                             (calculated_total, telegram_id))
+                    conn.commit()
+                    stored_total = calculated_total
+
+                accounts.append({
+                    'id': row[0],
+                    'telegram_id': telegram_id,
+                    'username': row[2] or str(telegram_id),
+                    'group_link': row[3] or '',
+                    'total_earned': stored_total,
+                    'is_active': row[5] if row[5] is not None else 1,
+                    'is_vip': row[6] if row[6] is not None else 0,
+                    'balance': row[7] if row[7] is not None else 0
+                })
+            conn.close()
+            return jsonify({'success': True, 'accounts': accounts})
+
+        elif request.method == 'POST':
+            # 添加新捡漏账号
+            data = request.json or {}
+            username = data.get('username', '').strip()
+            group_link = data.get('group_link', '').strip()
+
+            if not username:
+                conn.close()
+                return jsonify({'success': False, 'message': '请输入Telegram用户名'}), 400
+
+            # 解析telegram_id
+            telegram_id = None
+            if username.startswith('@'):
+                username = username[1:]
+            if username.isdigit():
+                telegram_id = int(username)
+            else:
+                # 如果是用户名，需要通过bot API获取telegram_id
+                # 这里暂时假设前端传入的是telegram_id
+                conn.close()
+                return jsonify({'success': False, 'message': '请直接输入Telegram用户ID（数字）'}), 400
+
+            # 检查是否已存在
+            c.execute('SELECT id FROM fallback_accounts WHERE telegram_id = ?', (telegram_id,))
+            if c.fetchone():
+                conn.close()
+                return jsonify({'success': False, 'message': '该账号已存在'}), 400
+
+            # 检查是否存在对应的members记录
+            c.execute('SELECT telegram_id FROM members WHERE telegram_id = ?', (telegram_id,))
+            member_exists = c.fetchone() is not None
+
+            if not member_exists:
+                # 如果members表中没有，先创建members记录
+                c.execute('''
+                    INSERT INTO members (telegram_id, username, register_time)
+                    VALUES (?, ?, ?)
+                ''', (telegram_id, username, get_cn_time()))
+
+            # 添加到fallback_accounts
+            c.execute('''
+                INSERT INTO fallback_accounts (telegram_id, username, group_link, is_active, main_account_id)
+                VALUES (?, ?, ?, 1, ?)
+            ''', (telegram_id, username, group_link if group_link else None, telegram_id))
+
+            conn.commit()
+            conn.close()
+
+            return jsonify({'success': True, 'message': '捡漏账号添加成功'})
+
     except Exception as e:
+        try:
+            conn.close()
+        except:
+            pass
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/earnings')

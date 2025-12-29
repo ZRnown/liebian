@@ -729,25 +729,25 @@ class WebDB:
         conn = get_db_conn()
         c = conn.cursor()
         offset = (page - 1) * per_page
-
+        
         search_term = search.lstrip('@').strip() if search else ''
-
+        
         # 构建查询条件（使用表别名 m）
         where_clauses = []
         params = []
 
         # 【核心修改】过滤掉捡漏账号：排除在 fallback_accounts 表中的用户
         where_clauses.append('m.telegram_id NOT IN (SELECT telegram_id FROM fallback_accounts)')
-
+        
         if filter_type == 'vip':
             where_clauses.append('m.is_vip = 1')
         elif filter_type == 'normal':
             where_clauses.append('m.is_vip = 0')
-
+        
         if search_term:
             where_clauses.append('(m.username LIKE ? OR m.telegram_id LIKE ?)')
             params.extend([f'%{search_term}%', f'%{search_term}%'])
-
+        
         where_sql = ' AND '.join(where_clauses) if where_clauses else '1=1'
         
         # 获取总数（使用JOIN以保持一致性）
