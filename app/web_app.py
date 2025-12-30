@@ -1042,34 +1042,37 @@ def api_fallback_accounts():
                 conn.close()
                 return jsonify({'success': False, 'message': '请输入Telegram用户名'}), 400
 
-            # 解析telegram_id
-            telegram_id = None
+            # 处理用户名格式
             if username.startswith('@'):
                 username = username[1:]
+
+            # 尝试解析telegram_id（如果是数字）
+            telegram_id = None
             if username.isdigit():
                 telegram_id = int(username)
-            else:
-                # 如果是用户名，需要通过bot API获取telegram_id
-                # 这里暂时假设前端传入的是telegram_id
-                conn.close()
-                return jsonify({'success': False, 'message': '请直接输入Telegram用户ID（数字）'}), 400
+            # 如果不是数字，就当作用户名处理，telegram_id设为None
 
-            # 检查是否已存在
-            c.execute('SELECT id FROM fallback_accounts WHERE telegram_id = ?', (telegram_id,))
+            # 检查是否已存在（通过用户名或telegram_id）
+            if telegram_id:
+                c.execute('SELECT id FROM fallback_accounts WHERE telegram_id = ? OR username = ?', (telegram_id, username))
+            else:
+                c.execute('SELECT id FROM fallback_accounts WHERE username = ?', (username,))
+
             if c.fetchone():
                 conn.close()
                 return jsonify({'success': False, 'message': '该账号已存在'}), 400
 
-            # 检查是否存在对应的members记录
-            c.execute('SELECT telegram_id FROM members WHERE telegram_id = ?', (telegram_id,))
-            member_exists = c.fetchone() is not None
+            # 如果有telegram_id，检查是否存在对应的members记录
+            if telegram_id:
+                c.execute('SELECT telegram_id FROM members WHERE telegram_id = ?', (telegram_id,))
+                member_exists = c.fetchone() is not None
 
-            if not member_exists:
-                # 如果members表中没有，先创建members记录
-                c.execute('''
-                    INSERT INTO members (telegram_id, username, register_time)
-                    VALUES (?, ?, ?)
-                ''', (telegram_id, username, get_cn_time()))
+                if not member_exists:
+                    # 如果members表中没有，先创建members记录
+                    c.execute('''
+                        INSERT INTO members (telegram_id, username, register_time)
+                        VALUES (?, ?, ?)
+                    ''', (telegram_id, username, get_cn_time()))
 
             # 添加到fallback_accounts
             c.execute('''
