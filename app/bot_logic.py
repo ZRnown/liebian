@@ -494,6 +494,8 @@ async def start_handler(event):
         welcome_text += f'\n\n━━━━━━━━━━━━━━━\n📢 {pinned_ad}'
     
     await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
+    # 阻止事件继续传播
+    event.stop_propagation()
 
 @bot.on(events.CallbackQuery(data=b'open_vip_balance'))
 async def open_vip_balance_callback(event):
@@ -1662,6 +1664,8 @@ async def view_fission_handler(event):
     buttons.append([Button.inline('🏠 主菜单', b'fission_main_menu')])
 
     await event.respond(text, buttons=buttons)
+    # 阻止事件继续传播，避免被其他处理器重复处理
+    event.stop_propagation()
 
 
 @bot.on(events.CallbackQuery(pattern=rb'flv_(\d+)_(\d+)'))
