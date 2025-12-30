@@ -9,10 +9,17 @@ import requests as req
 import re
 from datetime import datetime, timedelta, timezone
 from telethon import Button
+import os
+import sys
 
-from config import ADMIN_IDS
-from database import DB, get_cn_time, get_system_config, get_db_conn
-from core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
+# 添加项目根目录到Python路径
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from app.config import ADMIN_IDS
+from app.database import DB, get_cn_time, get_system_config, get_db_conn
+from app.core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
 
 # 支付配置
 PAYMENT_CONFIG = {
