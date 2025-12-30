@@ -9,6 +9,6 @@ cd "$PROJECT_DIR"
 mkdir -p data
 
 # 启动应用
-nohup python3 main.py > data/bot.log 2>&1 &
+nohup python3 -m app.main > data/bot.log 2>&1 &
 echo $! > data/bot.pid
 echo "Bot started with PID: $(cat data/bot.pid)"
