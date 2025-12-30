@@ -2,8 +2,8 @@
 启动入口 - 统一启动Bot和Web后台
 """
 import threading
-from app.database import init_db, sync_member_groups_from_members
-from app.bot_logic import run_bot
+from database import init_db, sync_member_groups_from_members
+from bot_logic import run_bot
 
 def main():
     print("=" * 60)
