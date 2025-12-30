@@ -99,18 +99,25 @@ async def send_vip_required_prompt(event_or_id, reply_method='respond'):
         vip_price = config.get('vip_price', 10)
         balance = member['balance'] if member else 0
 
-        text = "抱歉 您还不是VIP\n\n"
-        text += "不能使用此功能 请先开通VIP\n"
-        text += "点击下方「开通VIP」按钮 开通在来哦\n\n"
-        text += f"💰 VIP价格: {vip_price} U\n"
-        text += f"💵 当前余额: {balance} U\n"
+        text = f"""❌ 您还未开通VIP
+
+开通VIP后可获得以下权益:
+✅ 查看裂变数据
+✅ 获得下级开通VIP的奖励
+✅ 加入上级群组
+
+💰 VIP价格: {vip_price} U
+💵 您的余额: {balance} U"""
 
         buttons = []
-        # 如果余额足够，提供余额开通按钮；否则提供充值入口
+        # 如果余额足够，提供余额开通按钮；否则只提供充值入口
         if balance >= vip_price:
-            buttons = [[Button.inline('💎 余额开通VIP', b'confirm_vip')]]
+            buttons = [[Button.inline('💎 余额开通VIP', b'open_vip_balance')]]
         else:
-            buttons = [[Button.inline('💳 充值开通VIP', b'recharge_for_vip')], [Button.inline('💎 购买VIP', b'open_vip')]]
+            # 计算差额
+            need = vip_price - balance
+            text += f"\n\n❌ 余额不足，请先充值"
+            buttons = [[Button.inline(f'💳 充值开通VIP', b'recharge_for_vip')]]
 
         if isinstance(event_or_id, int):
             try:
@@ -500,8 +507,6 @@ async def start_handler(event):
         welcome_text += f'\n\n━━━━━━━━━━━━━━━\n📢 {pinned_ad}'
     
     await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
-    # 阻止事件继续传播
-    event.stop_propagation()
 
 @bot.on(events.CallbackQuery(data=b'open_vip_balance'))
 async def open_vip_balance_callback(event):
@@ -1602,8 +1607,28 @@ async def view_fission_handler(event):
         return
 
     if not member['is_vip']:
-        # 使用统一的卡片式提示（贴近您提供的图片文案，做了语言通顺优化）
-        await send_vip_required_prompt(event)
+        # 使用和"群裂变加入"一样的VIP提示
+        vip_price = config.get('vip_price', 10)
+        user_balance = member.get('balance', 0)
+        need_recharge = vip_price - user_balance
+
+        text = f"""❌ 您还未开通VIP
+
+开通VIP后可获得以下权益:
+✅ 查看裂变数据
+✅ 获得下级开通VIP的奖励
+✅ 加入上级群组
+
+💰 VIP价格: {vip_price} U
+💵 您的余额: {user_balance} U"""
+
+        if user_balance >= vip_price:
+            buttons = [[Button.inline('💎 余额开通VIP', b'open_vip_balance')]]
+        else:
+            text += f"\n\n❌ 余额不足，请先充值"
+            buttons = [[Button.inline(f'💰 充值{need_recharge}U开通VIP', b'recharge_for_vip')]]
+
+        await event.respond(text, buttons=buttons)
         return
 
     conn = get_db_conn()
@@ -1670,8 +1695,6 @@ async def view_fission_handler(event):
     buttons.append([Button.inline('🏠 主菜单', b'fission_main_menu')])
 
     await event.respond(text, buttons=buttons)
-    # 阻止事件继续传播，避免被其他处理器重复处理
-    event.stop_propagation()
 
 
 @bot.on(events.CallbackQuery(pattern=rb'flv_(\d+)_(\d+)'))
