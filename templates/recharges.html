@@ -20,87 +20,87 @@
 
     <main class="px-6 py-8">
         <!-- 统计卡片 -->
-        <div id="stats-cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+        <div id="stats-cards" class="flex flex-nowrap gap-4 mb-8 overflow-x-auto">
+            <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex-shrink-0 min-w-40">
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-sm font-medium text-slate-500">充值金额</p>
-                        <p class="text-2xl font-bold text-slate-900" id="total-amount">0 U</p>
+                        <p class="text-xl font-bold text-slate-900" id="total-amount">0 U</p>
                     </div>
-                    <div class="p-3 bg-blue-50 rounded-lg">
-                        <i class="ti ti-cash text-blue-600 text-xl"></i>
+                    <div class="p-2 bg-blue-50 rounded-lg">
+                        <i class="ti ti-cash text-blue-600 text-lg"></i>
                     </div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex-shrink-0 min-w-40">
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-sm font-medium text-slate-500">成功金额</p>
-                        <p class="text-2xl font-bold text-green-600" id="success-amount">0 U</p>
+                        <p class="text-xl font-bold text-green-600" id="success-amount">0 U</p>
                     </div>
-                    <div class="p-3 bg-green-50 rounded-lg">
-                        <i class="ti ti-check text-green-600 text-xl"></i>
+                    <div class="p-2 bg-green-50 rounded-lg">
+                        <i class="ti ti-check text-green-600 text-lg"></i>
                     </div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex-shrink-0 min-w-40">
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-sm font-medium text-slate-500">失败金额</p>
-                        <p class="text-2xl font-bold text-red-600" id="failed-amount">0 U</p>
+                        <p class="text-xl font-bold text-red-600" id="failed-amount">0 U</p>
                     </div>
-                    <div class="p-3 bg-red-50 rounded-lg">
-                        <i class="ti ti-x text-red-600 text-xl"></i>
+                    <div class="p-2 bg-red-50 rounded-lg">
+                        <i class="ti ti-x text-red-600 text-lg"></i>
                     </div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex-shrink-0 min-w-40">
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-sm font-medium text-slate-500">提交笔数</p>
-                        <p class="text-2xl font-bold text-slate-900" id="total-count">0 笔</p>
+                        <p class="text-xl font-bold text-slate-900" id="total-count">0 笔</p>
                     </div>
-                    <div class="p-3 bg-purple-50 rounded-lg">
-                        <i class="ti ti-file text-purple-600 text-xl"></i>
+                    <div class="p-2 bg-purple-50 rounded-lg">
+                        <i class="ti ti-file text-purple-600 text-lg"></i>
                     </div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex-shrink-0 min-w-40">
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-sm font-medium text-slate-500">成功笔数</p>
-                        <p class="text-2xl font-bold text-green-600" id="success-count">0 笔</p>
+                        <p class="text-xl font-bold text-green-600" id="success-count">0 笔</p>
                     </div>
-                    <div class="p-3 bg-green-50 rounded-lg">
-                        <i class="ti ti-check-circle text-green-600 text-xl"></i>
+                    <div class="p-2 bg-green-50 rounded-lg">
+                        <i class="ti ti-check-circle text-green-600 text-lg"></i>
                     </div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex-shrink-0 min-w-40">
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-sm font-medium text-slate-500">失败笔数</p>
-                        <p class="text-2xl font-bold text-red-600" id="failed-count">0 笔</p>
+                        <p class="text-xl font-bold text-red-600" id="failed-count">0 笔</p>
                     </div>
-                    <div class="p-3 bg-red-50 rounded-lg">
-                        <i class="ti ti-x-circle text-red-600 text-xl"></i>
+                    <div class="p-2 bg-red-50 rounded-lg">
+                        <i class="ti ti-x-circle text-red-600 text-lg"></i>
                     </div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+            <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex-shrink-0 min-w-40">
                 <div class="flex items-center justify-between">
                     <div>
                         <p class="text-sm font-medium text-slate-500">待处理笔数</p>
-                        <p class="text-2xl font-bold text-yellow-600" id="pending-count">0 笔</p>
+                        <p class="text-xl font-bold text-yellow-600" id="pending-count">0 笔</p>
                     </div>
-                    <div class="p-3 bg-yellow-50 rounded-lg">
-                        <i class="ti ti-clock text-yellow-600 text-xl"></i>
+                    <div class="p-2 bg-yellow-50 rounded-lg">
+                        <i class="ti ti-clock text-yellow-600 text-lg"></i>
                     </div>
                 </div>
             </div>
