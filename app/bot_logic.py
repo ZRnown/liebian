@@ -515,7 +515,6 @@ def register_handlers(client):
             welcome_text += f'\n\n📢 {sys_config["pinned_ad"]}'
 
         await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
-        event.stop_propagation()
 
     # VIP相关事件处理器
     @client.on(events.NewMessage(pattern=BTN_VIP))
@@ -580,7 +579,7 @@ def run_bot():
     if not clients:
         print("❌ 没有可用的机器人，程序退出")
         return
-
+    
     # 启动后台任务 (使用主Bot的loop)
     loop.create_task(_process_recharge_queue_worker())
 
