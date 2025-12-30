@@ -1767,7 +1767,15 @@ def api_level_settings():
                     # convert dict {1: amt,...} to list
                     amounts = []
                     for i in range(1, level_count + 1):
-                        amounts.append(float(parsed.get(str(i)) or parsed.get(i) or level_reward))
+                        # 优先查找字符串键，然后是数字键
+                        val = parsed.get(str(i))
+                        if val is None:
+                            val = parsed.get(i, level_reward)
+                        try:
+                            val_float = float(val) if val != '' else level_reward
+                        except (ValueError, TypeError):
+                            val_float = level_reward
+                        amounts.append(val_float)
                     level_amounts = amounts
                 elif isinstance(parsed, list):
                     # pad or trim
@@ -1813,19 +1821,31 @@ def api_update_level_settings():
         if level_amounts:
             # 如果是字典转列表，如果是列表直接用
             if isinstance(level_amounts, dict):
-                max_key = max([int(k) for k in level_amounts.keys()] + [0])
-                for i in range(1, max_key + 1):
-                    val = level_amounts.get(str(i)) or level_amounts.get(i) or 0
-                    # 【核心修复】如果值为0，使用默认值，防止前端传空导致归零
-                    val_float = float(val)
-                    if val_float <= 0:
-                        val_float = default_reward
-                    final_amounts.append(val_float)
+                # 获取所有有效的数字键
+                keys = [int(k) for k in level_amounts.keys() if k.isdigit()]
+                if keys:
+                    max_key = max(keys)
+                    for i in range(1, max_key + 1):
+                        # 优先查找字符串键，然后是数字键
+                        val = level_amounts.get(str(i))
+                        if val is None:
+                            val = level_amounts.get(i, 0)
+
+                        # 确保val是有效的数值
+                        try:
+                            val_float = float(val) if val != '' else 0.0
+                            # 只在值为0或负数时使用默认值，正数值保持不变
+                            if val_float <= 0:
+                                val_float = default_reward
+                        except (ValueError, TypeError):
+                            val_float = default_reward
+
+                        final_amounts.append(val_float)
             elif isinstance(level_amounts, list):
-                # 【核心修复】遍历列表，修正0值
+                # 处理列表格式
                 for x in level_amounts:
                     try:
-                        val_float = float(x)
+                        val_float = float(x) if x != '' else 0.0
                         if val_float <= 0: val_float = default_reward
                         final_amounts.append(val_float)
                     except:
