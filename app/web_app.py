@@ -1795,48 +1795,43 @@ def api_level_settings():
 @app.route('/api/level-settings', methods=['POST'])
 @login_required
 def api_update_level_settings():
-    """保存层级设置（修复版：强制保存为JSON列表）"""
+    """保存层级设置（修复版：自动同步层数和金额列表）"""
     try:
         data = request.json or {}
-        level_count = int(data.get('level_count', 10))
-        level_amounts_raw = data.get('level_amounts') # 前端发来的是列表或字典
+        level_count = data.get('level_count')
+        level_amounts = data.get('level_amounts') # 前端发来的是列表或字典
+
         from database import update_system_config
         import json
 
-        # 1. 强制转换为浮点数列表 [10.0, 5.0, ...]
+        # 1. 处理金额列表
         final_amounts = []
-        if level_amounts_raw:
-            if isinstance(level_amounts_raw, dict):
-                # 如果是字典 {"1": 10, "2": 5}，按key顺序转列表
-                # 找出最大的key，确保列表长度足够
-                max_key = 0
-                for k in level_amounts_raw.keys():
-                    try:
-                        ik = int(k)
-                        if ik > max_key: max_key = ik
-                    except: pass
-
-                # 填充列表
+        if level_amounts:
+            # 如果是字典转列表，如果是列表直接用
+            if isinstance(level_amounts, dict):
+                # 找出最大的key作为长度
+                max_key = max([int(k) for k in level_amounts.keys()] + [0])
                 for i in range(1, max_key + 1):
-                    v = level_amounts_raw.get(str(i)) or level_amounts_raw.get(i) or 0
-                    final_amounts.append(float(v))
-            elif isinstance(level_amounts_raw, list):
-                final_amounts = [float(x) for x in level_amounts_raw]
+                    val = level_amounts.get(str(i)) or level_amounts.get(i) or 0
+                    final_amounts.append(float(val))
+            elif isinstance(level_amounts, list):
+                final_amounts = [float(x) for x in level_amounts]
 
-        # 确保列表长度至少为 level_count，不足补0
-        if len(final_amounts) < level_count:
-            final_amounts += [0.0] * (level_count - len(final_amounts))
-
-        # 2. 保存配置
-        # 关键点：json.dumps 确保它是字符串格式的 JSON 数组
+            # 保存金额配置
             update_system_config('level_amounts', json.dumps(final_amounts))
-        update_system_config('level_count', level_count)
+
+        # 2. 处理层数 (逻辑优化：如果金额列表长度 > 设置的层数，自动增加层数)
+        if level_count is not None:
+            count = int(level_count)
+            # 如果用户填写的金额列表比层数长，说明用户想增加层数，以金额列表长度为准
+            if final_amounts and len(final_amounts) > count:
+                count = len(final_amounts)
+
+            update_system_config('level_count', count)
 
         return jsonify({'success': True, 'message': '层级设置已保存'})
     except Exception as e:
         print(f"保存设置出错: {e}")
-        import traceback
-        traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/withdrawals')

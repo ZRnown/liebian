@@ -5,16 +5,8 @@
 """
 
 from telethon import events, Button
+from core_functions import check_bot_is_admin, get_upline_chain, get_downline_tree, check_user_conditions
 import sqlite3
-import os
-import sys
-
-# 添加项目根目录到Python路径
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-from app.core_functions import check_bot_is_admin, get_upline_chain, get_downline_tree, check_user_conditions
 
 
 async def handle_bind_group(event, bot, DB):
