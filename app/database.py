@@ -430,7 +430,7 @@ def get_system_config():
     c = conn.cursor()
     c.execute('SELECT key, value FROM system_config')
     config_rows = c.fetchall()
-    
+
     # 默认配置
     config = {
         'level_count': 10,
@@ -438,13 +438,14 @@ def get_system_config():
         'vip_price': 10,
         'withdraw_threshold': 50,
         'support_text': '👩‍💼 在线客服\n\n暂无客服信息，请联系管理员',
-        'usdt_address': 'TUnpYkxUeawyGeMD3PGzhDkdkNYhRJcLfD',
+        'usdt_address': '',
         'pinned_ad': '',
         'welcome_message': '',
         'welcome_enabled': '1',
-        'auto_register_enabled': '0'
+        'auto_register_enabled': '0',
+        'level_amounts': [] # 默认为空列表
     }
-    
+
     key_mapping = {
         'levels': 'level_count',
         'reward_per_level': 'level_reward',
@@ -456,24 +457,49 @@ def get_system_config():
         'welcome_message': 'welcome_message',
         'welcome_enabled': 'welcome_enabled',
         'level_amounts': 'level_amounts',
-        'auto_register_enabled': 'auto_register_enabled'
+        'auto_register_enabled': 'auto_register_enabled',
+        # 添加旧键名映射
+        'payment_url': 'payment_url',
+        'payment_token': 'payment_token',
+        'payment_rate': 'payment_rate',
+        'payment_channel': 'payment_channel',
+        'payment_user_id': 'payment_user_id'
     }
-    
+
     for key, value in config_rows:
-        if key in key_mapping:
-            config_key = key_mapping[key]
-            if key in ['levels', 'reward_per_level', 'vip_price', 'withdraw_threshold']:
-                config[config_key] = float(value) if '.' in str(value) else int(value)
-            elif key == 'level_amounts':
-                # stored as JSON string -> parse to list/dict
-                try:
-                    import json
-                    config['level_amounts'] = json.loads(value)
-                except Exception:
-                    config['level_amounts'] = value
-            else:
-                config[config_key] = value
-    
+        # 处理映射键
+        mapped_key = key_mapping.get(key, key)
+
+        # 数值类型转换
+        if mapped_key in ['level_count', 'withdraw_threshold']:
+            try: config[mapped_key] = int(float(value))
+            except: config[mapped_key] = 0
+        elif mapped_key in ['level_reward', 'vip_price', 'payment_rate']:
+            try: config[mapped_key] = float(value)
+            except: config[mapped_key] = 0.0
+        # 特殊处理 level_amounts
+        elif mapped_key == 'level_amounts':
+            try:
+                import json
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    config['level_amounts'] = parsed
+                elif isinstance(parsed, dict):
+                    # 兼容旧的字典格式，转为列表
+                    max_k = 0
+                    for k in parsed:
+                        try:
+                            if int(k) > max_k: max_k = int(k)
+                        except: pass
+                    lst = []
+                    for i in range(1, max_k + 1):
+                        lst.append(float(parsed.get(str(i)) or parsed.get(i) or 0))
+                    config['level_amounts'] = lst
+            except Exception:
+                config['level_amounts'] = [] # 解析失败回退
+        else:
+            config[mapped_key] = value
+
     conn.close()
     return config
 
