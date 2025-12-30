@@ -178,7 +178,7 @@ async function loadAds() {
     try {
         const response = await fetch('/api/advertisements');
         const data = await response.json();
-        const html = data.ads.map(a => `
+        const html = (data.advertisements || []).map(a => `
             <div class="p-4 border border-slate-200 rounded-lg mb-3">
                 <div class="flex items-start justify-between">
                     <div class="flex-1">
@@ -463,6 +463,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveSwitchSetting('auto_register_enabled', this.checked);
     });
 });
+
+// Toast提示函数
+function showToast(title, message, type = 'success') {
+    // 创建提示元素
+    const toast = document.createElement('div');
+    toast.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
+        type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+    } text-white max-w-xs`;
+
+    toast.innerHTML = `
+        <div class="font-semibold">${title}</div>
+        <div class="text-sm opacity-90">${message}</div>
+    `;
+
+    document.body.appendChild(toast);
+
+    // 3秒后自动移除
+    setTimeout(() => {
+        toast.classList.add('opacity-0', 'transition-opacity', 'duration-300');
+        setTimeout(() => {
+            if (document.body.contains(toast)) {
+                document.body.removeChild(toast);
+            }
+        }, 300);
+    }, 3000);
+}
 </script>
 
 {% endblock %}
