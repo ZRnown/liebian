@@ -36,12 +36,13 @@ def compute_vip_price_from_config(config):
     """
     try:
         level_count = int(config.get('level_count', 10))
-        # 默认单层金额
+        # 默认单层金额，作为补齐用的填充值
         default_reward = float(config.get('level_reward', 1.0))
 
         level_amounts = config.get('level_amounts')
         if level_amounts:
             import json
+            parsed = None
             if isinstance(level_amounts, str):
                 try:
                     parsed = json.loads(level_amounts)
@@ -49,9 +50,10 @@ def compute_vip_price_from_config(config):
                     parsed = None
             else:
                 parsed = level_amounts
+
             if isinstance(parsed, list):
                 vals = [float(x) for x in parsed[:level_count]]
-                # 【核心修复】如果长度不够，用 default_reward 补齐，而不是 0
+                # 【核心修复】如果长度不够，用 default_reward 补齐
                 if len(vals) < level_count:
                     vals += [default_reward] * (level_count - len(vals))
                 return sum(vals)
@@ -59,13 +61,14 @@ def compute_vip_price_from_config(config):
             elif isinstance(parsed, dict):
                 total = 0.0
                 for i in range(1, level_count + 1):
+                    # 优先取字典值，取不到则用默认值
                     v = parsed.get(str(i)) or parsed.get(i) or default_reward
                     total += float(v)
                 return total
     except Exception:
         pass
 
-    # Fallback
+    # 如果以上都失败，回退到 vip_price 配置
     try:
         return float(config.get('vip_price', 10))
     except:
