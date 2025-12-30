@@ -1795,22 +1795,43 @@ def api_level_settings():
 @app.route('/api/level-settings', methods=['POST'])
 @login_required
 def api_update_level_settings():
-    """保存层级设置"""
+    """保存层级设置（修复版：自动同步层数和金额列表）"""
     try:
         data = request.json or {}
         level_count = data.get('level_count')
-        level_amounts = data.get('level_amounts')  # expected dict {1: amt, 2: amt, ...}
+        level_amounts = data.get('level_amounts') # 前端发来的是列表或字典
 
         from database import update_system_config
+        import json
+
+        # 1. 处理金额列表
+        final_amounts = []
+        if level_amounts:
+            # 如果是字典转列表，如果是列表直接用
+            if isinstance(level_amounts, dict):
+                # 找出最大的key作为长度
+                max_key = max([int(k) for k in level_amounts.keys()] + [0])
+                for i in range(1, max_key + 1):
+                    val = level_amounts.get(str(i)) or level_amounts.get(i) or 0
+                    final_amounts.append(float(val))
+            elif isinstance(level_amounts, list):
+                final_amounts = [float(x) for x in level_amounts]
+
+            # 保存金额配置
+            update_system_config('level_amounts', json.dumps(final_amounts))
+
+        # 2. 处理层数 (逻辑优化：如果金额列表长度 > 设置的层数，自动增加层数)
         if level_count is not None:
-            update_system_config('level_count', int(level_count))
-        if level_amounts is not None:
-            # store per-level amounts as JSON string in system_config key 'level_amounts'
-            import json
-            update_system_config('level_amounts', json.dumps(level_amounts))
+            count = int(level_count)
+            # 如果用户填写的金额列表比层数长，说明用户想增加层数，以金额列表长度为准
+            if final_amounts and len(final_amounts) > count:
+                count = len(final_amounts)
+
+            update_system_config('level_count', count)
 
         return jsonify({'success': True, 'message': '层级设置已保存'})
     except Exception as e:
+        print(f"保存设置出错: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/withdrawals')
