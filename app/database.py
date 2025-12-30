@@ -479,8 +479,8 @@ def get_system_config():
             except: config[mapped_key] = 0.0
         # 特殊处理 level_amounts
         elif mapped_key == 'level_amounts':
-                try:
-                    import json
+            try:
+                import json
                 parsed = json.loads(value)
                 if isinstance(parsed, list):
                     config['level_amounts'] = parsed
@@ -495,9 +495,9 @@ def get_system_config():
                     for i in range(1, max_k + 1):
                         lst.append(float(parsed.get(str(i)) or parsed.get(i) or 0))
                     config['level_amounts'] = lst
-                except Exception:
+            except Exception:
                 config['level_amounts'] = [] # 解析失败回退
-            else:
+        else:
             config[mapped_key] = value
     
     conn.close()
