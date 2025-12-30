@@ -85,8 +85,10 @@ async def send_vip_required_prompt(event_or_id, reply_method='respond'):
         if isinstance(event_or_id, int):
             telegram_id = event_or_id
             member = DB.get_member(telegram_id)
+            client = bot # 默认使用主bot发送主动消息
         else:
             original = event_or_id
+            client = original.client # 使用触发事件的那个机器人实例
             try:
                 original_sender_id = original.sender_id
                 original.sender_id = get_main_account_id(original_sender_id, getattr(original.sender, 'username', None))
@@ -99,15 +101,12 @@ async def send_vip_required_prompt(event_or_id, reply_method='respond'):
         vip_price = config.get('vip_price', 10)
         balance = member['balance'] if member else 0
 
-        text = f"""❌ 您还未开通VIP
-
-开通VIP后可获得以下权益:
-✅ 查看裂变数据
-✅ 获得下级开通VIP的奖励
-✅ 加入上级群组
-
-💰 VIP价格: {vip_price} U
-💵 您的余额: {balance} U"""
+        # 【修复】更新文案格式
+        text = "抱歉 您还不是VIP\n\n"
+        text += "不能使用此功能 请先开通VIP\n"
+        text += "点击下方「开通VIP」按钮 开通在来哦\n\n"
+        text += f"💰 VIP价格: {vip_price} U\n"
+        text += f"💵 当前余额: {balance} U\n"
 
         buttons = []
         # 如果余额足够，提供余额开通按钮；否则只提供充值入口
@@ -121,7 +120,7 @@ async def send_vip_required_prompt(event_or_id, reply_method='respond'):
 
         if isinstance(event_or_id, int):
             try:
-                await bot.send_message(telegram_id, text, buttons=buttons)
+                await client.send_message(telegram_id, text, buttons=buttons)
             except Exception:
                 pass
         else:
@@ -139,41 +138,40 @@ async def send_vip_required_prompt(event_or_id, reply_method='respond'):
     except Exception as e:
         print(f"[VIP提示] 发送失败: {e}")
 
+# ==================== 多机器人初始化逻辑 ====================
+
 def get_active_bot_tokens():
     """获取所有活跃的机器人token"""
     try:
         conn = get_db_conn()
         c = conn.cursor()
-        c.execute('SELECT bot_token FROM bot_configs WHERE is_active = 1 ORDER BY id ASC')
+        c.execute('SELECT id, bot_token FROM bot_configs WHERE is_active = 1 ORDER BY id ASC')
         rows = c.fetchall()
         conn.close()
-        tokens = [row[0] for row in rows if row[0]]
+        # 返回 (id, token) 列表
+        tokens = [(row[0], row[1]) for row in rows if row[1]]
         print(f"[机器人初始化] 找到 {len(tokens)} 个活跃机器人token")
         return tokens
     except Exception as e:
         print(f"[机器人初始化] 获取活跃token失败: {e}")
         return []
 
-def select_bot_token():
-    """选择一个机器人token"""
-    active_tokens = get_active_bot_tokens()
-    if not active_tokens:
-        # 如果数据库没有配置，回退到配置文件
-        from config import BOT_TOKEN
-        if BOT_TOKEN:
-             print(f"[机器人初始化] 数据库无Token，使用配置文件默认Token")
-             return BOT_TOKEN
-        print("[机器人初始化] ❌ 错误：没有活跃的机器人token！请在后台机器人设置中添加并启用至少一个机器人。")
-        print("[机器人初始化] 程序将退出，请先配置机器人token。")
+# 初始化客户端列表
+clients = []
+active_tokens = get_active_bot_tokens()
+
+# 如果数据库没配置，尝试读取环境变量配置作为默认
+if not active_tokens:
+    from config import BOT_TOKEN
+    if BOT_TOKEN:
+        print("[机器人初始化] 数据库无配置，使用默认配置文件Token")
+        active_tokens.append((0, BOT_TOKEN))
+    else:
+        print("[机器人初始化] ❌ 错误：没有找到任何机器人配置！")
         exit(1)
 
-    # 简单选择第一个，或者根据需要轮询（这里默认取第一个活跃的）
-    selected_token = active_tokens[0]
-    print(f"[机器人初始化] ✅ 使用机器人token: {selected_token[:15]}...")
-    return selected_token
-
-# 初始化机器人
-selected_token = select_bot_token()
+# 代理设置
+proxy = None
 if USE_PROXY:
     if PROXY_TYPE.lower() == 'socks5':
         proxy = (socks.SOCKS5, PROXY_HOST, PROXY_PORT)
@@ -183,11 +181,41 @@ if USE_PROXY:
         proxy = (socks.HTTP, PROXY_HOST, PROXY_PORT)
     else:
         proxy = (socks.SOCKS5, PROXY_HOST, PROXY_PORT)
-    bot = TelegramClient('bot', API_ID, API_HASH, proxy=proxy).start(bot_token=selected_token)
-else:
-    bot = TelegramClient(MemorySession(), API_ID, API_HASH).start(bot_token=selected_token)
 
-print(f"[机器人初始化] 机器人启动成功，使用token: {selected_token[:20]}...")
+# 创建所有机器人客户端
+for db_id, token in active_tokens:
+    try:
+        # 使用 session_id_{db_id} 区分不同机器人的 session 文件
+        session_name = f'bot_session_{db_id}' if db_id > 0 else 'bot_session_default'
+        # 在 Docker 或特定环境下，session文件最好存放在 data 目录
+        from config import DATA_DIR
+        session_path = os.path.join(DATA_DIR, session_name)
+
+        client = TelegramClient(session_path, API_ID, API_HASH, proxy=proxy)
+        # 启动客户端
+        client.start(bot_token=token)
+        clients.append(client)
+        print(f"[机器人初始化] 成功加载机器人: {token[:10]}... (ID: {db_id})")
+    except Exception as e:
+        print(f"[机器人初始化] 加载机器人失败 (Token: {token[:10]}...): {e}")
+
+if not clients:
+    print("[机器人初始化] ❌ 严重错误：无法启动任何机器人，程序即将退出")
+    exit(1)
+
+# 为了兼容旧代码，定义 bot 为第一个客户端
+# 注意：这主要用于主动发送消息(send_message)，后续逻辑可能需要优化以支持特定bot发送
+bot = clients[0]
+
+# 自定义装饰器：注册事件到所有机器人
+def multi_bot_on(event_builder):
+    def decorator(handler):
+        for client in clients:
+            client.add_event_handler(handler, event_builder)
+        return handler
+    return decorator
+
+print(f"[机器人初始化] ✅ 全部启动完成，共 {len(clients)} 个机器人在线")
 
 # 全局队列
 pending_broadcasts = []
@@ -449,7 +477,7 @@ async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=Tru
 
 # ==================== 事件处理器 ====================
 
-@bot.on(events.NewMessage(pattern='/start'))
+@multi_bot_on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
     """启动命令"""
     original_id = event.sender_id
@@ -508,7 +536,7 @@ async def start_handler(event):
     
     await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
 
-@bot.on(events.CallbackQuery(data=b'open_vip_balance'))
+@multi_bot_on(events.CallbackQuery(data=b'open_vip_balance'))
 async def open_vip_balance_callback(event):
     """【已修复】使用余额开通VIP - 统一调用 distribute_vip_rewards"""
     try:
@@ -565,7 +593,7 @@ async def open_vip_balance_callback(event):
     except:
         pass
 
-@bot.on(events.CallbackQuery(pattern=b'confirm_vip'))
+@multi_bot_on(events.CallbackQuery(pattern=b'confirm_vip'))
 async def confirm_vip_callback(event):
     """【已修复】确认开通VIP - 统一调用 distribute_vip_rewards"""
     config = get_system_config()
@@ -717,7 +745,7 @@ async def admin_manual_vip_handler(telegram_id, config):
 
 # ==================== 群裂变加入（修复版）====================
 
-@bot.on(events.NewMessage(pattern=BTN_FISSION))
+@multi_bot_on(events.NewMessage(pattern=BTN_FISSION))
 async def fission_handler(event):
     """群裂变加入（修复版 - 使用 get_upline_chain）"""
     telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
@@ -910,7 +938,7 @@ async def fission_handler(event):
 
 # ==================== 注册其他命令处理器 ====================
 
-@bot.on(events.NewMessage(pattern=BTN_PROFILE))
+@multi_bot_on(events.NewMessage(pattern=BTN_PROFILE))
 async def profile_handler(event):
     """个人中心"""
     try:
@@ -958,7 +986,7 @@ async def profile_handler(event):
 
 # ==================== 个人中心按钮回调处理 ====================
 
-@bot.on(events.CallbackQuery(pattern=b'set_group'))
+@multi_bot_on(events.CallbackQuery(pattern=b'set_group'))
 async def set_group_callback(event):
     """设置群链接回调"""
     # 账号关联处理（备用号->主账号）
@@ -987,7 +1015,7 @@ async def set_group_callback(event):
     )
     await event.answer()
 
-@bot.on(events.CallbackQuery(pattern=b'set_backup'))
+@multi_bot_on(events.CallbackQuery(pattern=b'set_backup'))
 async def set_backup_callback(event):
     """设置备用号回调"""
     # 账号关联处理（备用号->主账号）
@@ -1016,7 +1044,7 @@ async def set_backup_callback(event):
     )
     await event.answer()
 
-@bot.on(events.CallbackQuery(pattern=b'earnings_history'))
+@multi_bot_on(events.CallbackQuery(pattern=b'earnings_history'))
 async def earnings_history_callback(event):
     """查看个人收益记录"""
     # 账号关联处理（备用号->主账号）
@@ -1083,7 +1111,7 @@ async def earnings_history_callback(event):
         await event.respond(text, buttons=buttons)
     await event.answer()
 
-@bot.on(events.CallbackQuery(pattern=b'withdraw'))
+@multi_bot_on(events.CallbackQuery(pattern=b'withdraw'))
 async def withdraw_callback(event):
     """提现回调"""
     config = get_system_config()
@@ -1110,7 +1138,7 @@ async def withdraw_callback(event):
         )
     await event.answer()
 
-@bot.on(events.CallbackQuery(pattern=b'do_recharge'))
+@multi_bot_on(events.CallbackQuery(pattern=b'do_recharge'))
 async def do_recharge_callback(event):
     """充值回调"""
     # 账号关联处理（备用号->主账号）
@@ -1145,7 +1173,7 @@ async def do_recharge_callback(event):
         await event.respond(text)
     await event.answer()
 
-@bot.on(events.CallbackQuery(pattern=b'open_vip'))
+@multi_bot_on(events.CallbackQuery(pattern=b'open_vip'))
 async def open_vip_callback(event):
     """开通VIP"""
     # 账号关联处理（备用号->主账号）
@@ -1217,7 +1245,7 @@ VIP价格: {vip_price} U
     await event.answer()
 
 # 返回个人中心
-@bot.on(events.CallbackQuery(pattern=b'back_to_profile'))
+@multi_bot_on(events.CallbackQuery(pattern=b'back_to_profile'))
 async def back_to_profile_callback(event):
     """返回个人中心"""
     # 账号关联处理（备用号->主账号）
@@ -1259,7 +1287,7 @@ async def back_to_profile_callback(event):
         await event.respond(text, buttons=buttons)
     await event.answer()
 
-@bot.on(events.CallbackQuery(data=b'recharge_for_vip'))
+@multi_bot_on(events.CallbackQuery(data=b'recharge_for_vip'))
 async def recharge_for_vip_callback(event):
     """充值开通VIP - 调用充值输入金额功能"""
     # 账号关联处理（备用号->主账号）
@@ -1296,7 +1324,7 @@ async def recharge_for_vip_callback(event):
         await event.respond("❌ 创建充值订单失败，请稍后重试")
     await event.answer()
 
-@bot.on(events.CallbackQuery(pattern=rb'verify_groups_.*'))
+@multi_bot_on(events.CallbackQuery(pattern=rb'verify_groups_.*'))
 async def verify_groups_callback(event):
     """验证用户是否加入所有需要加入的群组（上级群 + 捡漏群组，共10个）"""
     # 账号关联处理（备用号->主账号）
@@ -1549,7 +1577,7 @@ async def verify_groups_callback(event):
                 print(f"[verify_groups] 所有发送方式都失败: {e3}")
                 await event.answer("验证完成，但显示结果时出现错误", alert=True)
 
-@bot.on(events.NewMessage(pattern='/bind_group'))
+@multi_bot_on(events.NewMessage(pattern='/bind_group'))
 async def bind_group_cmd(event):
     """绑定群组命令"""
     try:
@@ -1559,7 +1587,7 @@ async def bind_group_cmd(event):
         pass
     await handle_bind_group(event, bot, DB)
 
-@bot.on(events.NewMessage(pattern='/join_upline'))
+@multi_bot_on(events.NewMessage(pattern='/join_upline'))
 async def join_upline_cmd(event):
     """加入上层群命令"""
     try:
@@ -1569,7 +1597,7 @@ async def join_upline_cmd(event):
         pass
     await handle_join_upline(event, bot, DB, get_system_config)
 
-@bot.on(events.NewMessage(pattern='/check_status'))
+@multi_bot_on(events.NewMessage(pattern='/check_status'))
 async def check_status_cmd(event):
     """检查状态命令"""
     try:
@@ -1579,7 +1607,7 @@ async def check_status_cmd(event):
         pass
     await handle_check_status(event, bot, DB)
 
-@bot.on(events.NewMessage(pattern='/my_team'))
+@multi_bot_on(events.NewMessage(pattern='/my_team'))
 async def my_team_cmd(event):
     """我的团队命令"""
     try:
@@ -1591,7 +1619,7 @@ async def my_team_cmd(event):
 
 # ==================== 其他事件处理器 ====================
 
-@bot.on(events.NewMessage(pattern=BTN_VIEW_FISSION))
+@multi_bot_on(events.NewMessage(pattern=BTN_VIEW_FISSION))
 async def view_fission_handler(event):
     """查看裂变数据"""
     try:
@@ -1697,7 +1725,7 @@ async def view_fission_handler(event):
     await event.respond(text, buttons=buttons)
 
 
-@bot.on(events.CallbackQuery(pattern=rb'flv_(\d+)_(\d+)'))
+@multi_bot_on(events.CallbackQuery(pattern=rb'flv_(\d+)_(\d+)'))
 async def flv_level_callback(event):
     """查看指定层的下级成员列表：flv_{level}_{page}"""
     try:
@@ -1773,7 +1801,7 @@ async def flv_level_callback(event):
         await event.answer('加载失败', alert=True)
 
 
-@bot.on(events.CallbackQuery(pattern=b'fission_main_menu'))
+@multi_bot_on(events.CallbackQuery(pattern=b'fission_main_menu'))
 async def fission_main_menu_callback(event):
     """返回主菜单"""
     try:
@@ -1808,7 +1836,7 @@ async def fission_main_menu_callback(event):
         await event.answer('返回失败', alert=True)
 
 
-@bot.on(events.CallbackQuery(pattern=b'back_handler'))
+@multi_bot_on(events.CallbackQuery(pattern=b'back_handler'))
 async def back_handler_callback(event):
     """Callback 版本的返回主菜单"""
     await event.delete()
@@ -1816,7 +1844,7 @@ async def back_handler_callback(event):
     await start_handler(event)
 
 
-@bot.on(events.NewMessage(pattern=BTN_PROMOTE))
+@multi_bot_on(events.NewMessage(pattern=BTN_PROMOTE))
 async def promote_handler(event):
     """赚钱推广"""
     try:
@@ -1853,7 +1881,7 @@ async def promote_handler(event):
         return
     
     # 生成推广链接
-    bot_info = await bot.get_me()
+    bot_info = await event.client.get_me()
     invite_link = f'https://t.me/{bot_info.username}?start={event.sender_id}'
     
     text = f'💰 赚钱推广\n\n'
@@ -1866,7 +1894,7 @@ async def promote_handler(event):
     
     await event.respond(text, buttons=[[Button.inline('📤 分享推广', b'share_promote')]])
 
-@bot.on(events.NewMessage(pattern=BTN_RESOURCES))
+@multi_bot_on(events.NewMessage(pattern=BTN_RESOURCES))
 async def resources_handler(event):
     """行业资源"""
     try:
@@ -1941,7 +1969,7 @@ async def show_resource_categories(event, page=1, is_new=False):
 
 
 # 点击分类回调：显示该分类下的资源
-@bot.on(events.CallbackQuery(pattern=rb'cat_(\d+)'))
+@multi_bot_on(events.CallbackQuery(pattern=rb'cat_(\d+)'))
 async def category_callback(event):
     try:
         data = event.data.decode()
@@ -2007,7 +2035,7 @@ async def category_callback(event):
         await event.answer('加载失败', alert=True)
 
 
-@bot.on(events.CallbackQuery(pattern=rb'back_to_categories'))
+@multi_bot_on(events.CallbackQuery(pattern=rb'back_to_categories'))
 async def back_to_categories_callback(event):
     """返回分类列表（同 show_resource_categories 第1页）"""
     try:
@@ -2018,7 +2046,7 @@ async def back_to_categories_callback(event):
         await event.answer('返回失败', alert=True)
 
 
-@bot.on(events.CallbackQuery(pattern=rb'res_page_(\d+)_(\d+)'))
+@multi_bot_on(events.CallbackQuery(pattern=rb'res_page_(\d+)_(\d+)'))
 async def resource_page_callback(event):
     """分页资源显示：res_page_{category_id}_{page}"""
     try:
@@ -2079,7 +2107,7 @@ async def resource_page_callback(event):
         print(f"[resource_page_callback] 错误: {e}")
         await event.answer('加载失败', alert=True)
 
-@bot.on(events.NewMessage(pattern=BTN_SUPPORT))
+@multi_bot_on(events.NewMessage(pattern=BTN_SUPPORT))
 async def support_handler(event):
     """在线客服"""
     try:
@@ -2114,7 +2142,7 @@ async def support_handler(event):
     
     await event.respond(text, buttons=buttons, parse_mode='md')
 
-@bot.on(events.NewMessage(pattern=BTN_VIP))
+@multi_bot_on(events.NewMessage(pattern=BTN_VIP))
 async def vip_handler(event):
     """开通会员"""
     try:
@@ -2167,7 +2195,7 @@ async def vip_handler(event):
             buttons=[[Button.inline(f'💰 充值 {config["vip_price"]} U 开通VIP', b'recharge_for_vip')]]
         )
 
-@bot.on(events.NewMessage(pattern=BTN_MY_PROMOTE))
+@multi_bot_on(events.NewMessage(pattern=BTN_MY_PROMOTE))
 async def my_promote_handler(event):
     """我的推广"""
     try:
@@ -2190,7 +2218,7 @@ async def my_promote_handler(event):
     total_vip = sum(c['vip'] for c in counts)
     
     # 生成推广链接
-    bot_info = await bot.get_me()
+    bot_info = await event.client.get_me()
     invite_link = f'https://t.me/{bot_info.username}?start={event.sender_id}'
     
     text = f'💫 我的推广\n\n'
@@ -2208,7 +2236,7 @@ async def my_promote_handler(event):
     
     await event.respond(text, buttons=buttons, parse_mode='md')
 
-@bot.on(events.NewMessage(pattern=BTN_BACK))
+@multi_bot_on(events.NewMessage(pattern=BTN_BACK))
 async def back_handler(event):
     """返回主菜单"""
     try:
@@ -2231,7 +2259,7 @@ async def back_handler(event):
         buttons=get_main_keyboard(event.sender_id)
     )
 
-@bot.on(events.NewMessage(pattern=BTN_ADMIN))
+@multi_bot_on(events.NewMessage(pattern=BTN_ADMIN))
 async def admin_handler(event):
     """管理后台"""
     try:
@@ -2272,7 +2300,7 @@ async def admin_handler(event):
 
 # ==================== 群组欢迎和自动注册 ====================
 
-@bot.on(events.ChatAction)
+@multi_bot_on(events.ChatAction)
 async def group_welcome_handler(event):
     """新成员加入群时发送欢迎语，并自动注册为邀请者下级"""
     try:
@@ -2411,7 +2439,7 @@ async def group_welcome_handler(event):
 
 # ==================== 完整的消息处理器 ====================
 
-@bot.on(events.NewMessage())
+@multi_bot_on(events.NewMessage())
 async def message_handler(event):
     """完整的消息处理器 - 处理提现、管理员设置、群链接等"""
     # 账号关联处理
@@ -3326,6 +3354,10 @@ async def check_member_status_task():
             print(f"[状态检测] 任务错误: {e}")
             await asyncio.sleep(60)
 
+async def run_until_disconnected():
+    # 同时等待所有客户端断开
+    await asyncio.gather(*(c.run_until_disconnected() for c in clients))
+
 def run_bot():
     """Bot 启动入口"""
     print("🚀 Telegram Bot 启动中...")
@@ -3385,20 +3417,15 @@ def run_bot():
     
     print("=" * 60)
     print("✅ 所有后台任务已挂载")
-    print("✅ Telegram Bot 已启动，等待消息...")
+    print(f"✅ {len(clients)} 个机器人正在监听消息...")
     print("=" * 60)
-    bot.run_until_disconnected()
+    loop.run_until_complete(run_until_disconnected())
 
-# 导出bot实例供其他模块使用
+# 导出
 __all__ = [
-    'bot', 
-    'process_vip_upgrade', 
-    'process_recharge', 
-    'admin_manual_vip_handler', 
-    'get_main_account_id', 
-    'run_bot', 
-    'pending_broadcasts', 
-    'notify_queue',
+    'bot', 'clients', 'process_vip_upgrade', 'process_recharge',
+    'admin_manual_vip_handler', 'get_main_account_id', 'run_bot',
+    'pending_broadcasts', 'notify_queue'
     # 后台任务（供调试使用）
     'auto_broadcast_timer',
     'process_broadcast_queue',
