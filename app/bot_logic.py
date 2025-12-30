@@ -771,12 +771,24 @@ def run_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
+    # 定义后台任务函数
+    async def _process_recharge_queue_worker():
+        while True:
+            try:
+                if process_recharge_queue:
+                    item = process_recharge_queue.pop(0)
+                    await process_recharge(item['member_id'], item['amount'], item.get('is_vip_order', False))
+                    await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"[充值队列] 错误: {e}")
+                await asyncio.sleep(1)
+
     # 初始化所有机器人
     clients = init_bots()
     if not clients:
         print("❌ 没有可用的机器人，程序退出")
         return
-        
+
     # 启动后台任务 (使用主Bot的loop)
     loop.create_task(_process_recharge_queue_worker())
 
@@ -796,17 +808,6 @@ def run_bot():
         for c in clients:
             if c.is_connected():
                 c.disconnect()
-
-    async def _process_recharge_queue_worker():
-        while True:
-            try:
-                if process_recharge_queue:
-                    item = process_recharge_queue.pop(0)
-                    await process_recharge(item['member_id'], item['amount'], item.get('is_vip_order', False))
-                    await asyncio.sleep(1)
-            except Exception as e:
-                logger.error(f"[充值队列] 错误: {e}")
-                await asyncio.sleep(1)
 
 def get_main_keyboard(user_id=None):
     """主菜单键盘"""
