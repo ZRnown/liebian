@@ -1746,16 +1746,24 @@ def api_advertisements():
 @app.route('/api/level-settings')
 @login_required
 def api_level_settings():
-    """获取层级设置"""
+    """获取层级设置（读取时再次清理0值）"""
     try:
         config = get_system_config()
-        level_count = int(config.get('level_count', 10))
+
+        # 1. 获取层数
+        try:
+            level_count = int(config.get('level_count', 10))
+        except:
+            level_count = 10
+
+        # 2. 获取默认金额
         try:
             level_reward = float(config.get('level_reward', 1.0))
             if level_reward <= 0: level_reward = 1.0
         except:
             level_reward = 1.0
 
+        # 3. 解析列表
         level_amounts_str = config.get('level_amounts')
         level_amounts = []
 
@@ -1763,21 +1771,35 @@ def api_level_settings():
             try:
                 parsed = json.loads(level_amounts_str)
                 if isinstance(parsed, list):
-                    level_amounts = [float(x) for x in parsed]
+                    # 遍历解析，遇到0直接替换为 level_reward
+                    for x in parsed:
+                        try:
+                            v = float(x)
+                            if v <= 0.001: v = level_reward # 【关键修复】读取时如果是0，显示为默认值
+                            level_amounts.append(v)
+                        except:
+                            level_amounts.append(level_reward)
                 elif isinstance(parsed, dict):
                     for i in range(1, level_count + 1):
                         val = parsed.get(str(i)) or parsed.get(i) or level_reward
-                        level_amounts.append(float(val))
+                        try:
+                            v = float(val)
+                            if v <= 0.001: v = level_reward
+                            level_amounts.append(v)
+                        except:
+                            level_amounts.append(level_reward)
             except:
                 level_amounts = []
 
-        # 补齐逻辑
+        # 4. 补齐或截断
+        # 补齐
         if len(level_amounts) < level_count:
-            # 如果列表非空，用最后一个元素补齐（跟随）
-            fill_val = level_amounts[-1] if level_amounts else level_reward
-            if fill_val <= 0: fill_val = 1.0
-            level_amounts += [fill_val] * (level_count - len(level_amounts))
+            # 计算缺多少
+            missing = level_count - len(level_amounts)
+            # 用 level_reward 补齐
+            level_amounts += [level_reward] * missing
 
+        # 截断 (只取前 level_count 个)
         level_amounts = level_amounts[:level_count]
 
         return jsonify({
@@ -1793,9 +1815,10 @@ def api_level_settings():
 @app.route('/api/level-settings', methods=['POST'])
 @login_required
 def api_update_level_settings():
-    """保存层级设置（终极修复版：智能补全0值）"""
+    """保存层级设置（终极修复：强制非零）"""
     try:
         data = request.json or {}
+
         # 1. 获取目标层数
         try:
             target_count = int(data.get('level_count', 10))
@@ -1803,67 +1826,58 @@ def api_update_level_settings():
         except:
             target_count = 10
 
-        # 获取用户提交的金额数据
+        # 2. 确定默认兜底金额 (level_reward)
+        try:
+            # 优先看用户是否同时也提交了 level_reward (快捷设置)
+            # 如果没有，则去数据库查，如果数据库也没有，就用 1.0
+            input_reward = data.get('level_reward')
+            if input_reward:
+                default_reward = float(input_reward)
+            else:
+                current_config = get_system_config()
+                default_reward = float(current_config.get('level_reward', 1.0))
+
+            if default_reward <= 0: default_reward = 1.0
+        except:
+            default_reward = 1.0
+
+        # 获取前端传来的金额列表
         raw_amounts = data.get('level_amounts')
-
-        # 准备兜底默认值
-        current_config = get_system_config()
-        # 优先用VIP总价除以层数作为参考，或者用默认1.0
-        try:
-            vip_price_cfg = float(current_config.get('vip_price', 10.0))
-            calc_reward = vip_price_cfg / target_count
-        except:
-            calc_reward = 1.0
-
-        try:
-            db_level_reward = float(current_config.get('level_reward', 1.0))
-        except:
-            db_level_reward = 1.0
-
-        # 最终使用的填充值：如果 db_level_reward 是0，就用计算值，否则用配置值
-        # 还要确保至少是 1.0 (防止 0)
-        fallback_reward = db_level_reward if db_level_reward > 0 else (calc_reward if calc_reward > 0 else 1.0)
-
         final_amounts = []
-        last_valid_val = fallback_reward # 用于记录上一个有效值，实现"跟随上层"
 
-        # 2. 循环构建每一层的金额
+        # 3. 严格循环 target_count 次，构建列表
         for i in range(target_count):
-            val_obj = None
+            val_float = 0.0
 
-            # 尝试获取前端传来的值
+            # 尝试提取第 i 个值
             if raw_amounts:
+                val = None
                 if isinstance(raw_amounts, list):
                     if i < len(raw_amounts):
-                        val_obj = raw_amounts[i]
+                        val = raw_amounts[i]
                 elif isinstance(raw_amounts, dict):
-                    val_obj = raw_amounts.get(str(i + 1)) or raw_amounts.get(i + 1)
+                    # 尝试多种 Key 格式: "1", 1, "0", 0
+                    # 注意：通常第1层对应的 key 是 "1"
+                    val = raw_amounts.get(str(i + 1)) or raw_amounts.get(i + 1)
 
-            # 解析为浮点数
-            val_float = 0.0
-            try:
-                if val_obj is not None and str(val_obj).strip() != "":
-                    val_float = float(val_obj)
-            except:
-                val_float = 0.0
+                try:
+                    if val is not None and str(val).strip() != "":
+                        val_float = float(val)
+                except:
+                    val_float = 0.0
 
-            # 【核心逻辑】如果值为0（无效），进行智能填充
-            if val_float <= 0.0001:
-                # 策略：优先使用上一层的有效值（这样第10层会自动等于第9层的值）
-                val_float = last_valid_val
-            else:
-                # 如果当前值有效，更新 last_valid_val，供下一层参考
-                last_valid_val = val_float
+            # 【强制修正】只要是 0，或者是极小值，强制覆盖为默认值
+            # 这样第10层如果是0，会被强制改为 default_reward (例如 1.0)
+            if val_float <= 0.001:
+                val_float = default_reward
 
             final_amounts.append(val_float)
 
-        # 3. 保存到数据库
+        # 4. 保存
         update_system_config('level_count', target_count)
         update_system_config('level_amounts', json.dumps(final_amounts))
-
-        # 同时更新单层奖励设置（取第一层的值作为代表，或者平均值，防止其他逻辑读取到0）
-        if final_amounts:
-             update_system_config('level_reward', final_amounts[0])
+        # 同时更新 level_reward 为兜底值，保持一致性
+        update_system_config('level_reward', default_reward)
 
         return jsonify({
             'success': True,
@@ -1873,7 +1887,10 @@ def api_update_level_settings():
         })
     except Exception as e:
         print(f"保存设置出错: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @app.route('/api/withdrawals')
 @login_required
