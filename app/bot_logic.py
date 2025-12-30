@@ -476,7 +476,6 @@ async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=Tru
 
 # ==================== 事件处理器 ====================
 
-
 def register_handlers(client):
     """为单个客户端注册所有事件处理器"""
 
@@ -506,16 +505,70 @@ def register_handlers(client):
                 except: pass
 
         sys_config = get_system_config()
+
+        # 显示当前使用的账号ID（可能是备用账号）
         display_id = original_sender_id
         vip_status = "✅ 已开通" if member.get('is_vip') else "❌ 未开通"
 
         welcome_text = f"👋 欢迎使用裂变推广机器人!\n👤 当前显示身份ID: {display_id}\n💎 VIP状态: {vip_status}\n💰 余额: {member['balance']} U\n\n请选择功能:"
+
         if sys_config.get("pinned_ad"):
             welcome_text += f"\n\n📢 {sys_config['pinned_ad']}"
 
         await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
 
-    # 基础按钮处理器 - 简化为基本的响应
+    # VIP相关事件处理器
+    @client.on(events.NewMessage(pattern=BTN_VIP))
+    async def vip_handler(event):
+        telegram_id = get_main_account_id(event.sender_id)
+        member = DB.get_member(telegram_id)
+
+        if not member: return
+
+        if member['is_vip']:
+            await event.respond(f"💎 您已经是VIP会员!\n开通时间: {member['vip_time'][:10] if member['vip_time'] else '未知'}")
+            return
+
+        config = get_system_config()
+        vip_price = compute_vip_price_from_config(config)
+
+        text = f'💎 开通VIP会员\nVIP价格: {vip_price} U\n当前余额: {member["balance"]} U'
+        buttons = []
+        if member['balance'] >= vip_price:
+            text += '\n✅ 余额充足，可以直接开通'
+            buttons = [[Button.inline('💎 余额开通VIP', b'confirm_vip')]]
+        else:
+            text += f'\n❌ 余额不足，还需 {vip_price - member["balance"]} U'
+            buttons = [[Button.inline('💳 充值开通VIP', b'recharge_for_vip')]]
+
+        await event.respond(text, buttons=buttons)
+
+    @client.on(events.CallbackQuery(pattern=b'confirm_vip'))
+    async def cb_confirm_vip(event):
+        telegram_id = get_main_account_id(event.sender_id)
+        config = get_system_config()
+        vip_price = compute_vip_price_from_config(config)
+
+        success, result = await process_vip_upgrade(telegram_id, vip_price, config)
+        if success:
+            await event.answer("🎉 VIP开通成功！", alert=True)
+            await event.respond("🎉 恭喜! 您已成为VIP会员，现在可以享受所有权益！", buttons=[[Button.inline('🔙 返回', b'back_to_profile')]])
+        else:
+            await event.answer(f"❌ 开通失败: {result}", alert=True)
+
+    @client.on(events.CallbackQuery(pattern=b'recharge_for_vip'))
+    async def cb_recharge_for_vip(event):
+        telegram_id = get_main_account_id(event.sender_id)
+        config = get_system_config()
+        vip_price = compute_vip_price_from_config(config)
+
+        # 创建充值订单，金额为VIP价格
+        try:
+            await create_recharge_order(client, event, vip_price, is_vip_order=True)
+        except Exception as e:
+            await event.answer("创建充值订单失败，请稍后重试", alert=True)
+
+    # 基础按钮处理器
     @client.on(events.NewMessage(pattern=BTN_PROFILE))
     async def profile_handler(event):
         telegram_id = get_main_account_id(event.sender_id)
@@ -572,34 +625,19 @@ def register_handlers(client):
         if event.sender_id not in ADMIN_IDS:
             await event.respond('❌ 您不是管理员，无法访问管理后台')
             return
-        text = '⚙️ 管理后台\n\n'
-        text += '🌐 访问地址:\n'
-        text += 'http://你的服务器IP:5051\n\n'
-        text += '📋 默认账号:\n'
-        text += '用户名: admin\n'
-        text += '密码: admin\n\n'
-        text += '⚠️ 请及时修改默认密码'
 
+        text = '''⚙️ 管理后台
+
+🌐 访问地址: http://你的服务器IP:5051
+
+📋 默认账号:
+用户名: admin
+密码: admin
+
+⚠️ 请及时修改默认密码'''
         await event.respond(text, buttons=[[Button.text(BTN_BACK, resize=True)]])
 
-    @client.on(events.NewMessage(pattern=BTN_BACK))
-    async def back_handler(event):
-        telegram_id = get_main_account_id(event.sender_id)
-        member = DB.get_member(telegram_id)
-
-        if member:
-            config = get_system_config()
-            vip_status = "✅ 已开通" if member.get('is_vip') else "❌ 未开通"
-
-            welcome_text = f"👋 欢迎使用裂变推广机器人!\n👤 当前显示身份ID: {event.sender_id}\n💎 VIP状态: {vip_status}\n💰 余额: {member['balance']} U\n\n请选择功能:"
-            if config.get('pinned_ad'):
-                welcome_text += f"\n\n📢 {config['pinned_ad']}"
-
-            await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
-        else:
-            await event.respond('请先发送 /start 注册', buttons=get_main_keyboard(telegram_id))
-
-    # 其他按钮暂时返回开发中提示
+    # 其他按钮处理器
     @client.on(events.NewMessage(pattern=BTN_MY_PROMOTE))
     async def my_promote_handler(event):
         telegram_id = get_main_account_id(event.sender_id)
@@ -704,9 +742,27 @@ def register_handlers(client):
 
         await event.respond(text, buttons=[[Button.text(BTN_BACK, resize=True)]])
 
-    @client.on(events.NewMessage(pattern=BTN_VIP))
-    async def vip_handler(event):
-        await event.respond('💎 VIP开通功能开发中...', buttons=[[Button.text(BTN_BACK, resize=True)]])
+    @client.on(events.NewMessage(pattern=BTN_BACK))
+    async def back_handler(event):
+        telegram_id = get_main_account_id(event.sender_id)
+        member = DB.get_member(telegram_id)
+
+        if member:
+            config = get_system_config()
+            vip_status = "✅ 已开通" if member.get('is_vip') else "❌ 未开通"
+
+            welcome_text = f'''👋 欢迎使用裂变推广机器人!
+👤 当前显示身份ID: {event.sender_id}
+💎 VIP状态: {vip_status}
+💰 余额: {member["balance"]} U
+
+请选择功能:'''
+            if config.get('pinned_ad'):
+                welcome_text += f'\n\n📢 {config["pinned_ad"]}'
+
+            await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
+        else:
+            await event.respond('请先发送 /start 注册', buttons=get_main_keyboard(telegram_id))
 
 def run_bot():
     """Bot 启动入口"""

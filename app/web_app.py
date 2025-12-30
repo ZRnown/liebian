@@ -1829,7 +1829,7 @@ def api_update_level_settings():
 
         # 2. 保存配置
         # 关键点：json.dumps 确保它是字符串格式的 JSON 数组
-        update_system_config('level_amounts', json.dumps(final_amounts))
+            update_system_config('level_amounts', json.dumps(final_amounts))
         update_system_config('level_count', level_count)
 
         return jsonify({'success': True, 'message': '层级设置已保存'})

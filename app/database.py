@@ -430,7 +430,7 @@ def get_system_config():
     c = conn.cursor()
     c.execute('SELECT key, value FROM system_config')
     config_rows = c.fetchall()
-
+    
     # 默认配置
     config = {
         'level_count': 10,
@@ -445,7 +445,7 @@ def get_system_config():
         'auto_register_enabled': '0',
         'level_amounts': [] # 默认为空列表
     }
-
+    
     key_mapping = {
         'levels': 'level_count',
         'reward_per_level': 'level_reward',
@@ -465,7 +465,7 @@ def get_system_config():
         'payment_channel': 'payment_channel',
         'payment_user_id': 'payment_user_id'
     }
-
+    
     for key, value in config_rows:
         # 处理映射键
         mapped_key = key_mapping.get(key, key)
@@ -479,8 +479,8 @@ def get_system_config():
             except: config[mapped_key] = 0.0
         # 特殊处理 level_amounts
         elif mapped_key == 'level_amounts':
-            try:
-                import json
+                try:
+                    import json
                 parsed = json.loads(value)
                 if isinstance(parsed, list):
                     config['level_amounts'] = parsed
@@ -495,11 +495,11 @@ def get_system_config():
                     for i in range(1, max_k + 1):
                         lst.append(float(parsed.get(str(i)) or parsed.get(i) or 0))
                     config['level_amounts'] = lst
-            except Exception:
+                except Exception:
                 config['level_amounts'] = [] # 解析失败回退
-        else:
+            else:
             config[mapped_key] = value
-
+    
     conn.close()
     return config
 
