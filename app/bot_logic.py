@@ -30,49 +30,46 @@ from bot_commands_addon import (
 
 
 def compute_vip_price_from_config(config):
-    """
-    计算VIP价格
-    【修复】如果配置数组长度不够，使用 level_reward 补齐，而不是 0
-    """
+    """计算VIP价格 (逻辑同步Web端)"""
     try:
         level_count = int(config.get('level_count', 10))
-        # 默认单层金额，作为补齐用的填充值
+        # 默认值防止为0
         default_reward = float(config.get('level_reward', 1.0))
+        if default_reward <= 0: default_reward = 1.0
 
         level_amounts = config.get('level_amounts')
         if level_amounts:
             import json
-            parsed = None
-            if isinstance(level_amounts, str):
-                try:
+            try:
+                if isinstance(level_amounts, str):
                     parsed = json.loads(level_amounts)
-                except Exception:
-                    parsed = None
-            else:
-                parsed = level_amounts
+                else:
+                    parsed = level_amounts
+            except: parsed = None
 
             if isinstance(parsed, list):
-                vals = [float(x) for x in parsed[:level_count]]
-                # 【核心修复】如果长度不够，用 default_reward 补齐
+                vals = []
+                last_val = default_reward
+                for x in parsed[:level_count]:
+                    try:
+                        v = float(x)
+                        if v > 0: last_val = v
+                    except: v = last_val
+                    vals.append(v)
+                # 补齐
                 if len(vals) < level_count:
-                    vals += [default_reward] * (level_count - len(vals))
+                    vals += [last_val] * (level_count - len(vals))
                 return sum(vals)
-
             elif isinstance(parsed, dict):
                 total = 0.0
                 for i in range(1, level_count + 1):
-                    # 优先取字典值，取不到则用默认值
                     v = parsed.get(str(i)) or parsed.get(i) or default_reward
                     total += float(v)
                 return total
-    except Exception:
-        pass
+    except: pass
 
-    # 如果以上都失败，回退到 vip_price 配置
-    try:
-        return float(config.get('vip_price', 10))
-    except:
-        return 10.0
+    try: return float(config.get('vip_price', 10))
+    except: return 10.0
 
 # 按钮文字常量
 BTN_PROFILE = '👤 个人中心'
@@ -1586,43 +1583,24 @@ async def verify_groups_callback(event):
 
 @multi_bot_on(events.NewMessage(pattern='/bind_group'))
 async def bind_group_cmd(event):
-    """绑定群组命令"""
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    await handle_bind_group(event, bot, DB)
+    """绑定群组命令 (修复：传入 event.client)"""
+    # 传递 event.client 作为 bot 参数，确保使用正确的机器人实例检测权限
+    await handle_bind_group(event, event.client, DB)
 
 @multi_bot_on(events.NewMessage(pattern='/join_upline'))
 async def join_upline_cmd(event):
     """加入上层群命令"""
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    await handle_join_upline(event, bot, DB, get_system_config)
+    await handle_join_upline(event, event.client, DB, get_system_config)
 
 @multi_bot_on(events.NewMessage(pattern='/check_status'))
 async def check_status_cmd(event):
     """检查状态命令"""
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    await handle_check_status(event, bot, DB)
+    await handle_check_status(event, event.client, DB)
 
 @multi_bot_on(events.NewMessage(pattern='/my_team'))
 async def my_team_cmd(event):
     """我的团队命令"""
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    await handle_my_team(event, bot, DB)
+    await handle_my_team(event, event.client, DB)
 
 # ==================== 其他事件处理器 ====================
 
