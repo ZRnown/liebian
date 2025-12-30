@@ -1834,6 +1834,60 @@ def api_process_withdrawal(id):
         return jsonify({'success': True, 'message': message})
     return jsonify({'success': False, 'message': message}), 400
 
+@app.route('/api/recharges/stats')
+@login_required
+def api_recharges_stats():
+    """获取充值统计数据"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+
+        # 总充值金额
+        c.execute('SELECT COALESCE(SUM(amount), 0) FROM recharge_records')
+        total_amount = c.fetchone()[0]
+
+        # 成功充值金额
+        c.execute('SELECT COALESCE(SUM(amount), 0) FROM recharge_records WHERE status = "completed"')
+        success_amount = c.fetchone()[0]
+
+        # 失败充值金额
+        c.execute('SELECT COALESCE(SUM(amount), 0) FROM recharge_records WHERE status = "failed"')
+        failed_amount = c.fetchone()[0]
+
+        # 总提交笔数
+        c.execute('SELECT COUNT(*) FROM recharge_records')
+        total_count = c.fetchone()[0]
+
+        # 成功笔数
+        c.execute('SELECT COUNT(*) FROM recharge_records WHERE status = "completed"')
+        success_count = c.fetchone()[0]
+
+        # 失败笔数
+        c.execute('SELECT COUNT(*) FROM recharge_records WHERE status = "failed"')
+        failed_count = c.fetchone()[0]
+
+        # 待处理笔数
+        c.execute('SELECT COUNT(*) FROM recharge_records WHERE status = "pending"')
+        pending_count = c.fetchone()[0]
+
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'stats': {
+                'total_amount': float(total_amount),
+                'success_amount': float(success_amount),
+                'failed_amount': float(failed_amount),
+                'total_count': total_count,
+                'success_count': success_count,
+                'failed_count': failed_count,
+                'pending_count': pending_count
+            }
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/recharges')
 @login_required
 def api_recharges():

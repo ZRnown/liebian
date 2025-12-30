@@ -19,9 +19,96 @@
     </nav>
 
     <main class="px-6 py-8">
+        <!-- 统计卡片 -->
+        <div id="stats-cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-slate-500">充值金额</p>
+                        <p class="text-2xl font-bold text-slate-900" id="total-amount">0 U</p>
+                    </div>
+                    <div class="p-3 bg-blue-50 rounded-lg">
+                        <i class="ti ti-cash text-blue-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-slate-500">成功金额</p>
+                        <p class="text-2xl font-bold text-green-600" id="success-amount">0 U</p>
+                    </div>
+                    <div class="p-3 bg-green-50 rounded-lg">
+                        <i class="ti ti-check text-green-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-slate-500">失败金额</p>
+                        <p class="text-2xl font-bold text-red-600" id="failed-amount">0 U</p>
+                    </div>
+                    <div class="p-3 bg-red-50 rounded-lg">
+                        <i class="ti ti-x text-red-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-slate-500">提交笔数</p>
+                        <p class="text-2xl font-bold text-slate-900" id="total-count">0 笔</p>
+                    </div>
+                    <div class="p-3 bg-purple-50 rounded-lg">
+                        <i class="ti ti-file text-purple-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-slate-500">成功笔数</p>
+                        <p class="text-2xl font-bold text-green-600" id="success-count">0 笔</p>
+                    </div>
+                    <div class="p-3 bg-green-50 rounded-lg">
+                        <i class="ti ti-check-circle text-green-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-slate-500">失败笔数</p>
+                        <p class="text-2xl font-bold text-red-600" id="failed-count">0 笔</p>
+                    </div>
+                    <div class="p-3 bg-red-50 rounded-lg">
+                        <i class="ti ti-x-circle text-red-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-slate-500">待处理笔数</p>
+                        <p class="text-2xl font-bold text-yellow-600" id="pending-count">0 笔</p>
+                    </div>
+                    <div class="p-3 bg-yellow-50 rounded-lg">
+                        <i class="ti ti-clock text-yellow-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="flex items-center gap-4 mb-6">
             <div class="flex gap-2 flex-1 max-w-md">
-                <input type="text" id="search-input" placeholder="搜索用户名或ID..." 
+                <input type="text" id="search-input" placeholder="搜索用户名或ID..."
                     class="flex-1 pl-4 pr-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none text-sm">
                 <button id="search-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">搜索</button>
             </div>
@@ -60,10 +147,29 @@
 (function() {
     let page = 1, search = '', pages = 1;
     
+    async function loadStats() {
+        try {
+            const res = await fetch('/api/recharges/stats');
+            const data = await res.json();
+            if (data.success && data.stats) {
+                const stats = data.stats;
+                document.getElementById('total-amount').textContent = stats.total_amount.toFixed(2) + ' U';
+                document.getElementById('success-amount').textContent = stats.success_amount.toFixed(2) + ' U';
+                document.getElementById('failed-amount').textContent = stats.failed_amount.toFixed(2) + ' U';
+                document.getElementById('total-count').textContent = stats.total_count + ' 笔';
+                document.getElementById('success-count').textContent = stats.success_count + ' 笔';
+                document.getElementById('failed-count').textContent = stats.failed_count + ' 笔';
+                document.getElementById('pending-count').textContent = stats.pending_count + ' 笔';
+            }
+        } catch (e) {
+            console.error('Load stats error:', e);
+        }
+    }
+
     async function load() {
         let url = `/api/recharges?page=${page}`;
         if (search) url += `&search=${encodeURIComponent(search)}`;
-        
+
         try {
             const res = await fetch(url);
             const data = await res.json();
@@ -121,6 +227,9 @@
             pages = Math.ceil((data.total || 0) / perPage) || 1;
             document.getElementById('prev-btn').disabled = page <= 1;
             document.getElementById('next-btn').disabled = page >= pages;
+
+            // 加载统计数据
+            await loadStats();
         } catch (e) {
             console.error('Load error:', e);
         }
@@ -142,8 +251,10 @@
     
     document.getElementById('prev-btn').addEventListener('click', () => { if (page > 1) { page--; load(); } });
     document.getElementById('next-btn').addEventListener('click', () => { if (page < pages) { page++; load(); } });
-    
-    load();
+
+    // 初始化加载
+    loadStats(); // 先加载统计数据
+    load(); // 再加载列表数据
 })();
 
 async function markRechargePaid(id) {
