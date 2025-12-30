@@ -482,7 +482,8 @@ def register_handlers(client):
     @client.on(events.NewMessage(pattern='/start'))
     async def start_handler(event):
         """启动命令"""
-        telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
+        original_sender_id = event.sender_id
+        telegram_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
 
         referrer_id = None
         if event.message.text and len(event.message.text.split()) > 1:
@@ -504,7 +505,12 @@ def register_handlers(client):
                 except: pass
 
         sys_config = get_system_config()
-        welcome_text = f'👋 欢迎使用裂变推广机器人!\n👤 ID: `{telegram_id}`\n💰 余额: {member["balance"]} U'
+
+        # 显示当前使用的账号ID（可能是备用账号）
+        display_id = original_sender_id
+        vip_status = "✅ 已开通" if member.get('is_vip') else "❌ 未开通"
+
+        welcome_text = f'👋 欢迎使用裂变推广机器人!\n👤 当前显示身份ID: `{display_id}`\n💎 VIP状态: {vip_status}\n💰 余额: {member["balance"]} U\n\n请选择功能:'
         if sys_config.get('pinned_ad'):
             welcome_text += f'\n\n📢 {sys_config["pinned_ad"]}'
 
