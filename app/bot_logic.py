@@ -15,7 +15,7 @@ import socks
 
 from config import (
     API_ID, API_HASH, ADMIN_IDS, USE_PROXY,
-    PROXY_TYPE, PROXY_HOST, PROXY_PORT
+    PROXY_TYPE, PROXY_HOST, PROXY_PORT, DATA_DIR
 )
 from database import DB, get_cn_time, get_system_config, get_db_conn
 from core_functions import (
@@ -30,10 +30,15 @@ from bot_commands_addon import (
 
 
 def compute_vip_price_from_config(config):
-    """Compute effective VIP price: if per-level amounts configured, sum them; else use vip_price"""
+    """
+    计算VIP价格
+    【修复】如果配置数组长度不够，使用 level_reward 补齐，而不是 0
+    """
     try:
-        # support config 'level_amounts' as list or JSON string
         level_count = int(config.get('level_count', 10))
+        # 默认单层金额
+        default_reward = float(config.get('level_reward', 1.0))
+
         level_amounts = config.get('level_amounts')
         if level_amounts:
             import json
@@ -44,25 +49,26 @@ def compute_vip_price_from_config(config):
                     parsed = None
             else:
                 parsed = level_amounts
-
             if isinstance(parsed, list):
-                # sum first level_count entries (pad with zeros)
                 vals = [float(x) for x in parsed[:level_count]]
+                # 【核心修复】如果长度不够，用 default_reward 补齐，而不是 0
                 if len(vals) < level_count:
-                    vals += [0.0] * (level_count - len(vals))
+                    vals += [default_reward] * (level_count - len(vals))
                 return sum(vals)
+
             elif isinstance(parsed, dict):
                 total = 0.0
                 for i in range(1, level_count + 1):
-                    v = parsed.get(str(i)) or parsed.get(i) or 0
+                    v = parsed.get(str(i)) or parsed.get(i) or default_reward
                     total += float(v)
                 return total
     except Exception:
         pass
-    # fallback to simple vip_price
+
+    # Fallback
     try:
         return float(config.get('vip_price', 10))
-    except Exception:
+    except:
         return 10.0
 
 # 按钮文字常量
@@ -98,7 +104,8 @@ async def send_vip_required_prompt(event_or_id, reply_method='respond'):
             telegram_id = original.sender_id
 
         config = get_system_config()
-        vip_price = config.get('vip_price', 10)
+        # 优先从配置计算VIP总价，确保和层级设置一致
+        vip_price = compute_vip_price_from_config(config)
         balance = member['balance'] if member else 0
 
         # 【修复】更新文案格式
@@ -120,7 +127,7 @@ async def send_vip_required_prompt(event_or_id, reply_method='respond'):
 
         if isinstance(event_or_id, int):
             try:
-                await client.send_message(telegram_id, text, buttons=buttons)
+                if client: await client.send_message(telegram_id, text, buttons=buttons)
             except Exception:
                 pass
         else:
@@ -168,7 +175,6 @@ if not active_tokens:
         active_tokens.append((0, BOT_TOKEN))
     else:
         print("[机器人初始化] ❌ 错误：没有找到任何机器人配置！")
-        exit(1)
 
 # 代理设置
 proxy = None
@@ -182,30 +188,35 @@ if USE_PROXY:
     else:
         proxy = (socks.SOCKS5, PROXY_HOST, PROXY_PORT)
 
+# 确保 session 目录存在
+from config import SESSION_DIR
+os.makedirs(SESSION_DIR, exist_ok=True)
+
 # 创建所有机器人客户端
 for db_id, token in active_tokens:
     try:
-        # 使用 session_id_{db_id} 区分不同机器人的 session 文件
-        session_name = f'bot_session_{db_id}' if db_id > 0 else 'bot_session_default'
-        # 在 Docker 或特定环境下，session文件最好存放在 data 目录
-        from config import DATA_DIR
-        session_path = os.path.join(DATA_DIR, session_name)
+        # 【关键修复】使用独立的 Session 文件名，防止冲突
+        # 使用数据库ID作为区分，ID为0的是配置文件默认Bot
+        session_name = f'bot_{db_id}'
+        session_path = os.path.join(SESSION_DIR, session_name)
+
+        print(f"[机器人初始化] 正在启动 Bot ID {db_id} (Session: {session_name})...")
 
         client = TelegramClient(session_path, API_ID, API_HASH, proxy=proxy)
         # 启动客户端
         client.start(bot_token=token)
         clients.append(client)
-        print(f"[机器人初始化] 成功加载机器人: {token[:10]}... (ID: {db_id})")
+        print(f"[机器人初始化] ✅ 成功启动: {token[:10]}...")
     except Exception as e:
-        print(f"[机器人初始化] 加载机器人失败 (Token: {token[:10]}...): {e}")
+        print(f"[机器人初始化] ❌ 启动失败 (ID: {db_id}): {e}")
 
 if not clients:
     print("[机器人初始化] ❌ 严重错误：无法启动任何机器人，程序即将退出")
-    exit(1)
-
-# 为了兼容旧代码，定义 bot 为第一个客户端
-# 注意：这主要用于主动发送消息(send_message)，后续逻辑可能需要优化以支持特定bot发送
-bot = clients[0]
+    # 不退出，让Web后台还能跑
+    bot = None
+else:
+    # 定义 bot 为第一个客户端 (主要用于后台任务的主动发送)
+    bot = clients[0]
 
 # 自定义装饰器：注册事件到所有机器人
 def multi_bot_on(event_builder):
@@ -466,9 +477,13 @@ async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=Tru
     
     # 3. 更新层级路径
     update_level_path(telegram_id)
-    
+
     # 4. 【核心】调用统一分红函数（替代所有手写循环）
-    stats = await distribute_vip_rewards(bot, telegram_id, vip_price, config)
+    # 使用主bot发送分红通知
+    if bot:
+        stats = await distribute_vip_rewards(bot, telegram_id, vip_price, config)
+    else:
+        stats = {'real': 0, 'total': 0}  # 如果bot未启动，返回空统计
     
     return True, {
         'new_balance': new_balance,
@@ -656,48 +671,37 @@ async def send_recharge_notification(telegram_id, amount):
         print(f'[充值通知] 发送失败: {e}')
 
 async def process_recharge(telegram_id, amount, is_vip_order=False):
-    """处理充值后续逻辑（开通VIP、分红、通知）"""
+    """处理充值后续逻辑"""
     try:
         config = get_system_config()
         member = DB.get_member(telegram_id)
         if not member:
             return False
-            
+
         # Web端已经增加了余额，这里直接获取最新余额
         current_balance = member.get('balance', 0)
         vip_price = compute_vip_price_from_config(config)
 
-        # 若为VIP订单且用户尚未VIP且余额足够：扣费、开通、分红、通知
         if is_vip_order and not member.get('is_vip', False) and current_balance >= vip_price:
-            print(f'[充值处理] 开始VIP自动开通: telegram_id={telegram_id}, 余额={current_balance}')
+            print(f'[充值处理] 开始VIP自动开通: telegram_id={telegram_id}')
             new_balance = current_balance - vip_price
             DB.update_member(telegram_id, balance=new_balance, is_vip=1, vip_time=get_cn_time())
             update_level_path(telegram_id)
-            from core_functions import distribute_vip_rewards, generate_vip_success_message
-            try:
+            if bot:
                 await distribute_vip_rewards(bot, telegram_id, vip_price, config)
-            except Exception as e:
-                print(f"[充值处理] 分发奖励出错: {e}")
-            msg = generate_vip_success_message(telegram_id, amount, vip_price, new_balance)
-            try:
-                await bot.send_message(telegram_id, msg, parse_mode='markdown')
-            except Exception as e:
-                print(f"[充值处理] 发送通知失败: {e}")
 
-            # 普通充值或余额不足：如果不是VIP订单，发送普通到账通知
-            if not is_vip_order:
+            from core_functions import generate_vip_success_message
+            msg = generate_vip_success_message(telegram_id, amount, vip_price, new_balance)
+            if bot:
+                try: await bot.send_message(telegram_id, msg, parse_mode='markdown')
+                except: pass
+        else:
+            if not is_vip_order and bot:
                 try:
-                    await bot.send_message(
-                        telegram_id,
-                        f'✅ 充值到账通知\\n\\n💰 金额: {amount} U\\n💵 当前余额: {current_balance} U'
-                    )
-                except Exception as e:
-                    print(f"[充值处理] 发送普通通知失败: {e}")
-                    return True
+                    await bot.send_message(telegram_id, f'✅ 充值到账通知\n\n💰 金额: {amount} U\n💵 当前余额: {current_balance} U')
+                except: pass
     except Exception as e:
         print(f"[充值处理异常] {e}")
-        import traceback
-        traceback.print_exc()
         return False
 
 # ==================== 管理员手动开通VIP ====================

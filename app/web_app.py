@@ -1803,70 +1803,91 @@ def api_level_settings():
 @app.route('/api/level-settings', methods=['POST'])
 @login_required
 def api_update_level_settings():
-    """保存层级设置（修复版：防止保存0值）"""
+    """保存层级设置（修复版：强制对齐长度，防止第10层变0）"""
     try:
         data = request.json or {}
-        level_count = data.get('level_count')
+        level_count_raw = data.get('level_count')
         level_amounts = data.get('level_amounts') # 前端发来的是列表或字典
 
         # 获取当前默认返利配置作为fallback
         from database import get_system_config, update_system_config
         current_config = get_system_config()
-        default_reward = float(current_config.get('level_reward', 1.0))
+        try:
+            default_reward = float(current_config.get('level_reward', 1.0))
+        except:
+            default_reward = 1.0
 
         import json
 
-        # 1. 处理金额列表
+        # 1. 确定目标层数
+        target_count = 10 # 默认
+        if level_count_raw is not None:
+            try:
+                target_count = int(level_count_raw)
+                if target_count <= 0: target_count = 10
+            except:
+                target_count = 10
+
+        # 2. 处理金额列表
         final_amounts = []
         if level_amounts:
-            # 如果是字典转列表，如果是列表直接用
+            # 如果是字典转列表
             if isinstance(level_amounts, dict):
-                # 获取所有有效的数字键
-                keys = [int(k) for k in level_amounts.keys() if k.isdigit()]
-                if keys:
-                    max_key = max(keys)
-                    for i in range(1, max_key + 1):
-                        # 优先查找字符串键，然后是数字键
-                        val = level_amounts.get(str(i))
-                        if val is None:
-                            val = level_amounts.get(i, 0)
+                # 找出最大的key
+                keys = [int(k) for k in level_amounts.keys() if str(k).isdigit()]
+                max_key = max(keys + [0])
+                # 循环取值，长度取 max(target_count, max_key)
+                loop_len = max(target_count, max_key)
 
-                        # 确保val是有效的数值
-                        try:
-                            val_float = float(val) if val != '' else 0.0
-                            # 只在值为0或负数时使用默认值，正数值保持不变
-                            if val_float <= 0:
-                                val_float = default_reward
-                        except (ValueError, TypeError):
-                            val_float = default_reward
+                for i in range(1, loop_len + 1):
+                    val = level_amounts.get(str(i)) or level_amounts.get(i) or 0
+                    try:
+                        val_float = float(val)
+                    except:
+                        val_float = 0.0
 
-                        final_amounts.append(val_float)
+                    # 修正0值为默认值（防止前端误传空值导致0）
+                    if val_float <= 0:
+                        val_float = default_reward
+                    final_amounts.append(val_float)
+
             elif isinstance(level_amounts, list):
-                # 处理列表格式
+                # 如果是列表
                 for x in level_amounts:
                     try:
-                        val_float = float(x) if x != '' else 0.0
-                        if val_float <= 0: val_float = default_reward
-                        final_amounts.append(val_float)
+                        val_float = float(x)
                     except:
-                        final_amounts.append(default_reward)
+                        val_float = 0.0
 
-            # 保存金额配置
-            update_system_config('level_amounts', json.dumps(final_amounts))
+                    if val_float <= 0: val_float = default_reward
+                    final_amounts.append(val_float)
 
-        # 2. 处理层数
-        if level_count is not None:
-            count = int(level_count)
-            # 如果用户填写的金额列表比层数长，以金额列表长度为准
-            if final_amounts and len(final_amounts) > count:
-                count = len(final_amounts)
-            if count <= 0: count = 10 # 防止非法值
+        # 3. 【核心修复】强制对齐长度
+        # 如果解析出的金额列表长度 小于 目标层数，用默认值补齐
+        while len(final_amounts) < target_count:
+            final_amounts.append(default_reward)
 
-            update_system_config('level_count', count)
+        # 如果解析出的金额列表长度 大于 目标层数，则自动增加层数以适应金额列表
+        if len(final_amounts) > target_count:
+            target_count = len(final_amounts)
 
-        return jsonify({'success': True, 'message': '层级设置已保存'})
+        # 截断（理论上不需要，因为上面逻辑是自动扩展，这里为了保险起见，确保只存 target_count 个）
+        final_amounts = final_amounts[:target_count]
+
+        # 4. 保存到数据库
+        update_system_config('level_count', target_count)
+        update_system_config('level_amounts', json.dumps(final_amounts))
+
+        return jsonify({
+            'success': True,
+            'message': '层级设置已保存',
+            'saved_count': target_count,
+            'saved_amounts': final_amounts
+        })
     except Exception as e:
         print(f"保存设置出错: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/withdrawals')

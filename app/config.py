@@ -26,9 +26,15 @@ SESSION_PATH = os.path.join(DATA_DIR, 'bot.session')
 # 静态文件上传目录
 UPLOAD_DIR = os.path.join(BASE_DIR, 'static', 'uploads')
 
+# Session文件目录（多机器人Session隔离）
+SESSION_DIR = os.path.join(DATA_DIR, 'sessions')
+
 # 确保数据目录存在
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(SESSION_DIR, exist_ok=True)
+
+# ... (Rest of file remains same) ...
 
 # ==================== Telegram Bot 配置 ====================
 # 从 .env 文件或环境变量读取配置
