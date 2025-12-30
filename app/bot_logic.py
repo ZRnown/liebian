@@ -3360,65 +3360,28 @@ async def run_until_disconnected():
 
 def run_bot():
     """Bot 启动入口"""
-    print("🚀 Telegram Bot 启动中...")
-    
-    # 1. 启动通知队列处理（提现/充值通知）
-    bot.loop.create_task(process_notify_queue())
-    print("✅ 通知队列处理器已启动")
-    
-    # 2. 启动定时群发（从原有 main.py 迁移）
-    bot.loop.create_task(auto_broadcast_timer())
-    print("✅ 定时自动群发已启动")
-    
-    # 3. 启动会员状态检测（从原有 main.py 迁移）
-    bot.loop.create_task(check_member_status_task())
-    print("✅ 会员状态检测已启动")
-    
-    # 4. 启动群发队列处理（数据库队列）
-    bot.loop.create_task(process_broadcast_queue())
-    print("✅ 群发队列处理器已启动")
-    
-    # 5. 启动内存群发队列处理（Web后台群发）
-    bot.loop.create_task(process_broadcasts())
-    print("✅ 内存群发队列处理器已启动")
+    print("🚀 Telegram Bots (Multi) 启动中...")
 
-    # 6. 启动来自 Web 的充值处理队列（线程安全队列，由 Web 将项 push 到此列表）
+    # 启动后台任务
+    loop = asyncio.get_event_loop()
+    loop.create_task(process_notify_queue())
+    loop.create_task(auto_broadcast_timer())
+    loop.create_task(check_member_status_task())
+    loop.create_task(process_broadcast_queue())
+    loop.create_task(process_broadcasts())
+
     async def _process_recharge_queue_worker():
         while True:
             try:
-                # Debug: current queue length
-                try:
-                    qlen = len(process_recharge_queue)
-                except Exception:
-                    qlen = 0
-                if qlen:
-                    print(f"[process_recharge_queue] 队列长度: {qlen}")
+                if process_recharge_queue:
                     item = process_recharge_queue.pop(0)
-                    try:
-                        member_id = item.get('member_id')
-                        amount = item.get('amount', 0)
-                        is_vip_order = item.get('is_vip_order', False)
-                        print(f"[process_recharge_queue] 开始处理: member_id={member_id}, amount={amount}, is_vip_order={is_vip_order}")
-                        await process_recharge(member_id, amount, is_vip_order=is_vip_order)
-                        print(f"[process_recharge_queue] 处理完成: member_id={member_id}, amount={amount}, is_vip_order={is_vip_order}")
-                    except Exception as e:
-                        import traceback
-                        print(f"[process_recharge_queue] 处理失败: {e}")
-                        traceback.print_exc()
-                await asyncio.sleep(1)
-            except Exception as e:
-                import traceback
-                print(f"[process_recharge_queue] 错误: {e}")
-                traceback.print_exc()
-                await asyncio.sleep(5)
+                    await process_recharge(item.get('member_id'), item.get('amount'), item.get('is_vip_order'))
+            except: pass
+            await asyncio.sleep(1)
 
-    bot.loop.create_task(_process_recharge_queue_worker())
-    print("✅ Web -> Bot 充值队列处理器已启动")
-    
-    print("=" * 60)
+    loop.create_task(_process_recharge_queue_worker())
     print("✅ 所有后台任务已挂载")
     print(f"✅ {len(clients)} 个机器人正在监听消息...")
-    print("=" * 60)
     loop.run_until_complete(run_until_disconnected())
 
 # 导出
