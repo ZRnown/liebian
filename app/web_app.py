@@ -1795,13 +1795,17 @@ def api_level_settings():
 @app.route('/api/level-settings', methods=['POST'])
 @login_required
 def api_update_level_settings():
-    """保存层级设置（修复版：自动同步层数和金额列表）"""
+    """保存层级设置（修复版：防止保存0值）"""
     try:
         data = request.json or {}
         level_count = data.get('level_count')
         level_amounts = data.get('level_amounts') # 前端发来的是列表或字典
 
-        from database import update_system_config
+        # 获取当前默认返利配置作为fallback
+        from database import get_system_config, update_system_config
+        current_config = get_system_config()
+        default_reward = float(current_config.get('level_reward', 1.0))
+
         import json
 
         # 1. 处理金额列表
@@ -1809,23 +1813,34 @@ def api_update_level_settings():
         if level_amounts:
             # 如果是字典转列表，如果是列表直接用
             if isinstance(level_amounts, dict):
-                # 找出最大的key作为长度
                 max_key = max([int(k) for k in level_amounts.keys()] + [0])
                 for i in range(1, max_key + 1):
                     val = level_amounts.get(str(i)) or level_amounts.get(i) or 0
-                    final_amounts.append(float(val))
+                    # 【核心修复】如果值为0，使用默认值，防止前端传空导致归零
+                    val_float = float(val)
+                    if val_float <= 0:
+                        val_float = default_reward
+                    final_amounts.append(val_float)
             elif isinstance(level_amounts, list):
-                final_amounts = [float(x) for x in level_amounts]
+                # 【核心修复】遍历列表，修正0值
+                for x in level_amounts:
+                    try:
+                        val_float = float(x)
+                        if val_float <= 0: val_float = default_reward
+                        final_amounts.append(val_float)
+                    except:
+                        final_amounts.append(default_reward)
 
             # 保存金额配置
             update_system_config('level_amounts', json.dumps(final_amounts))
 
-        # 2. 处理层数 (逻辑优化：如果金额列表长度 > 设置的层数，自动增加层数)
+        # 2. 处理层数
         if level_count is not None:
             count = int(level_count)
-            # 如果用户填写的金额列表比层数长，说明用户想增加层数，以金额列表长度为准
+            # 如果用户填写的金额列表比层数长，以金额列表长度为准
             if final_amounts and len(final_amounts) > count:
                 count = len(final_amounts)
+            if count <= 0: count = 10 # 防止非法值
 
             update_system_config('level_count', count)
 

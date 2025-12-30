@@ -148,18 +148,21 @@ def get_active_bot_tokens():
         return []
 
 def select_bot_token():
-    """选择一个机器人token（轮流或随机选择）"""
+    """选择一个机器人token"""
     active_tokens = get_active_bot_tokens()
     if not active_tokens:
+        # 如果数据库没有配置，回退到配置文件
+        from config import BOT_TOKEN
+        if BOT_TOKEN:
+             print(f"[机器人初始化] 数据库无Token，使用配置文件默认Token")
+             return BOT_TOKEN
         print("[机器人初始化] ❌ 错误：没有活跃的机器人token！请在后台机器人设置中添加并启用至少一个机器人。")
         print("[机器人初始化] 程序将退出，请先配置机器人token。")
-        exit(1)  # 强制退出程序
+        exit(1)
 
-    # 简单轮流选择（可以改为随机或更复杂的策略）
-    import time
-    index = int(time.time()) % len(active_tokens)
-    selected_token = active_tokens[index]
-    print(f"[机器人初始化] ✅ 选择机器人token {index + 1}/{len(active_tokens)}: {selected_token[:20]}...")
+    # 简单选择第一个，或者根据需要轮询（这里默认取第一个活跃的）
+    selected_token = active_tokens[0]
+    print(f"[机器人初始化] ✅ 使用机器人token: {selected_token[:15]}...")
     return selected_token
 
 # 初始化机器人
@@ -1805,10 +1808,7 @@ async def promote_handler(event):
         await event.respond('请先发送 /start 注册')
         return
     
-    # 未开通 VIP，禁止使用推广功能（统一卡片提示）
-    if not member['is_vip']:
-        await send_vip_required_prompt(event)
-        return
+    # 【修复】移除了强制VIP检查，非VIP也可以推广赚钱
     
     # 未完成上级加群任务
     if not member.get('is_joined_upline', 0):
@@ -2159,10 +2159,7 @@ async def my_promote_handler(event):
         await event.respond('请先发送 /start 注册')
         return
     
-    # VIP check: 如果未开通，发送统一卡片提示
-    if not member.get('is_vip'):
-        await send_vip_required_prompt(event)
-        return
+    # 【修复】移除了强制VIP检查，非VIP也可以查看自己的推广数据
     
     # 获取下级统计
     counts = DB.get_downline_count(event.sender_id, config['level_count'])
