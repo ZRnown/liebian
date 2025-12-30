@@ -103,7 +103,7 @@ BTN_SUB_CHECK_STATUS = '✅ 检查加入状态'
 
 
 async def send_vip_required_prompt(event_or_id, reply_method='respond'):
-    """给未开通VIP的用户发送统一提示文案"""
+    """给未开通VIP的用户发送统一提示文案，支持 event 或 telegram_id"""
     try:
         if isinstance(event_or_id, int):
             telegram_id = event_or_id
@@ -198,6 +198,7 @@ def init_bots():
 
     for idx, token in enumerate(tokens):
         try:
+            # 为每个token创建一个独立的session文件，避免冲突
             session_name = f'bot_session_{idx}'
             client = TelegramClient(session_name, API_ID, API_HASH, proxy=proxy)
             client.start(bot_token=token)
@@ -212,7 +213,7 @@ def init_bots():
             logger.error(f"❌ 机器人 #{idx+1} 启动失败: {e}")
 
     if active_clients:
-        bot = active_clients[0]
+        bot = active_clients[0] # 将第一个启动成功的设为主Bot，用于主动推送
         logger.info(f"✅ 总计启动 {len(active_clients)} 个机器人，主Bot已就绪")
     else:
         logger.error("❌ 没有机器人启动成功")
@@ -223,12 +224,16 @@ def init_bots():
 pending_broadcasts = []
 notify_queue = []
 process_recharge_queue = []
-# 其他全局变量...
-
+waiting_for_group_link = {}
+waiting_for_backup = {}
+waiting_for_recharge_amount = {}
+waiting_for_withdraw_amount = {}
+waiting_for_withdraw_address = {}
+withdraw_temp_data = {}
+admin_waiting = {}
 
 # 导入支付模块
-from app.payment import create_recharge_order
-
+from app.payment import create_recharge_order, PAYMENT_CONFIG, generate_payment_sign
 
 # ==================== 账号关联逻辑 ====================
 
@@ -237,21 +242,24 @@ def get_main_account_id(telegram_id, username=None):
     try:
         target_id_str = str(telegram_id).strip()
         clean_username = (username or '').strip().lstrip('@')
-
+        
         conn = get_db_conn()
         c = conn.cursor()
-
+        
+        # 核心查询：查找是否有人的 backup_account 字段等于当前访问者的 ID
         query = "SELECT telegram_id FROM members WHERE backup_account = ?"
         c.execute(query, (target_id_str,))
         row = c.fetchone()
-
+        
+        # 如果ID没查到，再尝试查用户名
         if not row and clean_username:
             c.execute(
                 'SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?',
                 (clean_username, f"@{clean_username}")
             )
             row = c.fetchone()
-
+            
+        # 捡漏账号逻辑
         if not row:
             c.execute(
                 'SELECT main_account_id FROM fallback_accounts '
@@ -262,17 +270,154 @@ def get_main_account_id(telegram_id, username=None):
             if fallback_result and fallback_result[0]:
                 conn.close()
                 return fallback_result[0]
-
+        
         conn.close()
-
+        
         if row:
             print(f"✅ [账号劫持成功] 备用号 {target_id_str} 正在登录 -> 切换为主账号 {row[0]}")
             return row[0]
-
+        
         return telegram_id
     except Exception as e:
         print(f"[关联查询出错] {e}")
         return telegram_id
+
+def format_backup_account_display(backup_account):
+    """格式化备用号显示"""
+    if not backup_account:
+        return "未设置"
+    
+    backup_account_str = str(backup_account).strip()
+    
+    if backup_account_str.startswith('@'):
+        return backup_account_str
+    if not backup_account_str.isdigit():
+        return f"@{backup_account_str}"
+    
+    try:
+        backup_id = int(backup_account_str)
+        backup_member = DB.get_member(backup_id)
+        if backup_member and backup_member.get('username'):
+            return f"@{backup_member['username']}"
+        else:
+            return backup_account_str
+    except (ValueError, Exception):
+        return backup_account_str
+
+def link_account(main_id, backup_id, backup_username):
+    """关联备用号到主账号"""
+    clean_username = (backup_username or '').strip().lstrip('@')
+    
+    if clean_username:
+        value_to_store = f"@{clean_username}"
+    elif backup_id:
+        value_to_store = str(backup_id)
+    else:
+        return False, "❌ 无效的备用账号信息"
+        
+    if str(main_id) == str(backup_id) or value_to_store == str(main_id):
+        return False, "❌ 不能将自己设置为备用号"
+
+    try:
+        if backup_id:
+            existing_member = DB.get_member(backup_id)
+            if existing_member and str(backup_id) != str(main_id):
+                return False, "❌ 该账号已注册，不能设置为备用号"
+    except Exception as e:
+        print(f"[检查备用号是否已注册失败] {e}")
+
+    conn = get_db_conn()
+    c = conn.cursor()
+    try:
+        c.execute('SELECT telegram_id FROM members WHERE backup_account = ?', (str(backup_id),))
+        existing_by_id = c.fetchone()
+        
+        c.execute(
+            'SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?',
+            (clean_username, f"@{clean_username}")
+        )
+        existing_by_name = c.fetchone()
+        
+        existing = existing_by_id or existing_by_name
+        
+        if existing and str(existing[0]) != str(main_id):
+            conn.close()
+            return False, "❌ 该账号已经是其他人的备用号了，无法重复绑定"
+
+        c.execute('UPDATE members SET backup_account = ? WHERE telegram_id = ?', (value_to_store, main_id))
+        conn.commit()
+        conn.close()
+        return True, f"✅ 备用账号关联成功！\n绑定值: {value_to_store}\n\n请使用备用号发送 /start 测试。"
+        
+    except Exception as e:
+        try:
+            conn.close()
+        except:
+            pass
+        return False, f"关联失败: {str(e)}"
+
+def get_fallback_resource(resource_type='group'):
+    """获取捡漏账号资源"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        if resource_type == 'group':
+            # 返回包含群组名称和链接的列表
+            c.execute("SELECT username, group_link FROM fallback_accounts WHERE is_active = 1 AND group_link IS NOT NULL AND group_link != '' ORDER BY id ASC")
+            results = c.fetchall()
+            conn.close()
+            if results:
+                groups = []
+                seen = set()
+                for username, group_link in results:
+                    if not group_link:
+                        continue
+                    g_links = group_link.split('\n')
+                    for link in g_links:
+                        link = link.strip()
+                        if link and link not in seen:
+                            # 默认使用用户名，如果没有则使用链接最后一部分
+                            default_name = username or link.split('/')[-1].replace('+', '')
+                            groups.append({
+                                'username': username or '',
+                                'link': link,
+                                'name': default_name  # 默认名称，后续可以通过Telegram API获取实际名称
+                            })
+                            seen.add(link)
+                return groups if groups else None
+        elif resource_type == 'account':
+            c.execute("SELECT telegram_id, username FROM fallback_accounts WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1")
+            result = c.fetchone()
+            conn.close()
+            if result:
+                return {'telegram_id': result[0], 'username': result[1]}
+        conn.close()
+    except Exception as e:
+        print(f"[捡漏错误] {e}")
+    return None
+
+async def get_group_title(bot, group_link):
+    """从Telegram API获取群组实际名称"""
+    try:
+        # 提取群组用户名
+        if 't.me/' in group_link:
+            group_username = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
+        elif group_link.startswith('@'):
+            group_username = group_link[1:]
+        else:
+            return None
+        
+        # 跳过私有群链接
+        if group_username.startswith('+'):
+            return None
+        
+        # 获取群组实体
+        group_entity = await bot.get_entity(group_username)
+        title = getattr(group_entity, 'title', None)
+        return title
+    except Exception as e:
+        print(f"[获取群组名称失败] {group_link}: {e}")
+    return None
 
 def get_main_keyboard(user_id=None):
     """主菜单键盘"""
@@ -285,29 +430,49 @@ def get_main_keyboard(user_id=None):
         keyboard[-1].append(Button.text(BTN_ADMIN, resize=True))
     return keyboard
 
-# ==================== VIP处理逻辑 ====================
+# ==================== 【核心修复】VIP开通逻辑 ====================
+# 所有VIP开通路径都统一调用 distribute_vip_rewards，删除冗余的手写分红代码
 
 async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=True):
-    """统一的VIP开通处理函数"""
+    """
+    统一的VIP开通处理函数
+    【核心】所有VIP开通都调用这个函数，确保逻辑一致
+    
+    Args:
+        telegram_id: 用户ID
+        vip_price: VIP价格（用于分红计算）
+        config: 系统配置
+        deduct_balance: 是否扣除余额（True=用户自己开通，False=管理员赠送）
+    """
+    # 1. 检查用户状态
     member = DB.get_member(telegram_id)
     if not member:
         return False, "用户不存在"
-
+    
     if member.get('is_vip'):
         return False, "用户已是VIP"
-
+    
+    # 2. 扣除余额（如果需要）
+    print(f'[process_vip_upgrade] 开始处理: telegram_id={telegram_id}, deduct_balance={deduct_balance}, 当前余额={member["balance"]}, vip_price={vip_price}')
     if deduct_balance:
         if member['balance'] < vip_price:
+            print(f'[process_vip_upgrade] 余额不足: 需要{vip_price}, 当前{member["balance"]}')
             return False, "余额不足"
         new_balance = member['balance'] - vip_price
+        print(f'[process_vip_upgrade] 扣费: {member["balance"]} -> {new_balance}')
         DB.update_member(telegram_id, balance=new_balance, is_vip=1, vip_time=get_cn_time())
     else:
+        # 管理员赠送，不扣除余额
         new_balance = member['balance']
+        print(f'[process_vip_upgrade] 管理员赠送VIP: 余额保持{new_balance}')
         DB.update_member(telegram_id, is_vip=1, vip_time=get_cn_time())
-
+    
+    # 3. 更新层级路径
     update_level_path(telegram_id)
+    
+    # 4. 【核心】调用统一分红函数（替代所有手写循环）
     stats = await distribute_vip_rewards(bot, telegram_id, vip_price, config)
-
+    
     return True, {
         'new_balance': new_balance,
         'stats': stats
@@ -321,23 +486,23 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
         c.execute('SELECT balance, is_vip FROM members WHERE telegram_id = ?', (telegram_id,))
         row = c.fetchone()
         conn.close()
-
+        
         if not row:
             print(f"[Recharge] 用户 {telegram_id} 不存在")
             return
-
+            
         current_balance = row[0]
         is_vip = row[1]
-
+        
         # 发送到账通知
         try:
             await bot.send_message(telegram_id, f"💰 充值到账: {amount} U\n当前余额: {current_balance} U")
         except: pass
-
+        
         # 尝试自动开通VIP
         config = get_system_config()
         vip_price = compute_vip_price_from_config(config)
-
+        
         if is_vip_order and not is_vip and current_balance >= vip_price:
             print(f"[Recharge] 自动开通VIP: {telegram_id}")
             success, result = await process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=True)
@@ -369,19 +534,19 @@ def register_handlers(client):
             try:
                 referrer_id = int(event.message.text.split()[1])
             except: pass
-
+        
         member = DB.get_member(telegram_id)
-
+        
         if not member:
             username = event.sender.username or f'user_{telegram_id}'
             DB.create_member(telegram_id, username, referrer_id)
             member = DB.get_member(telegram_id)
-
+            
             if referrer_id:
                 try:
                     await client.send_message(referrer_id, f'🎉 新成员加入! ID: {telegram_id}')
                 except: pass
-
+        
         sys_config = get_system_config()
         display_id = original_sender_id
         vip_status = "✅ 已开通" if member.get('is_vip') else "❌ 未开通"
@@ -389,7 +554,7 @@ def register_handlers(client):
         welcome_text = f'👋 欢迎使用裂变推广机器人!\n👤 当前显示身份ID: `{display_id}`\n💎 VIP状态: {vip_status}\n💰 余额: {member["balance"]} U\n\n请选择功能:'
         if sys_config.get('pinned_ad'):
             welcome_text += f'\n\n📢 {sys_config["pinned_ad"]}'
-
+        
         await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
 
     # VIP 开通处理
@@ -397,13 +562,12 @@ def register_handlers(client):
     async def vip_handler(event):
         telegram_id = get_main_account_id(event.sender_id)
         member = DB.get_member(telegram_id)
-
         if not member: return
-
+        
         if member['is_vip']:
             await event.respond(f'💎 您已经是VIP会员!\n开通时间: {member["vip_time"][:10]}')
             return
-
+        
         config = get_system_config()
         vip_price = compute_vip_price_from_config(config)
 
@@ -415,7 +579,7 @@ def register_handlers(client):
         else:
             text += f'\n❌ 余额不足，还需 {vip_price - member["balance"]} U'
             buttons = [[Button.inline('💳 充值开通VIP', b'recharge_for_vip')]]
-
+        
         await event.respond(text, buttons=buttons)
 
     @client.on(events.CallbackQuery(pattern=b'confirm_vip'))
@@ -435,8 +599,6 @@ def register_handlers(client):
         telegram_id = get_main_account_id(event.sender_id)
         config = get_system_config()
         vip_price = compute_vip_price_from_config(config)
-
-        # 创建充值订单，金额为VIP价格
         try:
             await create_recharge_order(client, event, vip_price, is_vip_order=True)
         except Exception as e:
@@ -450,10 +612,10 @@ def register_handlers(client):
         if not member:
             await event.respond('请先发送 /start 注册')
             return
-
+        
         config = get_system_config()
         vip_price = compute_vip_price_from_config(config)
-
+        
         from app.core_functions import calculate_team_stats
         team_stats = calculate_team_stats(telegram_id, 10)
 
@@ -469,7 +631,7 @@ def register_handlers(client):
         text += f'   团队总人数: {team_stats["team_count"]}\n'
         text += f'   VIP人数: {team_stats["vip_count"]}\n'
         text += f'💸 累计收益: {member.get("total_earned", 0)} U\n'
-        text += f'⚠️ 累计错过: {member["missed_balance"]} U\n'
+        text += f'⚠️ 累计错过: {member.get("missed_balance", 0)} U\n'
 
         await event.respond(text, buttons=[[Button.text(BTN_BACK, resize=True)]])
 
@@ -480,7 +642,7 @@ def register_handlers(client):
         config = get_system_config()
         support_text = config.get('support_text', '👩‍💼 在线客服\n\n暂无客服信息，请联系管理员')
         customer_services = DB.get_customer_services()
-
+        
         text = support_text
         if customer_services:
             text = '👩‍💼 在线客服\n\n'
@@ -488,7 +650,7 @@ def register_handlers(client):
                 text += f'📞 {service["name"]}\n'
                 if service["link"]:
                     text += f'🔗 {service["link"]}\n\n'
-
+        
         await event.respond(text, buttons=[[Button.text(BTN_BACK, resize=True)]])
 
     # 管理后台
@@ -514,18 +676,18 @@ def register_handlers(client):
         if not member['is_vip']:
             await send_vip_required_prompt(event, 'respond')
             return
-
+        
         bot_username = None
         try:
             me = await client.get_me()
             bot_username = me.username
         except: pass
-
+        
         invite_link = f'https://t.me/{bot_username}?start={telegram_id}' if bot_username else '未知'
-
+        
         from app.core_functions import calculate_team_stats
         team_stats = calculate_team_stats(telegram_id, 10)
-
+        
         text = f'💫 我的推广\n\n'
         text += f'🔗 推广链接:\n{invite_link}\n\n'
         text += f'📊 推广统计:\n'
@@ -534,7 +696,7 @@ def register_handlers(client):
         text += f'💎 VIP人数: {team_stats["vip_count"]}\n'
         text += f'💰 累计收益: {member.get("total_earned", 0)} U\n\n'
         text += '📢 邀请好友加入即可获得奖励!'
-
+        
         await event.respond(text, buttons=[[Button.text(BTN_BACK, resize=True)]])
 
     # 群裂变加入 - 显示子菜单
@@ -548,11 +710,11 @@ def register_handlers(client):
         if not member['is_vip']:
             await send_vip_required_prompt(event, 'respond')
             return
-
+        
         text = '🔗 群裂变加入\n\n'
         text += '📋 加入上层群组可以获得分红奖励\n\n'
         text += '请选择操作:'
-
+        
         buttons = [
             [Button.text(BTN_SUB_VIEW_GROUPS, resize=True)],
             [Button.text(BTN_SUB_CHECK_STATUS, resize=True)],
@@ -583,15 +745,15 @@ def register_handlers(client):
         if not member['is_vip']:
             await send_vip_required_prompt(event, 'respond')
             return
-
+        
         text = '📊 我的裂变\n\n'
         text += f'👤 群组状态: {"✅ 已绑定" if member.get("is_group_bound") else "❌ 未绑定"}\n'
         if member.get('group_link'):
             text += f'🔗 群链接: {member["group_link"]}\n'
-
+        
         text += f'🤖 管理员权限: {"✅ 已设置" if member.get("is_bot_admin") else "❌ 未设置"}\n'
         text += f'👥 加入上层群: {"✅ 已完成" if member.get("is_joined_upline") else "❌ 未完成"}\n\n'
-
+        
         # 显示简单的层级统计
         from app.core_functions import get_downline_tree
         downline_tree = get_downline_tree(telegram_id, 5)
@@ -602,10 +764,10 @@ def register_handlers(client):
                     members_in_level = downline_tree[level]
                     vip_count = sum(1 for m in members_in_level if m['is_vip'])
                     text += f'   第{level}层: {len(members_in_level)}人 (VIP: {vip_count}人)\n'
-
+        
         # 提示用户如何绑定群组
         text += '\n💡 如需绑定或更改群组，请直接发送群链接（如 https://t.me/+xxx）给我'
-
+        
         await event.respond(text, buttons=[[Button.text(BTN_BACK, resize=True)]])
 
     # 监听群组链接消息（用于绑定群组）
@@ -615,7 +777,7 @@ def register_handlers(client):
         # 忽略命令和按钮点击
         if text.startswith('/') or text in [BTN_PROFILE, BTN_FISSION, BTN_VIEW_FISSION, BTN_RESOURCES, BTN_PROMOTE, BTN_SUPPORT, BTN_BACK, BTN_ADMIN, BTN_VIP, BTN_MY_PROMOTE, BTN_SUB_VIEW_GROUPS, BTN_SUB_CHECK_STATUS]:
             return
-
+        
         # 简单正则判断链接
         if 't.me/' in text or text.startswith('@'):
             await handle_group_link_message(event, client, DB)
@@ -634,7 +796,6 @@ def register_handlers(client):
             await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
         else:
             await event.respond('请先发送 /start 注册', buttons=get_main_keyboard(telegram_id))
-
 
 def run_bot():
     """Bot 启动入口"""
@@ -663,7 +824,6 @@ def run_bot():
     loop.create_task(_process_recharge_queue_worker())
 
     print("✅ 所有机器人已启动，开始监听消息...")
-
     try:
         loop.run_forever()
     except KeyboardInterrupt:
@@ -673,16 +833,15 @@ def run_bot():
             if c.is_connected():
                 c.disconnect()
 
-
 # 导出bot实例供其他模块使用
 __all__ = [
-    'bot',
-    'process_vip_upgrade',
-    'process_recharge',
-    'admin_manual_vip_handler',
-    'get_main_account_id',
-    'run_bot',
-    'pending_broadcasts',
+    'bot', 
+    'process_vip_upgrade', 
+    'process_recharge', 
+    'admin_manual_vip_handler', 
+    'get_main_account_id', 
+    'run_bot', 
+    'pending_broadcasts', 
     'notify_queue',
     'process_recharge_queue'
 ]
