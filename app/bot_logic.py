@@ -6,6 +6,7 @@ import asyncio
 import sqlite3
 import time
 import os
+from urllib.parse import quote  # 【新增】用于URL编码推广文案
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient, events, Button
 from telethon.sessions import MemorySession
@@ -1694,7 +1695,8 @@ async def view_fission_handler(event):
         current_level_users = next_level_users
 
     # 生成按钮（从第10层到第1层倒序显示）
-    for level in range(10, 0, -1):
+    # 【修改1】生成按钮（从第1层到第10层正序显示）
+    for level in range(1, 11):
         level_count = level_counts.get(level, 0)
         btn_text = f'第{level}层: {level_count}人'
         buttons.append([Button.inline(btn_text, f'flv_{level}_1'.encode())])
@@ -1876,8 +1878,12 @@ async def promote_handler(event):
     text += f'• 您将获得 {config["level_reward"]} U 奖励\n'
     text += f'• 最多可获得 {config["level_count"]} 层下级奖励\n\n'
     text += f'💡 分享此链接给好友即可开始赚钱!'
-    
-    await event.respond(text, buttons=[[Button.inline('📤 分享推广', b'share_promote')]])
+
+    # 【修改3】改为调用Telegram原生分享功能
+    share_text = f"🔥 推荐一个非常棒的群裂变工具！\n\n💰 自动管理群组，自动分红，多层级收益！\n\n👇 点击下方链接加入：\n{invite_link}"
+    share_url = f"https://t.me/share/url?url={quote(invite_link)}&text={quote(share_text)}"
+
+    await event.respond(text, buttons=[[Button.url('📤 立即推广 (选择好友/群)', share_url)]])
 
 @multi_bot_on(events.NewMessage(pattern=BTN_RESOURCES))
 async def resources_handler(event):
@@ -2214,11 +2220,15 @@ async def my_promote_handler(event):
     text += f'• 错过收益: {member["missed_balance"]} U\n\n'
     text += f'🔗 您的推广链接:\n{invite_link}\n\n'
     text += f'💡 分享链接邀请好友，好友开通VIP您即可获得 {config["level_reward"]} U 奖励!'
-    
-    buttons = [[Button.inline('📤 分享推广', b'share_promote')]]
+
+    # 【修改3】改为调用Telegram原生分享功能
+    share_text = f"🔥 推荐一个非常棒的群裂变工具！\n\n💰 自动管理群组，自动分红，多层级收益！\n\n👇 点击下方链接加入：\n{invite_link}"
+    share_url = f"https://t.me/share/url?url={quote(invite_link)}&text={quote(share_text)}"
+
+    buttons = [[Button.url('📤 立即推广 (选择好友/群)', share_url)]]
     if not member['is_vip']:
         buttons.append([Button.inline('💎 开通VIP解锁全部功能', b'open_vip')])
-    
+
     await event.respond(text, buttons=buttons, parse_mode='md')
 
 @multi_bot_on(events.NewMessage(pattern=BTN_BACK))

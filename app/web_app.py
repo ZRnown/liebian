@@ -1849,7 +1849,7 @@ def api_update_level_settings():
         for i in range(target_count):
             val_float = 0.0
 
-            # 尝试提取第 i 个值
+            # 【修改2】增强数据读取逻辑，修复第10层无法设置的问题
             if raw_amounts:
                 val = None
                 if isinstance(raw_amounts, list):
@@ -1858,7 +1858,14 @@ def api_update_level_settings():
                 elif isinstance(raw_amounts, dict):
                     # 尝试多种 Key 格式: "1", 1, "0", 0
                     # 注意：通常第1层对应的 key 是 "1"
-                    val = raw_amounts.get(str(i + 1)) or raw_amounts.get(i + 1)
+                    # 优先尝试 "1", "2" ... "10" 格式
+                    val = raw_amounts.get(str(i + 1))
+                    # 其次尝试 1, 2 ... 10 (int key)
+                    if val is None: val = raw_amounts.get(i + 1)
+                    # 再次尝试 "0", "1" (0-based string key)
+                    if val is None: val = raw_amounts.get(str(i))
+                    # 最后尝试 0, 1 (0-based int key)
+                    if val is None: val = raw_amounts.get(i)
 
                 try:
                     if val is not None and str(val).strip() != "":
@@ -1919,38 +1926,62 @@ def api_process_withdrawal(id):
 @app.route('/api/recharges/stats')
 @login_required
 def api_recharges_stats():
-    """获取充值统计数据"""
+    """获取充值统计数据（带日期筛选）"""
     try:
+        # 【修改4】获取日期筛选参数
+        start_date = request.args.get('start_date', '').strip()
+        end_date = request.args.get('end_date', '').strip()
+
         conn = get_db_conn()
         c = conn.cursor()
 
-        # 总充值金额
-        c.execute('SELECT COALESCE(SUM(amount), 0) FROM recharge_records')
-        total_amount = c.fetchone()[0]
+        # 构建基础查询和参数
+        base_where = "WHERE 1=1"
+        params = []
 
-        # 成功充值金额
-        c.execute('SELECT COALESCE(SUM(amount), 0) FROM recharge_records WHERE status = "completed"')
-        success_amount = c.fetchone()[0]
+        if start_date:
+            base_where += " AND date(create_time) >= ?"
+            params.append(start_date)
 
-        # 失败充值金额
-        c.execute('SELECT COALESCE(SUM(amount), 0) FROM recharge_records WHERE status = "failed"')
-        failed_amount = c.fetchone()[0]
+        if end_date:
+            base_where += " AND date(create_time) <= ?"
+            params.append(end_date)
 
-        # 总提交笔数
-        c.execute('SELECT COUNT(*) FROM recharge_records')
-        total_count = c.fetchone()[0]
+        # 辅助函数：根据状态构建查询
+        def get_stat_sql(status_filter=None):
+            sql = f"SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM recharge_records {base_where}"
+            current_params = params.copy()
+            if status_filter:
+                sql += " AND status = ?"
+                current_params.append(status_filter)
+            return sql, current_params
 
-        # 成功笔数
-        c.execute('SELECT COUNT(*) FROM recharge_records WHERE status = "completed"')
-        success_count = c.fetchone()[0]
+        # 总充值金额/笔数
+        sql, p = get_stat_sql(None)
+        c.execute(sql, p)
+        row = c.fetchone()
+        total_amount = row[0]
+        total_count = row[1]
 
-        # 失败笔数
-        c.execute('SELECT COUNT(*) FROM recharge_records WHERE status = "failed"')
-        failed_count = c.fetchone()[0]
+        # 成功充值金额/笔数
+        sql, p = get_stat_sql("completed")
+        c.execute(sql, p)
+        row = c.fetchone()
+        success_amount = row[0]
+        success_count = row[1]
 
-        # 待处理笔数
-        c.execute('SELECT COUNT(*) FROM recharge_records WHERE status = "pending"')
-        pending_count = c.fetchone()[0]
+        # 失败充值金额/笔数
+        sql, p = get_stat_sql("failed")
+        c.execute(sql, p)
+        row = c.fetchone()
+        failed_amount = row[0]
+        failed_count = row[1]
+
+        # 待处理笔数 (只统计笔数，通常待处理金额不计入统计或单独列出，这里保持原有结构)
+        sql, p = get_stat_sql("pending")
+        c.execute(sql, p)
+        row = c.fetchone()
+        pending_count = row[1]
 
         conn.close()
 

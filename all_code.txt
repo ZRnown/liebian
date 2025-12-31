@@ -31,49 +31,46 @@ from bot_commands_addon import (
 
 
 def compute_vip_price_from_config(config):
-    """
-    计算VIP价格
-    【修复】如果配置数组长度不够，使用 level_reward 补齐，而不是 0
-    """
+    """计算VIP价格 (逻辑同步Web端)"""
     try:
         level_count = int(config.get('level_count', 10))
-        # 默认单层金额，作为补齐用的填充值
+        # 默认值防止为0
         default_reward = float(config.get('level_reward', 1.0))
+        if default_reward <= 0: default_reward = 1.0
 
         level_amounts = config.get('level_amounts')
         if level_amounts:
             import json
-            parsed = None
-            if isinstance(level_amounts, str):
-                try:
+            try:
+                if isinstance(level_amounts, str):
                     parsed = json.loads(level_amounts)
-                except Exception:
-                    parsed = None
-            else:
-                parsed = level_amounts
+                else:
+                    parsed = level_amounts
+            except: parsed = None
 
             if isinstance(parsed, list):
-                vals = [float(x) for x in parsed[:level_count]]
-                # 【核心修复】如果长度不够，用 default_reward 补齐
+                vals = []
+                last_val = default_reward
+                for x in parsed[:level_count]:
+                    try:
+                        v = float(x)
+                        if v > 0: last_val = v
+                    except: v = last_val
+                    vals.append(v)
+                # 补齐
                 if len(vals) < level_count:
-                    vals += [default_reward] * (level_count - len(vals))
+                    vals += [last_val] * (level_count - len(vals))
                 return sum(vals)
-
             elif isinstance(parsed, dict):
                 total = 0.0
                 for i in range(1, level_count + 1):
-                    # 优先取字典值，取不到则用默认值
                     v = parsed.get(str(i)) or parsed.get(i) or default_reward
                     total += float(v)
                 return total
-    except Exception:
-        pass
+    except: pass
 
-    # 如果以上都失败，回退到 vip_price 配置
-    try:
-        return float(config.get('vip_price', 10))
-    except:
-        return 10.0
+    try: return float(config.get('vip_price', 10))
+    except: return 10.0
 
 # 按钮文字常量
 BTN_PROFILE = '👤 个人中心'
@@ -1587,43 +1584,24 @@ async def verify_groups_callback(event):
 
 @multi_bot_on(events.NewMessage(pattern='/bind_group'))
 async def bind_group_cmd(event):
-    """绑定群组命令"""
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    await handle_bind_group(event, bot, DB)
+    """绑定群组命令 (修复：传入 event.client)"""
+    # 传递 event.client 作为 bot 参数，确保使用正确的机器人实例检测权限
+    await handle_bind_group(event, event.client, DB)
 
 @multi_bot_on(events.NewMessage(pattern='/join_upline'))
 async def join_upline_cmd(event):
     """加入上层群命令"""
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    await handle_join_upline(event, bot, DB, get_system_config)
+    await handle_join_upline(event, event.client, DB, get_system_config)
 
 @multi_bot_on(events.NewMessage(pattern='/check_status'))
 async def check_status_cmd(event):
     """检查状态命令"""
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    await handle_check_status(event, bot, DB)
+    await handle_check_status(event, event.client, DB)
 
 @multi_bot_on(events.NewMessage(pattern='/my_team'))
 async def my_team_cmd(event):
     """我的团队命令"""
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    await handle_my_team(event, bot, DB)
+    await handle_my_team(event, event.client, DB)
 
 # ==================== 其他事件处理器 ====================
 
@@ -5224,13 +5202,24 @@ def api_advertisements():
 @app.route('/api/level-settings')
 @login_required
 def api_level_settings():
-    """获取层级设置"""
+    """获取层级设置（读取时再次清理0值）"""
     try:
         config = get_system_config()
-        level_count = int(config.get('level_count', 10))
-        level_reward = float(config.get('level_reward', 1.0))
 
-        # 读取并解析 level_amounts
+        # 1. 获取层数
+        try:
+            level_count = int(config.get('level_count', 10))
+        except:
+            level_count = 10
+
+        # 2. 获取默认金额
+        try:
+            level_reward = float(config.get('level_reward', 1.0))
+            if level_reward <= 0: level_reward = 1.0
+        except:
+            level_reward = 1.0
+
+        # 3. 解析列表
         level_amounts_str = config.get('level_amounts')
         level_amounts = []
 
@@ -5238,21 +5227,35 @@ def api_level_settings():
             try:
                 parsed = json.loads(level_amounts_str)
                 if isinstance(parsed, list):
-                    level_amounts = [float(x) for x in parsed]
+                    # 遍历解析，遇到0直接替换为 level_reward
+                    for x in parsed:
+                        try:
+                            v = float(x)
+                            if v <= 0.001: v = level_reward # 【关键修复】读取时如果是0，显示为默认值
+                            level_amounts.append(v)
+                        except:
+                            level_amounts.append(level_reward)
                 elif isinstance(parsed, dict):
-                    # 兼容旧格式
                     for i in range(1, level_count + 1):
                         val = parsed.get(str(i)) or parsed.get(i) or level_reward
-                        level_amounts.append(float(val))
+                        try:
+                            v = float(val)
+                            if v <= 0.001: v = level_reward
+                            level_amounts.append(v)
+                        except:
+                            level_amounts.append(level_reward)
             except:
                 level_amounts = []
 
-        # 补齐数据：如果读取的列表长度不够，用 level_reward 补齐
-        # 这里的补齐只是为了前端显示，保存时会再次修正
+        # 4. 补齐或截断
+        # 补齐
         if len(level_amounts) < level_count:
-            level_amounts += [level_reward] * (level_count - len(level_amounts))
+            # 计算缺多少
+            missing = level_count - len(level_amounts)
+            # 用 level_reward 补齐
+            level_amounts += [level_reward] * missing
 
-        # 截断数据：如果由于减少层数导致列表过长，截断它
+        # 截断 (只取前 level_count 个)
         level_amounts = level_amounts[:level_count]
 
         return jsonify({
@@ -5268,65 +5271,69 @@ def api_level_settings():
 @app.route('/api/level-settings', methods=['POST'])
 @login_required
 def api_update_level_settings():
-    """保存层级设置（修复版：强制对齐层数，修复第10层变0问题）"""
+    """保存层级设置（终极修复：强制非零）"""
     try:
         data = request.json or {}
-        # 获取用户提交的层数
+
+        # 1. 获取目标层数
         try:
             target_count = int(data.get('level_count', 10))
             if target_count <= 0: target_count = 10
         except:
             target_count = 10
 
-        # 获取用户提交的每层金额数据
-        raw_amounts = data.get('level_amounts')
-
-        # 获取系统当前的默认每层奖励（作为兜底）
-        current_config = get_system_config()
+        # 2. 确定默认兜底金额 (level_reward)
         try:
-            default_reward = float(current_config.get('level_reward', 1.0))
+            # 优先看用户是否同时也提交了 level_reward (快捷设置)
+            # 如果没有，则去数据库查，如果数据库也没有，就用 1.0
+            input_reward = data.get('level_reward')
+            if input_reward:
+                default_reward = float(input_reward)
+            else:
+                current_config = get_system_config()
+                default_reward = float(current_config.get('level_reward', 1.0))
+
+            if default_reward <= 0: default_reward = 1.0
         except:
             default_reward = 1.0
 
+        # 获取前端传来的金额列表
+        raw_amounts = data.get('level_amounts')
         final_amounts = []
 
-        # 【核心修复逻辑】
-        # 不依赖输入数据的长度，而是严格循环 target_count 次
-        # 确保数据库里存的列表长度绝对等于层数
+        # 3. 严格循环 target_count 次，构建列表
         for i in range(target_count):
-            val = None
+            val_float = 0.0
 
-            # 1. 尝试从提交的数据中获取第 i+1 层的值
+            # 尝试提取第 i 个值
             if raw_amounts:
-                # 如果是列表 (0-based index)
+                val = None
                 if isinstance(raw_amounts, list):
                     if i < len(raw_amounts):
                         val = raw_amounts[i]
-                # 如果是字典 (key可能是 "1", "2" 或 1, 2)
                 elif isinstance(raw_amounts, dict):
+                    # 尝试多种 Key 格式: "1", 1, "0", 0
+                    # 注意：通常第1层对应的 key 是 "1"
                     val = raw_amounts.get(str(i + 1)) or raw_amounts.get(i + 1)
 
-            # 2. 解析数值
-            try:
-                if val is not None and str(val).strip() != "":
-                    val_float = float(val)
-                else:
+                try:
+                    if val is not None and str(val).strip() != "":
+                        val_float = float(val)
+                except:
                     val_float = 0.0
-            except:
-                val_float = 0.0
 
-            # 3. 数据修正：如果值为0或负数，自动使用默认奖励填充
-            # 这解决了"刷新后变0"的问题，因为如果前端没传第10层，这里捕捉到0后会填入默认值
-            if val_float <= 0:
+            # 【强制修正】只要是 0，或者是极小值，强制覆盖为默认值
+            # 这样第10层如果是0，会被强制改为 default_reward (例如 1.0)
+            if val_float <= 0.001:
                 val_float = default_reward
 
             final_amounts.append(val_float)
 
-        # 保存到数据库
-        # 1. 保存层数
+        # 4. 保存
         update_system_config('level_count', target_count)
-        # 2. 保存金额列表 (JSON字符串)
         update_system_config('level_amounts', json.dumps(final_amounts))
+        # 同时更新 level_reward 为兜底值，保持一致性
+        update_system_config('level_reward', default_reward)
 
         return jsonify({
             'success': True,
@@ -5339,6 +5346,7 @@ def api_update_level_settings():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @app.route('/api/withdrawals')
 @login_required
