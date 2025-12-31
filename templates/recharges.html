@@ -106,11 +106,28 @@
             </div>
         </div>
 
-        <div class="flex items-center gap-4 mb-6">
-            <div class="flex gap-2 flex-1 max-w-md">
-                <input type="text" id="search-input" placeholder="搜索用户名或ID..."
-                    class="flex-1 pl-4 pr-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none text-sm">
-                <button id="search-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">搜索</button>
+        <div class="flex flex-col gap-4 mb-6">
+            <!-- 搜索行 -->
+            <div class="flex items-center gap-4">
+                <div class="flex gap-2 flex-1 max-w-md">
+                    <input type="text" id="search-input" placeholder="搜索用户名或ID..."
+                        class="flex-1 pl-4 pr-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none text-sm">
+                    <button id="search-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">搜索</button>
+                </div>
+            </div>
+
+            <!-- 日期筛选行 -->
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2">
+                    <label class="text-sm font-medium text-slate-600">开始日期:</label>
+                    <input type="date" id="start-date" class="px-3 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none text-sm">
+                </div>
+                <div class="flex items-center gap-2">
+                    <label class="text-sm font-medium text-slate-600">结束日期:</label>
+                    <input type="date" id="end-date" class="px-3 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none text-sm">
+                </div>
+                <button id="date-filter-btn" class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">筛选日期</button>
+                <button id="clear-date-btn" class="px-4 py-2 bg-slate-500 text-white rounded-lg text-sm font-medium hover:bg-slate-600">清除筛选</button>
             </div>
         </div>
 
@@ -145,11 +162,17 @@
 
 <script>
 (function() {
-    let page = 1, search = '', pages = 1;
-    
+    let page = 1, search = '', pages = 1, startDate = '', endDate = '';
+
     async function loadStats() {
         try {
-            const res = await fetch('/api/recharges/stats');
+            let url = '/api/recharges/stats';
+            const params = [];
+            if (startDate) params.push(`start_date=${encodeURIComponent(startDate)}`);
+            if (endDate) params.push(`end_date=${encodeURIComponent(endDate)}`);
+            if (params.length > 0) url += '?' + params.join('&');
+
+            const res = await fetch(url);
             const data = await res.json();
             if (data.success && data.stats) {
                 const stats = data.stats;
@@ -251,6 +274,29 @@
     
     document.getElementById('prev-btn').addEventListener('click', () => { if (page > 1) { page--; load(); } });
     document.getElementById('next-btn').addEventListener('click', () => { if (page < pages) { page++; load(); } });
+
+    // 日期筛选功能
+    document.getElementById('date-filter-btn').addEventListener('click', () => {
+        startDate = document.getElementById('start-date').value;
+        endDate = document.getElementById('end-date').value;
+
+        // 验证日期范围
+        if (startDate && endDate && startDate > endDate) {
+            alert('开始日期不能晚于结束日期');
+            return;
+        }
+
+        loadStats(); // 重新加载统计数据
+    });
+
+    document.getElementById('clear-date-btn').addEventListener('click', () => {
+        startDate = '';
+        endDate = '';
+        document.getElementById('start-date').value = '';
+        document.getElementById('end-date').value = '';
+
+        loadStats(); // 重新加载统计数据
+    });
 
     // 初始化加载
     loadStats(); // 先加载统计数据
