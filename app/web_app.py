@@ -2004,21 +2004,35 @@ def api_recharges_stats():
 @app.route('/api/recharges')
 @login_required
 def api_recharges():
-    """获取充值订单列表"""
+    """获取充值订单列表（支持日期筛选）"""
     try:
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 20))
         search = request.args.get('search', '').lstrip('@').strip()
-        
+        # 添加日期筛选参数
+        start_date = request.args.get('start_date', '').strip()
+        end_date = request.args.get('end_date', '').strip()
+
         conn = get_db_conn()
         c = conn.cursor()
-        
-        where_clause = ''
+
+        where_clause = 'WHERE 1=1'
         params = []
+
+        # 添加搜索条件
         if search:
-            where_clause = 'WHERE r.member_id LIKE ? OR r.order_id LIKE ? OR m.username LIKE ?'
+            where_clause += ' AND (r.member_id LIKE ? OR r.order_id LIKE ? OR m.username LIKE ?)'
             search_param = f'%{search}%'
-            params = [search_param, search_param, search_param]
+            params.extend([search_param, search_param, search_param])
+
+        # 添加日期筛选条件
+        if start_date:
+            where_clause += ' AND date(r.create_time) >= ?'
+            params.append(start_date)
+
+        if end_date:
+            where_clause += ' AND date(r.create_time) <= ?'
+            params.append(end_date)
         
         count_query = f'SELECT COUNT(*) FROM recharge_records r LEFT JOIN members m ON r.member_id = m.telegram_id {where_clause}'
         c.execute(count_query, params)

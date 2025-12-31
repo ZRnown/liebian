@@ -192,6 +192,8 @@
     async function load() {
         let url = `/api/recharges?page=${page}`;
         if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (startDate) url += `&start_date=${encodeURIComponent(startDate)}`;
+        if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
 
         try {
             const res = await fetch(url);
@@ -286,7 +288,9 @@
             return;
         }
 
+        page = 1; // 重置到第一页
         loadStats(); // 重新加载统计数据
+        load(); // 重新加载充值记录列表
     });
 
     document.getElementById('clear-date-btn').addEventListener('click', () => {
@@ -295,7 +299,9 @@
         document.getElementById('start-date').value = '';
         document.getElementById('end-date').value = '';
 
+        page = 1; // 重置到第一页
         loadStats(); // 重新加载统计数据
+        load(); // 重新加载充值记录列表
     });
 
     // 初始化加载
