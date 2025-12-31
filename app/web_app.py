@@ -1873,9 +1873,9 @@ def api_update_level_settings():
                 except:
                     val_float = 0.0
 
-            # 【强制修正】只要是 0，或者是极小值，强制覆盖为默认值
-            # 这样第10层如果是0，会被强制改为 default_reward (例如 1.0)
-            if val_float <= 0.001:
+            # 【重要修复】只有当val_float确实是0或空值时才使用默认值
+            # 不要强制覆盖用户明确设置的正数值
+            if val_float <= 0.0001:  # 只处理真正的0值
                 val_float = default_reward
 
             final_amounts.append(val_float)

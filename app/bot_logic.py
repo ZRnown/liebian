@@ -1695,8 +1695,8 @@ async def view_fission_handler(event):
         current_level_users = next_level_users
 
     # 生成按钮（从第10层到第1层倒序显示）
-    # 【修改1】生成按钮（从第1层到第10层正序显示）
-    for level in range(1, 11):
+    # 生成按钮（从第10层到第1层倒序显示）
+    for level in range(10, 0, -1):
         level_count = level_counts.get(level, 0)
         btn_text = f'第{level}层: {level_count}人'
         buttons.append([Button.inline(btn_text, f'flv_{level}_1'.encode())])
@@ -2226,8 +2226,6 @@ async def my_promote_handler(event):
     share_url = f"https://t.me/share/url?url={quote(invite_link)}&text={quote(share_text)}"
 
     buttons = [[Button.url('📤 立即推广 (选择好友/群)', share_url)]]
-    if not member['is_vip']:
-        buttons.append([Button.inline('💎 开通VIP解锁全部功能', b'open_vip')])
 
     await event.respond(text, buttons=buttons, parse_mode='md')
 
