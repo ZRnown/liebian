@@ -203,21 +203,35 @@ for db_id, token in active_tokens:
 
         print(f"[机器人初始化] 正在启动 Bot ID {db_id} (Session: {session_name})...")
 
-        client = TelegramClient(session_path, API_ID, API_HASH, proxy=proxy)
-        # 启动客户端
-        client.start(bot_token=token)
-        clients.append(client)
-        print(f"[机器人初始化] ✅ 成功启动: {token[:10]}...")
+        # 【新增】添加重试机制，解决网络连接问题
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                client = TelegramClient(session_path, API_ID, API_HASH, proxy=proxy)
+                # 启动客户端，设置较长的超时时间
+                client.start(bot_token=token)
+                clients.append(client)
+                print(f"[机器人初始化] ✅ 成功启动: {token[:10]}... (尝试 {attempt + 1}/{max_retries})")
+                break  # 成功启动，跳出重试循环
+            except Exception as retry_e:
+                print(f"[机器人初始化] 尝试 {attempt + 1}/{max_retries} 失败: {retry_e}")
+                if attempt == max_retries - 1:
+                    raise retry_e  # 最后一次尝试失败，抛出异常
+                import time
+                time.sleep(2)  # 等待2秒后重试
+
     except Exception as e:
         print(f"[机器人初始化] ❌ 启动失败 (ID: {db_id}): {e}")
+        print(f"[机器人初始化] 🔄 将跳过此机器人，继续启动其他机器人...")
 
 if not clients:
-    print("[机器人初始化] ❌ 严重错误：无法启动任何机器人，程序即将退出")
-    # 不退出，让Web后台还能跑
+    print("[机器人初始化] ❌ 严重错误：无法启动任何机器人")
+    print("[机器人初始化] 💡 Web管理后台仍可正常使用，请检查机器人Token配置")
     bot = None
 else:
     # 定义 bot 为第一个客户端 (主要用于后台任务的主动发送)
     bot = clients[0]
+    print(f"[机器人初始化] 🎉 成功启动 {len(clients)} 个机器人客户端")
 
 # 自定义装饰器：注册事件到所有机器人
 def multi_bot_on(event_builder):
@@ -3347,35 +3361,72 @@ async def check_member_status_task():
             print(f"[状态检测] 任务错误: {e}")
             await asyncio.sleep(60)
 
-async def run_until_disconnected():
-    # 同时等待所有客户端断开
-    await asyncio.gather(*(c.run_until_disconnected() for c in clients))
-
 def run_bot():
     """Bot 启动入口"""
     print("🚀 Telegram Bots (Multi) 启动中...")
 
-    # 启动后台任务
-    loop = asyncio.get_event_loop()
-    loop.create_task(process_notify_queue())
-    loop.create_task(auto_broadcast_timer())
-    loop.create_task(check_member_status_task())
-    loop.create_task(process_broadcast_queue())
-    loop.create_task(process_broadcasts())
+    if not clients:
+        print("❌ 没有活跃的机器人客户端，跳过Bot启动")
+        print("💡 请在Web后台的机器人设置中添加并启用机器人")
+        return
 
-    async def _process_recharge_queue_worker():
-        while True:
-            try:
-                if process_recharge_queue:
-                    item = process_recharge_queue.pop(0)
-                    await process_recharge(item.get('member_id'), item.get('amount'), item.get('is_vip_order'))
-            except: pass
-            await asyncio.sleep(1)
+    try:
+        # 启动后台任务
+        loop = asyncio.get_event_loop()
+        loop.create_task(process_notify_queue())
+        loop.create_task(auto_broadcast_timer())
+        loop.create_task(check_member_status_task())
+        loop.create_task(process_broadcast_queue())
+        loop.create_task(process_broadcasts())
 
-    loop.create_task(_process_recharge_queue_worker())
-    print("✅ 所有后台任务已挂载")
-    print(f"✅ {len(clients)} 个机器人正在监听消息...")
-    loop.run_until_complete(run_until_disconnected())
+        async def _process_recharge_queue_worker():
+            while True:
+                try:
+                    if process_recharge_queue:
+                        item = process_recharge_queue.pop(0)
+                        await process_recharge(item.get('member_id'), item.get('amount'), item.get('is_vip_order'))
+                except Exception as e:
+                    print(f"[充值队列] 处理失败: {e}")
+                await asyncio.sleep(1)
+
+        loop.create_task(_process_recharge_queue_worker())
+        print("✅ 所有后台任务已挂载")
+        print(f"✅ {len(clients)} 个机器人正在监听消息...")
+
+        if len(clients) == 1:
+            # 单个机器人：直接运行
+            print("🔄 正在连接到Telegram服务器...")
+            clients[0].run_until_disconnected()
+        else:
+            # 多个机器人：使用线程并发运行
+            import threading
+
+            def run_single_bot(client, bot_id):
+                """在独立线程中运行单个机器人"""
+                try:
+                    print(f"🤖 机器人 {bot_id} 开始运行...")
+                    client.run_until_disconnected()
+                except Exception as e:
+                    print(f"❌ 机器人 {bot_id} 运行失败: {e}")
+
+            # 为每个机器人创建线程
+            threads = []
+            for i, client in enumerate(clients):
+                thread = threading.Thread(target=run_single_bot, args=(client, i+1), daemon=True)
+                threads.append(thread)
+                thread.start()
+                print(f"✅ 机器人 {i+1} 线程已启动")
+
+            # 等待所有线程完成（实际上会一直运行直到断开连接）
+            print("🔄 所有机器人正在运行，等待消息...")
+            for thread in threads:
+                thread.join()
+
+    except Exception as e:
+        print(f"❌ 机器人运行过程中出现错误: {e}")
+        import traceback
+        traceback.print_exc()
+        print("💡 机器人已停止，但Web服务可能仍在运行")
 
 # 导出
 __all__ = [

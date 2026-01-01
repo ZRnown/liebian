@@ -2570,7 +2570,21 @@ def run_web():
         pass
 
     print("🌐 Web管理后台启动中...")
-    app.run(debug=False, host='0.0.0.0', port=5051, use_reloader=False)
+    try:
+        app.run(debug=False, host='0.0.0.0', port=5051, use_reloader=False)
+    except Exception as e:
+        print(f"❌ Web服务器启动失败: {e}")
+        import traceback
+        traceback.print_exc()
+        # 不要退出，让程序继续运行其他服务
+        import time
+        print("⏳ 5秒后重试启动Web服务器...")
+        time.sleep(5)
+        try:
+            app.run(debug=False, host='0.0.0.0', port=5051, use_reloader=False)
+        except Exception as retry_e:
+            print(f"❌ Web服务器重试启动仍然失败: {retry_e}")
+            print("💡 请检查端口5051是否被占用，或手动重启服务")
 
 __all__ = ['app', 'run_web']
 
