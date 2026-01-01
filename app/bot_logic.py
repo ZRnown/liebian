@@ -3399,26 +3399,18 @@ def run_bot():
         async def run_all_bots():
             """运行所有机器人直到断开"""
             try:
-                # 创建等待所有客户端断开的任务
-                disconnect_tasks = []
-                for i, client in enumerate(clients):
-                    # 为每个客户端创建一个等待断开的任务
-                    task = asyncio.create_task(client.disconnected)
-                    disconnect_tasks.append(task)
-                    print(f"🤖 机器人 {i+1} 已启动监听")
-
+                # 客户端已经在初始化时启动了，这里只需要等待断开
                 print("🔄 所有机器人正在运行，等待消息...")
+
                 # 等待任一客户端断开
-                done, pending = await asyncio.wait(disconnect_tasks, return_when=asyncio.FIRST_COMPLETED)
+                disconnect_futures = [client.disconnected for client in clients]
+                done, pending = await asyncio.wait(disconnect_futures, return_when=asyncio.FIRST_COMPLETED)
 
                 print("🛑 一个或多个机器人已断开连接，正在停止其他机器人...")
-                # 取消其他待处理的任务
-                for task in pending:
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
+                # 取消其他待处理的 Future
+                for future in pending:
+                    if not future.done():
+                        future.cancel()
 
             except Exception as e:
                 print(f"❌ 多机器人运行失败: {e}")
