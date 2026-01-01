@@ -3393,34 +3393,47 @@ def run_bot():
         print("✅ 所有后台任务已挂载")
         print(f"✅ {len(clients)} 个机器人正在监听消息...")
 
-        if len(clients) == 1:
-            # 单个机器人：直接运行
-            print("🔄 正在连接到Telegram服务器...")
-            clients[0].run_until_disconnected()
-        else:
-            # 多个机器人：使用线程并发运行
-            import threading
+        # 所有机器人共享同一个事件循环并发运行
+        print("🔄 正在连接到Telegram服务器...")
 
-            def run_single_bot(client, bot_id):
-                """在独立线程中运行单个机器人"""
-                try:
-                    print(f"🤖 机器人 {bot_id} 开始运行...")
-                    client.run_until_disconnected()
-                except Exception as e:
-                    print(f"❌ 机器人 {bot_id} 运行失败: {e}")
+        async def run_all_bots():
+            """运行所有机器人直到断开"""
+            try:
+                # 创建等待所有客户端断开的任务
+                disconnect_tasks = []
+                for i, client in enumerate(clients):
+                    # 为每个客户端创建一个等待断开的任务
+                    task = asyncio.create_task(client.disconnected)
+                    disconnect_tasks.append(task)
+                    print(f"🤖 机器人 {i+1} 已启动监听")
 
-            # 为每个机器人创建线程
-            threads = []
-            for i, client in enumerate(clients):
-                thread = threading.Thread(target=run_single_bot, args=(client, i+1), daemon=True)
-                threads.append(thread)
-                thread.start()
-                print(f"✅ 机器人 {i+1} 线程已启动")
+                print("🔄 所有机器人正在运行，等待消息...")
+                # 等待任一客户端断开
+                done, pending = await asyncio.wait(disconnect_tasks, return_when=asyncio.FIRST_COMPLETED)
 
-            # 等待所有线程完成（实际上会一直运行直到断开连接）
-            print("🔄 所有机器人正在运行，等待消息...")
-            for thread in threads:
-                thread.join()
+                print("🛑 一个或多个机器人已断开连接，正在停止其他机器人...")
+                # 取消其他待处理的任务
+                for task in pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+
+            except Exception as e:
+                print(f"❌ 多机器人运行失败: {e}")
+                import traceback
+                traceback.print_exc()
+
+        # 运行所有机器人
+        try:
+            loop.run_until_complete(run_all_bots())
+        except KeyboardInterrupt:
+            print("🛑 收到停止信号，正在关闭机器人...")
+        except Exception as e:
+            print(f"❌ 机器人运行失败: {e}")
+            import traceback
+            traceback.print_exc()
 
     except Exception as e:
         print(f"❌ 机器人运行过程中出现错误: {e}")
