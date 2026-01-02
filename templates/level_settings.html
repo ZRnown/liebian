@@ -335,22 +335,41 @@ async function loadLevelSettings() {
 
 async function saveLevelSettings() {
     const levelAmounts = [];
+    console.log('💾 开始保存层级设置...');
     for (let i = 1; i <= currentLevelCount; i++) {
-        levelAmounts.push(parseFloat(document.getElementById(`level_${i}`)?.value) || 0);
+        const input = document.getElementById(`level_${i}`);
+        const value = parseFloat(input?.value) || 0;
+        levelAmounts.push(value);
+        console.log(`📝 收集第${i}层: 输入框=${!!input}, 值=${input?.value}, 解析后=${value}`);
     }
+
+    const postData = { level_count: currentLevelCount, level_amounts: levelAmounts };
+    console.log('📤 发送到后端的数据:', postData);
+
     try {
         const res = await fetch('/api/level-settings', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ level_count: currentLevelCount, level_amounts: levelAmounts })
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(postData)
         });
+        console.log('📡 保存API响应状态:', res.status);
         const data = await res.json();
+        console.log('📊 保存API返回数据:', data);
+
         if (data.success) {
             showToast('成功', '层级设置已保存');
+            console.log('✅ 保存成功，准备重新加载数据...');
             // 保存成功后重新加载数据，确保显示最新值
-            loadLevelSettings();
+            setTimeout(() => loadLevelSettings(), 500); // 延迟500ms再加载
         }
-        else showToast('错误', data.message, 'error');
-    } catch (e) { showToast('错误', e.message, 'error'); }
+        else {
+            showToast('错误', data.message, 'error');
+            console.log('❌ 保存失败:', data.message);
+        }
+    } catch (e) {
+        showToast('错误', e.message, 'error');
+        console.error('❌ 保存请求失败:', e);
+    }
 }
 
 /* 捡漏账号管理已移至独立页面 /fallback-accounts（相关脚本移除） */

@@ -1823,6 +1823,7 @@ def api_update_level_settings():
     """保存层级设置（终极修复：强制非零）"""
     try:
         data = request.json or {}
+        print(f"[DEBUG] 保存层级设置 - 接收到的数据: {data}")
 
         # 1. 获取目标层数
         try:
@@ -1848,6 +1849,7 @@ def api_update_level_settings():
 
         # 获取前端传来的金额列表
         raw_amounts = data.get('level_amounts')
+        print(f"[DEBUG] 原始金额数据: {raw_amounts}, 类型: {type(raw_amounts)}")
         final_amounts = []
 
         # 3. 严格循环 target_count 次，构建列表
@@ -1872,6 +1874,8 @@ def api_update_level_settings():
                     # 最后尝试 0, 1 (0-based int key)
                     if val is None: val = raw_amounts.get(i)
 
+                print(f"[DEBUG] 第{i+1}层: 原始值={val}, 类型={type(val)}")
+
                 try:
                     if val is not None and str(val).strip() != "":
                         val_float = float(val)
@@ -1882,14 +1886,18 @@ def api_update_level_settings():
             # 不要强制覆盖用户明确设置的正数值
             if val_float <= 0.0001:  # 只处理真正的0值
                 val_float = default_reward
+                print(f"[DEBUG] 第{i+1}层值过小，使用默认值: {default_reward}")
 
             final_amounts.append(val_float)
+            print(f"[DEBUG] 第{i+1}层最终值: {val_float}")
 
         # 4. 保存
+        print(f"[DEBUG] 保存最终数组: {final_amounts}")
         update_system_config('level_count', target_count)
         update_system_config('level_amounts', json.dumps(final_amounts))
         # 同时更新 level_reward 为兜底值，保持一致性
         update_system_config('level_reward', default_reward)
+        print(f"[DEBUG] 数据已保存到数据库")
 
         response = jsonify({
             'success': True,
