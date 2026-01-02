@@ -1749,6 +1749,7 @@ def api_level_settings():
     """获取层级设置（读取时再次清理0值）"""
     try:
         config = get_system_config()
+        print(f"[DEBUG] 获取层级设置 - 数据库配置: {config}")
 
         # 1. 获取层数
         try:
@@ -1765,20 +1766,26 @@ def api_level_settings():
 
         # 3. 解析列表
         level_amounts_str = config.get('level_amounts')
+        print(f"[DEBUG] level_amounts字符串: {level_amounts_str}")
         level_amounts = []
 
         if level_amounts_str:
             try:
                 parsed = json.loads(level_amounts_str)
+                print(f"[DEBUG] 解析后的数据: {parsed}, 类型: {type(parsed)}")
                 if isinstance(parsed, list):
+                    print(f"[DEBUG] level_reward值: {level_reward}")
                     # 遍历解析，遇到0直接替换为 level_reward
-                    for x in parsed:
+                    for i, x in enumerate(parsed):
                         try:
                             v = float(x)
+                            print(f"[DEBUG] 第{i+1}层: 原始值={x}, 转换后={v}")
                             if v <= 0.001: v = level_reward # 【关键修复】读取时如果是0，显示为默认值
                             level_amounts.append(v)
-                        except:
+                            print(f"[DEBUG] 第{i+1}层: 最终值={v}")
+                        except Exception as e:
                             level_amounts.append(level_reward)
+                            print(f"[DEBUG] 第{i+1}层: 转换失败 {e}，使用默认值={level_reward}")
                 elif isinstance(parsed, dict):
                     for i in range(1, level_count + 1):
                         val = parsed.get(str(i)) or parsed.get(i) or level_reward
@@ -1786,28 +1793,38 @@ def api_level_settings():
                             v = float(val)
                             if v <= 0.001: v = level_reward
                             level_amounts.append(v)
-                        except:
+                        except Exception as e:
                             level_amounts.append(level_reward)
-            except:
+                            print(f"[DEBUG] 字典解析失败 {e}，使用默认值={level_reward}")
+            except Exception as e:
                 level_amounts = []
+                print(f"[DEBUG] JSON解析失败 {e}，level_amounts重置为空数组")
+        else:
+            print(f"[DEBUG] level_amounts_str为空或不存在")
 
         # 4. 补齐或截断
+        print(f"[DEBUG] 解析后的level_amounts: {level_amounts}, 长度: {len(level_amounts)}")
         # 补齐
         if len(level_amounts) < level_count:
             # 计算缺多少
             missing = level_count - len(level_amounts)
+            print(f"[DEBUG] 需要补齐 {missing} 个元素，使用 {level_reward}")
             # 用 level_reward 补齐
             level_amounts += [level_reward] * missing
+            print(f"[DEBUG] 补齐后的level_amounts: {level_amounts}")
 
         # 截断 (只取前 level_count 个)
         level_amounts = level_amounts[:level_count]
+        print(f"[DEBUG] 最终level_amounts: {level_amounts}")
 
-        response = jsonify({
+        result = {
             'success': True,
             'level_count': level_count,
             'level_reward': level_reward,
             'level_amounts': level_amounts
-        })
+        }
+        print(f"[DEBUG] 返回给前端的数据: {result}")
+        response = jsonify(result)
         # 添加缓存控制头，防止浏览器缓存
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
