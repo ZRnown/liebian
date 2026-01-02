@@ -281,7 +281,10 @@ async function loadLevelSettings() {
             if (data.level_amounts) {
                 for (let i = 1; i <= currentLevelCount; i++) {
                     const input = document.getElementById(`level_${i}`);
-                    if (input && data.level_amounts[i]) input.value = data.level_amounts[i];
+                    // 修复：数组索引从0开始，i从1开始，所以用 i-1
+                    if (input && data.level_amounts[i-1] !== undefined) {
+                        input.value = data.level_amounts[i-1];
+                    }
                 }
             }
             calculateTotal();
