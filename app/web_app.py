@@ -1802,12 +1802,17 @@ def api_level_settings():
         # 截断 (只取前 level_count 个)
         level_amounts = level_amounts[:level_count]
 
-        return jsonify({
+        response = jsonify({
             'success': True,
             'level_count': level_count,
             'level_reward': level_reward,
             'level_amounts': level_amounts
         })
+        # 添加缓存控制头，防止浏览器缓存
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -1886,12 +1891,17 @@ def api_update_level_settings():
         # 同时更新 level_reward 为兜底值，保持一致性
         update_system_config('level_reward', default_reward)
 
-        return jsonify({
+        response = jsonify({
             'success': True,
             'message': '层级设置已保存',
             'saved_count': target_count,
             'saved_amounts': final_amounts
         })
+        # 添加缓存控制头
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
     except Exception as e:
         print(f"保存设置出错: {e}")
         import traceback

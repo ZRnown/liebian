@@ -275,7 +275,14 @@ function calculateTotal() {
 async function loadLevelSettings() {
     try {
         console.log('🔄 开始加载层级设置...');
-        const res = await fetch('/api/level-settings');
+        const timestamp = Date.now();
+        const res = await fetch(`/api/level-settings?t=${timestamp}`, {
+            cache: 'no-cache',
+            headers: {
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            }
+        });
         console.log('📡 API响应状态:', res.status);
         const data = await res.json();
         console.log('📊 API返回数据:', data);
@@ -294,10 +301,12 @@ async function loadLevelSettings() {
                 for (let i = 1; i <= currentLevelCount; i++) {
                     const input = document.getElementById(`level_${i}`);
                     const value = data.level_amounts[i-1];
-                    console.log(`🔢 设置第${i}层: 元素索引${i-1}, 值=${value}`);
+                    console.log(`🔢 设置第${i}层: 元素索引${i-1}, 值=${value}, 输入框存在=${!!input}`);
                     if (input && value !== undefined) {
                         input.value = value;
                         console.log(`✅ 已设置输入框 level_${i} = ${value}`);
+                        // 手动触发change事件
+                        input.dispatchEvent(new Event('change', { bubbles: true }));
                     } else {
                         console.log(`❌ 无法设置输入框 level_${i}, input=${!!input}, value=${value}`);
                     }
@@ -310,6 +319,12 @@ async function loadLevelSettings() {
             await new Promise(resolve => setTimeout(resolve, 50));
             calculateTotal();
             console.log('✅ 层级设置加载完成');
+
+            // 显示当前总金额
+            const totalElement = document.getElementById('totalAmount');
+            if (totalElement) {
+                console.log('💵 当前显示的总金额:', totalElement.textContent);
+            }
         } else {
             console.log('❌ API返回失败:', data);
         }
