@@ -54,7 +54,8 @@
                 </div>
                 <div id="levelSettings" class="grid grid-cols-2 md:grid-cols-5 gap-3"></div>
             </div>
-            <div class="flex justify-end pt-4 border-t">
+            <div class="flex justify-between items-center pt-4 border-t">
+                <button onclick="loadLevelSettings()" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"><i class="ti ti-refresh mr-1"></i>重新加载</button>
                 <button onclick="saveLevelSettings()" class="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"><i class="ti ti-device-floppy mr-1"></i>保存层级设置</button>
             </div>
         </div>
@@ -245,10 +246,11 @@ function updateLevelCount() {
 function renderLevelInputs() {
     let html = '';
     for (let i = 1; i <= currentLevelCount; i++) {
-        html += `<div class="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border"><span class="text-sm font-medium w-12">${i}层</span><input type="number" id="level_${i}" min="0" step="0.1" value="0" onchange="calculateTotal()" class="flex-1 px-2 py-1 text-center border rounded text-sm"><span class="text-xs text-slate-500">U</span></div>`;
+        // 不设置默认value，让loadLevelSettings来设置值
+        html += `<div class="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border"><span class="text-sm font-medium w-12">${i}层</span><input type="number" id="level_${i}" min="0" step="0.1" onchange="calculateTotal()" class="flex-1 px-2 py-1 text-center border rounded text-sm"><span class="text-xs text-slate-500">U</span></div>`;
     }
     document.getElementById('levelSettings').innerHTML = html;
-    calculateTotal();
+    // 不在这里调用calculateTotal，让loadLevelSettings控制
 }
 
 function fillAllLevels() {
@@ -272,24 +274,48 @@ function calculateTotal() {
 
 async function loadLevelSettings() {
     try {
+        console.log('🔄 开始加载层级设置...');
         const res = await fetch('/api/level-settings');
+        console.log('📡 API响应状态:', res.status);
         const data = await res.json();
+        console.log('📊 API返回数据:', data);
+
         if (data.success) {
             currentLevelCount = data.level_count || 10;
+            console.log('📏 设置层数为:', currentLevelCount);
             document.getElementById('levelCount').value = currentLevelCount;
             renderLevelInputs();
+
+            // 等待DOM更新完成
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             if (data.level_amounts && Array.isArray(data.level_amounts)) {
+                console.log('💰 设置金额数组:', data.level_amounts);
                 for (let i = 1; i <= currentLevelCount; i++) {
                     const input = document.getElementById(`level_${i}`);
-                    // 数组索引从0开始，i从1开始，所以用 i-1
-                    if (input && data.level_amounts[i-1] !== undefined) {
-                        input.value = data.level_amounts[i-1];
+                    const value = data.level_amounts[i-1];
+                    console.log(`🔢 设置第${i}层: 元素索引${i-1}, 值=${value}`);
+                    if (input && value !== undefined) {
+                        input.value = value;
+                        console.log(`✅ 已设置输入框 level_${i} = ${value}`);
+                    } else {
+                        console.log(`❌ 无法设置输入框 level_${i}, input=${!!input}, value=${value}`);
                     }
                 }
+            } else {
+                console.log('❌ level_amounts不是数组或不存在:', data.level_amounts);
             }
+
+            // 再次等待确保值设置完成
+            await new Promise(resolve => setTimeout(resolve, 50));
             calculateTotal();
+            console.log('✅ 层级设置加载完成');
+        } else {
+            console.log('❌ API返回失败:', data);
         }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error('❌ 加载层级设置失败:', e);
+    }
 }
 
 async function saveLevelSettings() {
