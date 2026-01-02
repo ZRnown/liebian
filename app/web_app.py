@@ -1749,7 +1749,6 @@ def api_level_settings():
     """获取层级设置（读取时再次清理0值）"""
     try:
         config = get_system_config()
-        print(f"[DEBUG] 获取层级设置 - 数据库配置: {config}")
 
         # 1. 获取层数
         try:
@@ -1764,58 +1763,32 @@ def api_level_settings():
         except:
             level_reward = 1.0
 
-        # 3. 解析列表
-        level_amounts_str = config.get('level_amounts')
-        print(f"[DEBUG] level_amounts字符串: {level_amounts_str}")
+        # 3. 处理层级金额（get_system_config已经解析过了）
+        level_amounts_raw = config.get('level_amounts')
         level_amounts = []
 
-        if level_amounts_str:
-            try:
-                parsed = json.loads(level_amounts_str)
-                print(f"[DEBUG] 解析后的数据: {parsed}, 类型: {type(parsed)}")
-                if isinstance(parsed, list):
-                    print(f"[DEBUG] level_reward值: {level_reward}")
-                    # 遍历解析，遇到0直接替换为 level_reward
-                    for i, x in enumerate(parsed):
-                        try:
-                            v = float(x)
-                            print(f"[DEBUG] 第{i+1}层: 原始值={x}, 转换后={v}")
-                            if v <= 0.001: v = level_reward # 【关键修复】读取时如果是0，显示为默认值
-                            level_amounts.append(v)
-                            print(f"[DEBUG] 第{i+1}层: 最终值={v}")
-                        except Exception as e:
-                            level_amounts.append(level_reward)
-                            print(f"[DEBUG] 第{i+1}层: 转换失败 {e}，使用默认值={level_reward}")
-                elif isinstance(parsed, dict):
-                    for i in range(1, level_count + 1):
-                        val = parsed.get(str(i)) or parsed.get(i) or level_reward
-                        try:
-                            v = float(val)
-                            if v <= 0.001: v = level_reward
-                            level_amounts.append(v)
-                        except Exception as e:
-                            level_amounts.append(level_reward)
-                            print(f"[DEBUG] 字典解析失败 {e}，使用默认值={level_reward}")
-            except Exception as e:
-                level_amounts = []
-                print(f"[DEBUG] JSON解析失败 {e}，level_amounts重置为空数组")
+        if level_amounts_raw and isinstance(level_amounts_raw, list):
+            # get_system_config已经解析过了，直接使用
+            for x in level_amounts_raw:
+                try:
+                    v = float(x)
+                    if v <= 0.001: v = level_reward # 【关键修复】读取时如果是0，显示为默认值
+                    level_amounts.append(v)
+                except:
+                    level_amounts.append(level_reward)
         else:
-            print(f"[DEBUG] level_amounts_str为空或不存在")
+            # 如果数据有问题，创建默认值
+            level_amounts = [level_reward] * level_count
 
         # 4. 补齐或截断
-        print(f"[DEBUG] 解析后的level_amounts: {level_amounts}, 长度: {len(level_amounts)}")
         # 补齐
         if len(level_amounts) < level_count:
-            # 计算缺多少
             missing = level_count - len(level_amounts)
-            print(f"[DEBUG] 需要补齐 {missing} 个元素，使用 {level_reward}")
             # 用 level_reward 补齐
             level_amounts += [level_reward] * missing
-            print(f"[DEBUG] 补齐后的level_amounts: {level_amounts}")
 
         # 截断 (只取前 level_count 个)
         level_amounts = level_amounts[:level_count]
-        print(f"[DEBUG] 最终level_amounts: {level_amounts}")
 
         result = {
             'success': True,
@@ -1823,7 +1796,6 @@ def api_level_settings():
             'level_reward': level_reward,
             'level_amounts': level_amounts
         }
-        print(f"[DEBUG] 返回给前端的数据: {result}")
         response = jsonify(result)
         # 添加缓存控制头，防止浏览器缓存
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
@@ -1840,7 +1812,6 @@ def api_update_level_settings():
     """保存层级设置（终极修复：强制非零）"""
     try:
         data = request.json or {}
-        print(f"[DEBUG] 保存层级设置 - 接收到的数据: {data}")
 
         # 1. 获取目标层数
         try:
@@ -1866,7 +1837,6 @@ def api_update_level_settings():
 
         # 获取前端传来的金额列表
         raw_amounts = data.get('level_amounts')
-        print(f"[DEBUG] 原始金额数据: {raw_amounts}, 类型: {type(raw_amounts)}")
         final_amounts = []
 
         # 3. 严格循环 target_count 次，构建列表
@@ -1909,12 +1879,10 @@ def api_update_level_settings():
             print(f"[DEBUG] 第{i+1}层最终值: {val_float}")
 
         # 4. 保存
-        print(f"[DEBUG] 保存最终数组: {final_amounts}")
         update_system_config('level_count', target_count)
-        update_system_config('level_amounts', json.dumps(final_amounts))
+        update_system_config('level_amounts', final_amounts)  # 这里会自动JSON序列化
         # 同时更新 level_reward 为兜底值，保持一致性
         update_system_config('level_reward', default_reward)
-        print(f"[DEBUG] 数据已保存到数据库")
 
         response = jsonify({
             'success': True,

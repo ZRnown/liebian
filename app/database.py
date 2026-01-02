@@ -468,8 +468,14 @@ def get_system_config():
                 # stored as JSON string -> parse to list/dict
                 try:
                     import json
-                    config['level_amounts'] = json.loads(value)
-                except Exception:
+                    # 确保value是字符串，如果已经是对象则直接使用
+                    if isinstance(value, str):
+                        config['level_amounts'] = json.loads(value)
+                    else:
+                        # 如果已经是解析后的对象，直接使用
+                        config['level_amounts'] = value
+                except Exception as e:
+                    print(f"[DEBUG] level_amounts解析失败: {e}, value={value}, type={type(value)}")
                     config['level_amounts'] = value
             else:
                 config[config_key] = value
@@ -487,13 +493,18 @@ def update_system_config(key, value):
         'support_text': 'service_text',
         'usdt_address': 'usdt_address'
     }
-    
+
     db_key = reverse_key_mapping.get(key, key)
-    
+
+    # 特殊处理 level_amounts，确保始终存储为JSON字符串
+    if key == 'level_amounts' and not isinstance(value, str):
+        import json
+        value = json.dumps(value)
+
     conn = get_db_conn()
     c = conn.cursor()
     c.execute('''
-        INSERT INTO system_config (key, value) 
+        INSERT INTO system_config (key, value)
         VALUES (?, ?)
         ON CONFLICT(key) DO UPDATE SET value=excluded.value
     ''', (db_key, str(value)))
