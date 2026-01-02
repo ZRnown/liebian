@@ -5,7 +5,7 @@
 """
 
 from telethon import events, Button
-from core_functions import check_bot_is_admin, get_upline_chain, get_downline_tree, check_user_conditions
+from core_functions import check_bot_is_admin, check_any_bot_in_group, get_upline_chain, get_downline_tree, check_user_conditions
 import sqlite3
 
 
@@ -33,7 +33,7 @@ async def handle_bind_group(event, bot, DB):
     )
 
 
-async def handle_group_link_message(event, bot, DB):
+async def handle_group_link_message(event, bot, DB, clients=None):
     """处理用户发送的群链接"""
     telegram_id = event.sender_id
     group_link = event.message.text.strip()
@@ -47,9 +47,15 @@ async def handle_group_link_message(event, bot, DB):
     if not member or not member['is_vip']:
         return
     
-    # 检测机器人是否在群内且为管理员（结果仅作提示，不阻断操作）
-    bot_id = (await bot.get_me()).id
-    is_admin = await check_bot_is_admin(bot, bot_id, group_link)
+    # 检测是否有机器人加入群组且为管理员（结果仅作提示，不阻断操作）
+    if clients and len(clients) > 0:
+        # 使用多机器人逻辑
+        is_any_bot_in_group, admin_bot_id = await check_any_bot_in_group(clients, group_link)
+        is_admin = admin_bot_id is not None
+    else:
+        # 回退到单机器人逻辑
+        bot_id = (await bot.get_me()).id
+        is_admin = await check_bot_is_admin(bot, bot_id, group_link)
     
     # 更新数据库
     conn = DB.get_conn()
