@@ -278,10 +278,10 @@ async function loadLevelSettings() {
             currentLevelCount = data.level_count || 10;
             document.getElementById('levelCount').value = currentLevelCount;
             renderLevelInputs();
-            if (data.level_amounts) {
+            if (data.level_amounts && Array.isArray(data.level_amounts)) {
                 for (let i = 1; i <= currentLevelCount; i++) {
                     const input = document.getElementById(`level_${i}`);
-                    // 修复：数组索引从0开始，i从1开始，所以用 i-1
+                    // 数组索引从0开始，i从1开始，所以用 i-1
                     if (input && data.level_amounts[i-1] !== undefined) {
                         input.value = data.level_amounts[i-1];
                     }
@@ -293,9 +293,9 @@ async function loadLevelSettings() {
 }
 
 async function saveLevelSettings() {
-    const levelAmounts = {};
+    const levelAmounts = [];
     for (let i = 1; i <= currentLevelCount; i++) {
-        levelAmounts[i] = parseFloat(document.getElementById(`level_${i}`)?.value) || 0;
+        levelAmounts.push(parseFloat(document.getElementById(`level_${i}`)?.value) || 0);
     }
     try {
         const res = await fetch('/api/level-settings', {
@@ -303,7 +303,11 @@ async function saveLevelSettings() {
             body: JSON.stringify({ level_count: currentLevelCount, level_amounts: levelAmounts })
         });
         const data = await res.json();
-        if (data.success) showToast('成功', '层级设置已保存');
+        if (data.success) {
+            showToast('成功', '层级设置已保存');
+            // 保存成功后重新加载数据，确保显示最新值
+            loadLevelSettings();
+        }
         else showToast('错误', data.message, 'error');
     } catch (e) { showToast('错误', e.message, 'error'); }
 }
