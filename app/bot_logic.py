@@ -450,7 +450,33 @@ def link_account(main_id, backup_id, backup_username):
         if backup_id:
             existing_member = DB.get_member(backup_id)
             if existing_member and str(backup_id) != str(main_id):
-                return False, "❌ 该账号已注册，不能设置为备用号"
+                # 如果备用号已经注册，使用fallback_accounts表建立关联
+                print(f"[备用号已注册] {backup_id} 已注册，将使用fallback_accounts建立关联")
+                conn = get_db_conn()
+                c = conn.cursor()
+                try:
+                    # 检查是否已经存在关联
+                    c.execute('SELECT main_account_id FROM fallback_accounts WHERE telegram_id = ?', (backup_id,))
+                    existing_fallback = c.fetchone()
+
+                    if existing_fallback and str(existing_fallback[0]) != str(main_id):
+                        conn.close()
+                        return False, "❌ 该账号已经是其他人的备用号了，无法重复绑定"
+
+                    # 插入或更新fallback_accounts
+                    c.execute('''
+                        INSERT OR REPLACE INTO fallback_accounts (telegram_id, main_account_id, username)
+                        VALUES (?, ?, ?)
+                    ''', (backup_id, main_id, clean_username or None))
+                    conn.commit()
+                    conn.close()
+                    return True, f"✅ 备用账号关联成功！\n绑定值: {value_to_store}\n\n备用号已注册，将使用备用关联模式。\n\n请使用备用号访问个人中心测试。"
+                except Exception as e:
+                    try:
+                        conn.close()
+                    except:
+                        pass
+                    return False, f"备用关联设置失败: {e}"
     except Exception as e:
         print(f"[检查备用号是否已注册失败] {e}")
 
@@ -459,15 +485,15 @@ def link_account(main_id, backup_id, backup_username):
     try:
         c.execute('SELECT telegram_id FROM members WHERE backup_account = ?', (str(backup_id),))
         existing_by_id = c.fetchone()
-        
+
         c.execute(
             'SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?',
             (clean_username, f"@{clean_username}")
         )
         existing_by_name = c.fetchone()
-        
+
         existing = existing_by_id or existing_by_name
-        
+
         if existing and str(existing[0]) != str(main_id):
             conn.close()
             return False, "❌ 该账号已经是其他人的备用号了，无法重复绑定"
