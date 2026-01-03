@@ -614,9 +614,9 @@ def api_group_send_broadcasts(group_id):
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
-@app.route('/api/member/<int:telegram_id>/graph')
+@app.route('/api/team-graph/<int:telegram_id>')
 @login_required
-def api_member_graph(telegram_id):
+def api_team_graph(telegram_id):
     """获取会员关系图谱"""
     conn = get_db_conn()
     c = conn.cursor()
@@ -704,6 +704,12 @@ def api_member_graph(telegram_id):
 
     conn.close()
     return jsonify({'center': center, 'uplines': uplines, 'downlines': downlines})
+
+@app.route('/api/member/<int:telegram_id>/graph')
+@login_required
+def api_member_graph(telegram_id):
+    """获取会员关系图谱（别名路由）"""
+    return api_team_graph(telegram_id)
 
 @app.route('/api/statistics')
 @login_required
