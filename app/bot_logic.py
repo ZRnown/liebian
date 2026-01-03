@@ -335,6 +335,24 @@ def resolve_sender_id(event):
     # 如果映射成功，返回主号ID；否则返回原始ID
     return main_id if main_id != original_id else original_id
 
+def get_resolved_sender_info(event):
+    """获取解析后的发送者信息，返回 (original_id, resolved_id)"""
+    original_id = event.sender_id
+    resolved_id = resolve_sender_id(event)
+    return original_id, resolved_id
+
+def with_account_resolution(func):
+    """装饰器：自动处理账号解析"""
+    async def wrapper(event, *args, **kwargs):
+        # 为事件对象添加解析后的ID属性
+        original_id, resolved_id = get_resolved_sender_info(event)
+        event._original_sender_id = original_id
+        event._resolved_sender_id = resolved_id
+        # 保持向后兼容
+        event.sender_id = resolved_id
+        return await func(event, *args, **kwargs)
+    return wrapper
+
 async def check_user_group_binding_status(user_id, clients):
     """检查用户的群组绑定是否仍然有效"""
     try:
@@ -751,13 +769,9 @@ async def start_handler(event):
 @multi_bot_on(events.CallbackQuery(data=b'open_vip_balance'))
 async def open_vip_balance_callback(event):
     """【已修复】使用余额开通VIP - 统一调用 distribute_vip_rewards"""
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    
-    telegram_id = event.sender_id
+    original_sender_id, resolved_id = get_resolved_sender_info(event)
+
+    telegram_id = resolved_id
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -809,13 +823,9 @@ async def open_vip_balance_callback(event):
 async def confirm_vip_callback(event):
     """【已修复】确认开通VIP - 统一调用 distribute_vip_rewards"""
     config = get_system_config()
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    
-    member = DB.get_member(event.sender_id)
+    original_sender_id, resolved_id = get_resolved_sender_info(event)
+
+    member = DB.get_member(resolved_id)
     if not member:
         await event.answer('请先发送 /start 注册')
         return
@@ -1178,9 +1188,8 @@ async def profile_handler(event):
 
     print(f"[个人中心] 找到会员: {member.get('username')}")
 
-    # 设置正确的ID用于后续逻辑
+    # 记住解析后的ID，用于后续逻辑
     main_id = resolved_id
-    event.sender_id = main_id
 
     # 4. 构建界面 (保持原样)
     buttons = [
@@ -1228,17 +1237,17 @@ async def set_group_callback(event):
         await event.answer('请先发送 /start 注册')
         return
 
-    # 临时修改用于后续逻辑
-    event.sender_id = main_id
+    # 记住解析后的ID用于后续逻辑
+    resolved_id = main_id
 
     # VIP check
     if not member.get('is_vip'):
         await send_vip_required_prompt(event)
         return
-    
+
     # 切换到群链接输入时，清理备用号等待状态
-    waiting_for_backup.pop(event.sender_id, None)
-    waiting_for_group_link[event.sender_id] = True
+    waiting_for_backup.pop(resolved_id, None)
+    waiting_for_group_link[resolved_id] = True
     await event.respond(
         '🔗 设置群链接\n\n'
         '请发送您的群链接 (格式: http://t.me/群用户名 或 https://t.me/群用户名)\n\n'
@@ -1250,12 +1259,9 @@ async def set_group_callback(event):
 async def set_backup_callback(event):
     """设置备用号回调"""
     # 账号关联处理（备用号->主账号）
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    member = DB.get_member(event.sender_id)
+    original_sender_id, resolved_id = get_resolved_sender_info(event)
+
+    member = DB.get_member(resolved_id)
     if not member:
         await event.answer('请先发送 /start 注册')
         return
@@ -1264,10 +1270,10 @@ async def set_backup_callback(event):
     if not member.get('is_vip'):
         await send_vip_required_prompt(event)
         return
-    
+
     # 切换到备用号输入时，清理群链接等待状态
-    waiting_for_group_link.pop(event.sender_id, None)
-    waiting_for_backup[event.sender_id] = True
+    waiting_for_group_link.pop(resolved_id, None)
+    waiting_for_backup[resolved_id] = True
     await event.respond(
         '✏️ 设置备用号\n\n'
         '请发送您的备用飞机号 (不带@的用户名或ID)\n\n'
@@ -1279,13 +1285,10 @@ async def set_backup_callback(event):
 async def earnings_history_callback(event):
     """查看个人收益记录"""
     # 账号关联处理（备用号->主账号）
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    member = DB.get_member(event.sender_id)
-    
+    original_sender_id, resolved_id = get_resolved_sender_info(event)
+
+    member = DB.get_member(resolved_id)
+
     if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
         return
