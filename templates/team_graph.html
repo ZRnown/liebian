@@ -47,18 +47,51 @@
 </main>
 
 <script>
-        const telegramId = {{ telegram_id }};
-        
+        // 安全的获取telegram_id
+        let telegramId;
+        try {
+            telegramId = {{ telegram_id or 'null' }};
+            if (telegramId === null || telegramId === undefined || telegramId === 0) {
+                throw new Error('无效的用户ID');
+            }
+        } catch (e) {
+            console.error('获取用户ID失败:', e);
+            alert('无效的用户ID，无法加载团队图谱');
+            return;
+        }
+
         async function loadGraph() {
+            if (!telegramId || telegramId === 0) {
+                console.error('telegramId无效:', telegramId);
+                return;
+            }
+
             try {
+                console.log('开始加载团队图谱，用户ID:', telegramId);
                 const res = await fetch(`/api/team-graph/${telegramId}`);
                 const data = await res.json();
-                
+
+                console.log('API响应:', res.status, data);
+
+                if (!res.ok) {
+                    alert('API请求失败: ' + res.status + ' ' + res.statusText);
+                    return;
+                }
+
                 if (data.error) {
                     alert('加载失败: ' + data.error);
                     return;
                 }
-                
+
+                // 验证数据结构
+                if (!data.center) {
+                    alert('数据结构错误：缺少center字段');
+                    console.error('API返回数据:', data);
+                    return;
+                }
+
+                console.log('数据验证通过，center:', data.center);
+
                 // 显示中心用户
                 if (data.center) {
                     document.getElementById('centerContent').innerHTML = `

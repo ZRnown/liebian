@@ -281,6 +281,14 @@ def team_graph_index():
 @login_required
 def team_graph_page(telegram_id):
     """团队图谱详情页面"""
+    # 验证用户是否存在
+    from database import DB
+    member = DB.get_member(telegram_id)
+    if not member:
+        from flask import flash, redirect, url_for
+        flash('用户不存在', 'error')
+        return redirect(url_for('members'))
+
     return render_template('team_graph.html', telegram_id=telegram_id, active_page='team_graph')
 
 # ==================== 支付回调 ====================
@@ -702,8 +710,10 @@ def api_team_graph(telegram_id):
 
     get_downline_with_counts(telegram_id)
 
+    result = {'center': center, 'uplines': uplines, 'downlines': downlines}
+    print(f"[DEBUG] 团队图谱API返回数据: {result}")
     conn.close()
-    return jsonify({'center': center, 'uplines': uplines, 'downlines': downlines})
+    return jsonify(result)
 
 @app.route('/api/member/<int:telegram_id>/graph')
 @login_required
