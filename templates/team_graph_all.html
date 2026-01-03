@@ -147,9 +147,13 @@ async function loadTree() {
 
         allMembers = data.members;
 
-        // 构建映射
+        // 构建映射 (添加数据验证)
         memberMap = {};
-        allMembers.forEach(m => memberMap[m.telegram_id] = m);
+        allMembers.forEach(m => {
+            if (m && m.telegram_id) {
+                memberMap[m.telegram_id] = m;
+            }
+        });
 
         // 找出顶级用户 (没有推荐人，或推荐人不在现有列表中)
         const topMembers = allMembers.filter(m => {
@@ -180,7 +184,10 @@ function renderNode(member, depth) {
     const tgId = member.telegram_id || 'ID未知';
     const isVip = member.is_vip;
 
-    const children = allMembers.filter(m => m.referrer_id === member.telegram_id);
+    // 安全过滤子节点 (确保m和member都有有效的telegram_id)
+    const children = allMembers.filter(m =>
+        m && m.referrer_id && member.telegram_id && m.referrer_id === member.telegram_id
+    );
     const hasChildren = children.length > 0;
     const isTopLevel = depth === 0;
     
@@ -263,8 +270,11 @@ function searchMember() {
     
     // 搜索匹配
     allMembers.forEach(m => {
-        if (m.username.toLowerCase().includes(query) || 
-            m.telegram_id.toString().includes(query)) {
+        if (!m) return; // 跳过无效成员
+        const username = m.username || '';
+        const telegramId = m.telegram_id || '';
+        if (username.toLowerCase().includes(query) ||
+            telegramId.toString().includes(query)) {
             // 高亮并展开到该节点
             const item = document.querySelector(`[data-id="${m.telegram_id}"]`);
             if (item) {
