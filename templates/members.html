@@ -304,7 +304,7 @@ async function loadStatistics() {
         const response = await fetch('/api/statistics');
         const data = await response.json();
         console.log('Graph API Response:', data);
-        console.log('downline_by_level:', data.downline_by_level);
+        console.log('downlines:', data.downlines);
         document.getElementById('totalMembers').textContent = data.total_members.toLocaleString();
         document.getElementById('vipMembers').textContent = data.vip_members.toLocaleString();
         document.getElementById('totalBalance').textContent = data.total_balance.toFixed(2);
@@ -324,7 +324,7 @@ async function loadMembers(page = currentPage) {
         const response = await fetch(`/api/members?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&filter=${filterType}`);
         const data = await response.json();
         console.log('Graph API Response:', data);
-        console.log('downline_by_level:', data.downline_by_level);
+        console.log('downlines:', data.downlines);
         displayMembers(data.members);
         displayPagination(data);
         document.getElementById('totalCount').textContent = data.total;
@@ -699,7 +699,7 @@ async function showGraph(telegramId) {
         const response = await fetch(`/api/member/${telegramId}/graph`);
         const data = await response.json();
         console.log('Graph API Response:', data);
-        console.log('downline_by_level:', data.downline_by_level);
+        console.log('downlines:', data.downlines);
         
         let html = '<div class="space-y-6">';
         
@@ -745,8 +745,16 @@ async function showGraph(telegramId) {
         html += '<div class="bg-green-50 rounded-lg p-4">';
         html += '<h4 class="font-bold text-green-800 mb-3 flex items-center gap-2"><i class="ti ti-arrow-down"></i> 下级成员</h4>';
         
-        // 兼容旧API格式 (data.downline) 和新API格式 (data.downline_by_level)
-        let downlineData = data.downline_by_level || (data.downline ? {1: data.downline} : {});
+        // 使用新的API格式 (data.downlines)
+        let downlines = data.downlines || data.downline || [];
+
+        // 转换为层级分组格式
+        let downlineData = {};
+        downlines.forEach(d => {
+            const level = d.level || 1;
+            if (!downlineData[level]) downlineData[level] = [];
+            downlineData[level].push(d);
+        });
         
         if (Object.keys(downlineData).length > 0) {
             const levels = Object.keys(downlineData).sort((a,b) => parseInt(a) - parseInt(b));
