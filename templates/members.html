@@ -697,7 +697,16 @@ function toggleLevel(level) {
 async function showGraph(telegramId) {
     try {
         const response = await fetch(`/api/member/${telegramId}/graph`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
         const data = await response.json();
+
+        // 检查返回的数据是否有效
+        if (!data || typeof data !== 'object') {
+            throw new Error('图谱数据格式错误');
+        }
+
         console.log('Graph API Response:', data);
         console.log('downlines:', data.downlines);
         
@@ -706,9 +715,10 @@ async function showGraph(telegramId) {
         // 上级链
         html += '<div class="bg-blue-50 rounded-lg p-4">';
         html += '<h4 class="font-bold text-blue-800 mb-3 flex items-center gap-2"><i class="ti ti-arrow-up"></i> 上级链</h4>';
-        if (data.upline && data.upline.length > 0) {
+        const uplines = data.uplines || data.upline || [];
+        if (uplines && uplines.length > 0) {
             html += '<div class="space-y-2">';
-            data.upline.forEach((u, i) => {
+            uplines.forEach((u, i) => {
                 const levelName = i === 0 ? '上一层' : (i === 1 ? '上二层' : `上${i+1}层`);
                 const statusClass = u.is_valid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
                 const statusText = u.is_valid ? '正常' : '异常';

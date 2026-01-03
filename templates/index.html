@@ -412,7 +412,15 @@
         async function viewMember(telegramId) {
             try {
                 const response = await fetch(`/api/member/${telegramId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
                 const member = await response.json();
+
+                // 检查返回的数据是否有效
+                if (!member || typeof member !== 'object' || !member.telegram_id) {
+                    throw new Error('获取会员信息失败：数据格式错误');
+                }
                 
                 const createRow = (label, value) => `
                     <div class="flex justify-between py-3 border-b border-slate-100 last:border-0">
@@ -461,7 +469,15 @@
         async function editMember(telegramId) {
             try {
                 const response = await fetch(`/api/member/${telegramId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
                 currentMember = await response.json();
+
+                // 检查返回的数据是否有效
+                if (!currentMember || typeof currentMember !== 'object' || !currentMember.telegram_id) {
+                    throw new Error('获取会员信息失败：数据格式错误');
+                }
                 
                 const html = `
                     <div class="space-y-4">

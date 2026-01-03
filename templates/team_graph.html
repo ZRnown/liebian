@@ -46,30 +46,60 @@
         
 </main>
 
-<script>
-        const telegramId = {{ telegram_id }};
-        
+    <script>
+        // 获取telegram_id，如果未定义则使用默认值
+        let telegramId;
+        try {
+            telegramId = {{ telegram_id | tojson }};
+            if (telegramId === null || telegramId === undefined) {
+                telegramId = 0;
+            }
+        } catch (e) {
+            console.error('获取telegram_id失败:', e);
+            telegramId = 0;
+        }
+
+        console.log('初始化telegramId:', telegramId);
+
         async function loadGraph() {
             try {
-                const res = await fetch(`/api/member/${telegramId}/graph`);
-                const data = await res.json();
+                // 显示加载状态
+                document.getElementById('centerContent').innerHTML = '<p class="text-slate-400">正在加载数据...</p>';
+                document.getElementById('uplinesContent').innerHTML = '<p class="text-slate-400">正在加载...</p>';
+                document.getElementById('downlinesContent').innerHTML = '<p class="text-slate-400">正在加载...</p>';
 
-                // --- 核心修复：数据安全检查 ---
-                // 即使API返回错误，也提供默认空对象防止JS崩溃
-                const center = data.center || {
-                    username: '数据加载失败',
-                    telegram_id: telegramId,
-                    balance: 0,
-                    total_earned: 0,
-                    is_vip: 0
-                };
+                const apiUrl = `/api/member/${telegramId}/graph`;
+                console.log('请求API:', apiUrl);
+
+                const res = await fetch(apiUrl);
+                console.log('API响应状态:', res.status);
+
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+
+                const data = await res.json();
+                console.log('API返回数据:', data);
+
+                // 检查数据结构
+                if (!data || typeof data !== 'object') {
+                    throw new Error('API返回数据格式错误');
+                }
+
+                // 获取中心用户信息
+                const center = data.center;
+                if (!center || typeof center !== 'object') {
+                    throw new Error('用户中心数据不存在');
+                }
+
+                console.log('中心用户:', center);
 
                 // 显示中心用户
-                document.getElementById('centerContent').innerHTML = `
+                const centerHtml = `
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <p class="text-lg font-bold text-slate-900">@${center.username || '未知'}</p>
-                            <p class="text-sm text-slate-600">ID: ${center.telegram_id || telegramId}</p>
+                            <p class="text-sm text-slate-600">ID: ${center.telegram_id || '未知'}</p>
                         </div>
                         <div class="text-right">
                             <p class="text-sm text-slate-600">余额: <span class="font-bold text-indigo-600">${center.balance || 0} U</span></p>
@@ -82,65 +112,102 @@
                         </span>
                     </div>
                 `;
+                document.getElementById('centerContent').innerHTML = centerHtml;
 
-                // 显示上级 (兼容 uplines 或 upline 字段)
-                const uplines = data.uplines || data.upline || [];
-                if (uplines.length > 0) {
-                    document.getElementById('uplinesContent').innerHTML = uplines.map(u => `
-                        <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200 hover:bg-indigo-50 hover:border-indigo-300 transition">
-                            <span class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center font-bold text-indigo-700">L${u.level || '?'}</span>
-                            <div class="flex-1">
-                                <p class="font-semibold text-slate-900">@${u.username || '未知'}</p>
-                                <p class="text-xs text-slate-500">ID: ${u.telegram_id}</p>
+                // 显示上级
+                const uplines = data.uplines || [];
+                console.log('上级数量:', uplines.length);
+
+                if (uplines && uplines.length > 0) {
+                    const uplinesHtml = uplines.map(u => {
+                        if (!u || typeof u !== 'object') return '';
+                        return `
+                            <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200 hover:bg-indigo-50 hover:border-indigo-300 transition">
+                                <span class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center font-bold text-indigo-700">L${u.level || '?'}</span>
+                                <div class="flex-1">
+                                    <p class="font-semibold text-slate-900">@${u.username || '未知'}</p>
+                                    <p class="text-xs text-slate-500">ID: ${u.telegram_id || '未知'}</p>
+                                </div>
+                                <div class="flex gap-2">
+                                    <span class="text-lg" title="${u.is_vip ? 'VIP' : '非VIP'}">${u.is_vip ? '💎' : '❌'}</span>
+                                </div>
                             </div>
-                            <div class="flex gap-2">
-                                <span class="text-lg" title="${u.is_vip ? 'VIP' : '非VIP'}">${u.is_vip ? '💎' : '❌'}</span>
-                            </div>
-                        </div>
-                    `).join('');
+                        `;
+                    }).join('');
+                    document.getElementById('uplinesContent').innerHTML = uplinesHtml;
                 } else {
                     document.getElementById('uplinesContent').innerHTML = '<p class="text-slate-400">暂无上级</p>';
                 }
-                
-                // 显示下级 (兼容 downlines 或 downline 字段)
-                const downlines = data.downlines || data.downline || [];
-                if (downlines.length > 0) {
+
+                // 显示下级
+                const downlines = data.downlines || [];
+                console.log('下级数量:', downlines.length);
+
+                if (downlines && downlines.length > 0) {
                     // 按层级分组
                     const levels = {};
                     downlines.forEach(d => {
+                        if (!d || typeof d !== 'object') return;
                         const lvl = d.level || 1;
                         if (!levels[lvl]) levels[lvl] = [];
                         levels[lvl].push(d);
                     });
 
-                    document.getElementById('downlinesContent').innerHTML = Object.keys(levels).sort((a,b) => a-b).map(level => `
-                        <div class="mb-4">
-                            <h3 class="text-sm font-bold text-slate-700 mb-2">第${level}层 (${levels[level].length}人)</h3>
-                            <div class="space-y-2">
-                                ${levels[level].map(d => `
-                                    <div class="flex items-center gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200 text-sm">
-                                        <div class="flex-1">
-                                            <p class="font-semibold text-slate-900">@${d.username || '未知'}</p>
-                                        </div>
-                                        <div class="flex gap-1">
-                                            <span title="${d.is_vip ? 'VIP' : '非VIP'}">${d.is_vip ? '💎' : '❌'}</span>
-                                        </div>
+                    const downlinesHtml = Object.keys(levels).sort((a,b) => a-b).map(level => {
+                        const members = levels[level];
+                        if (!members || members.length === 0) return '';
+
+                        const membersHtml = members.map(d => {
+                            if (!d || typeof d !== 'object') return '';
+                            return `
+                                <div class="flex items-center gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200 text-sm">
+                                    <div class="flex-1">
+                                        <p class="font-semibold text-slate-900">@${d.username || '未知'}</p>
                                     </div>
-                                `).join('')}
+                                    <div class="flex gap-1">
+                                        <span title="${d.is_vip ? 'VIP' : '非VIP'}">${d.is_vip ? '💎' : '❌'}</span>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+
+                        return `
+                            <div class="mb-4">
+                                <h3 class="text-sm font-bold text-slate-700 mb-2">第${level}层 (${members.length}人)</h3>
+                                <div class="space-y-2">
+                                    ${membersHtml}
+                                </div>
                             </div>
-                        </div>
-                    `).join('');
+                        `;
+                    }).join('');
+
+                    document.getElementById('downlinesContent').innerHTML = downlinesHtml;
                 } else {
                     document.getElementById('downlinesContent').innerHTML = '<p class="text-slate-400">暂无下级</p>';
                 }
-                
+
+                console.log('图谱加载完成');
+
             } catch (error) {
-                console.error('加载失败:', error);
-                // 即使报错也不要弹窗，只显示错误文本
-                document.getElementById('centerContent').innerHTML = `<p class="text-red-500">数据加载异常: ${error.message}</p>`;
+                console.error('图谱加载失败:', error);
+
+                // 显示错误信息
+                const errorHtml = `<div class="text-red-500 p-4 bg-red-50 rounded-lg border border-red-200">
+                    <h3 class="font-bold mb-2">数据加载失败</h3>
+                    <p class="text-sm">${error.message}</p>
+                    <p class="text-xs mt-2 text-gray-500">请刷新页面重试或联系管理员</p>
+                </div>`;
+
+                document.getElementById('centerContent').innerHTML = errorHtml;
+                document.getElementById('uplinesContent').innerHTML = '';
+                document.getElementById('downlinesContent').innerHTML = '';
             }
         }
-        
-loadGraph();
-</script>
+
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('页面加载完成，开始加载图谱数据');
+            loadGraph();
+        });
+    </script>
 {% endblock %}
