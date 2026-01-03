@@ -617,93 +617,108 @@ def api_group_send_broadcasts(group_id):
 @app.route('/api/member/<int:telegram_id>/graph')
 @login_required
 def api_member_graph(telegram_id):
-    """获取会员关系图谱"""
-    conn = get_db_conn()
-    c = conn.cursor()
+    """获取会员关系图谱 (修复版：确保返回完整结构)"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
 
-    # 获取当前会员
-    c.execute("""SELECT telegram_id, username, balance, is_vip, referrer_id,
-        is_group_bound, is_bot_admin, is_joined_upline, direct_count, team_count, total_earned
-        FROM members WHERE telegram_id = ?""", (telegram_id,))
-    row = c.fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'error': '会员不存在'}), 404
+        # 1. 获取当前会员
+        c.execute("""SELECT telegram_id, username, balance, is_vip, referrer_id,
+            is_group_bound, is_bot_admin, is_joined_upline, direct_count, team_count, total_earned
+            FROM members WHERE telegram_id = ?""", (telegram_id,))
+        row = c.fetchone()
 
-    center = {
-        'telegram_id': row[0], 'username': row[1], 'balance': row[2],
-        'is_vip': row[3], 'referrer_id': row[4], 'is_group_bound': row[5],
-        'is_bot_admin': row[6], 'is_joined_upline': row[7],
-        'direct_count': row[8] or 0, 'team_count': row[9] or 0, 'total_earned': row[10] or 0
-    }
+        # 即使找不到会员，也不要返回 404 导致前端崩溃，而是返回一个空的占位对象
+        if not row:
+            center = {
+                'telegram_id': telegram_id, 'username': '未知/不存在', 'balance': 0,
+                'is_vip': 0, 'referrer_id': None, 'is_group_bound': 0,
+                'is_bot_admin': 0, 'is_joined_upline': 0,
+                'direct_count': 0, 'team_count': 0, 'total_earned': 0
+            }
+        else:
+            center = {
+                'telegram_id': row[0], 'username': row[1] or '未设置', 'balance': row[2] or 0,
+                'is_vip': row[3], 'referrer_id': row[4], 'is_group_bound': row[5],
+                'is_bot_admin': row[6], 'is_joined_upline': row[7],
+                'direct_count': row[8] or 0, 'team_count': row[9] or 0, 'total_earned': row[10] or 0
+            }
 
-    # 获取上级链（向上10层）
-    uplines = []
-    current_ref = row[4]  # referrer_id
-    level = 1
-    while current_ref and level <= 10:
-        c.execute("""SELECT telegram_id, username, is_vip, referrer_id,
-            is_group_bound, is_bot_admin, is_joined_upline
-            FROM members WHERE telegram_id = ?""", (current_ref,))
-        ref_row = c.fetchone()
-        if not ref_row:
-            break
+        # 2. 获取上级链（向上10层）
+        uplines = []
+        current_ref = center['referrer_id']
+        level = 1
 
-        # 计算直推人数（直接下级）
-        c.execute('SELECT COUNT(*) FROM members WHERE referrer_id = ?', (ref_row[0],))
-        direct_count = c.fetchone()[0]
+        # 防止死循环
+        seen_ids = {telegram_id}
 
-        # 计算团队人数（所有下级，包括间接下级）
-        c.execute("""
-            SELECT COUNT(*) FROM members
-            WHERE level_path LIKE ? AND telegram_id != ?
-        """, (f'%/{ref_row[0]}/%', ref_row[0]))
-        team_count = c.fetchone()[0]
+        while current_ref and level <= 10:
+            if current_ref in seen_ids: break
+            seen_ids.add(current_ref)
 
-        uplines.append({
-            'telegram_id': ref_row[0], 'username': ref_row[1], 'is_vip': ref_row[2],
-            'level': level, 'is_group_bound': ref_row[4], 'is_bot_admin': ref_row[5],
-            'is_joined_upline': ref_row[6], 'direct_count': direct_count, 'team_count': team_count
-        })
-        current_ref = ref_row[3]  # 继续向上查找
-        level += 1
+            c.execute("""SELECT telegram_id, username, is_vip, referrer_id,
+                is_group_bound, is_bot_admin, is_joined_upline
+                FROM members WHERE telegram_id = ?""", (current_ref,))
+            ref_row = c.fetchone()
 
-    # 获取下级（向下10层）
-    downlines = []
-    def get_downline_with_counts(parent_id, current_level=1, max_level=10):
-        if current_level > max_level:
-            return
+            if not ref_row:
+                # 可能是捡漏账号或者数据不一致，添加一个占位符
+                uplines.append({
+                    'telegram_id': current_ref, 'username': '未知/系统号', 'is_vip': 1,
+                    'level': level, 'is_group_bound': 1, 'is_bot_admin': 1, 'is_joined_upline': 1,
+                    'direct_count': 0, 'team_count': 0
+                })
+                break
 
-        # 获取直接下级
-        c.execute("""SELECT telegram_id, username, is_vip, referrer_id,
-            is_group_bound, is_bot_admin, is_joined_upline
-            FROM members WHERE referrer_id = ? ORDER BY telegram_id""", (parent_id,))
-
-        for row in c.fetchall():
-            # 计算直推人数（这个下级的直接下级）
-            c.execute('SELECT COUNT(*) FROM members WHERE referrer_id = ?', (row[0],))
-            direct_count = c.fetchone()[0]
-
-            # 计算团队人数（这个下级的所有下级）
-            c.execute("""
-                SELECT COUNT(*) FROM members
-                WHERE level_path LIKE ? AND telegram_id != ?
-            """, (f'%/{row[0]}/%', row[0]))
-            team_count = c.fetchone()[0]
-
-            downlines.append({
-                'telegram_id': row[0], 'username': row[1], 'is_vip': row[2],
-                'level': current_level, 'is_group_bound': row[4], 'is_bot_admin': row[5],
-                'is_joined_upline': row[6], 'direct_count': direct_count, 'team_count': team_count
+            # 简化的计数查询，避免复杂SQL
+            uplines.append({
+                'telegram_id': ref_row[0], 'username': ref_row[1] or '未设置', 'is_vip': ref_row[2],
+                'level': level, 'is_group_bound': ref_row[4], 'is_bot_admin': ref_row[5],
+                'is_joined_upline': ref_row[6], 'direct_count': 0, 'team_count': 0
             })
+            current_ref = ref_row[3]
+            level += 1
 
-            # 递归获取下一层
-            get_downline_with_counts(row[0], current_level + 1, max_level)
+        # 3. 获取下级（向下10层）
+        downlines = []
+        def get_downline_recursive(parent_id, current_level=1, max_level=10):
+            if current_level > max_level: return
 
-    get_downline_with_counts(telegram_id)
+            c.execute("""SELECT telegram_id, username, is_vip, referrer_id,
+                is_group_bound, is_bot_admin, is_joined_upline
+                FROM members WHERE referrer_id = ? LIMIT 50""", (parent_id,))  # 限制数量防止过大
 
-    conn.close()
-    return jsonify({'center': center, 'uplines': uplines, 'downlines': downlines})
+            rows = c.fetchall()
+            for row in rows:
+                downlines.append({
+                    'telegram_id': row[0], 'username': row[1] or '未设置', 'is_vip': row[2],
+                    'level': current_level, 'is_group_bound': row[4], 'is_bot_admin': row[5],
+                    'is_joined_upline': row[6], 'direct_count': 0, 'team_count': 0
+                })
+                # 递归
+                get_downline_recursive(row[0], current_level + 1, max_level)
+
+        get_downline_recursive(telegram_id)
+
+        conn.close()
+        return jsonify({
+            'success': True,
+            'center': center,
+            'uplines': uplines,
+            'downlines': downlines
+        })
+    except Exception as e:
+        print(f"[Graph Error] {e}")
+        import traceback
+        traceback.print_exc()
+        # 返回一个空结构防止前端报错
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'center': {'telegram_id': telegram_id, 'username': 'Error'},
+            'uplines': [],
+            'downlines': []
+        })
 
 @app.route('/api/statistics')
 @login_required

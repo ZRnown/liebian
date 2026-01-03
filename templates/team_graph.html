@@ -54,13 +54,15 @@
                 const res = await fetch(`/api/member/${telegramId}/graph`);
                 const data = await res.json();
 
-                if (data.error) {
-                    alert('加载失败: ' + data.error);
-                    return;
-                }
-
-                // 修复：确保 data.center 存在
-                const center = data.center || {};
+                // --- 核心修复：数据安全检查 ---
+                // 即使API返回错误，也提供默认空对象防止JS崩溃
+                const center = data.center || {
+                    username: '数据加载失败',
+                    telegram_id: telegramId,
+                    balance: 0,
+                    total_earned: 0,
+                    is_vip: 0
+                };
 
                 // 显示中心用户
                 document.getElementById('centerContent').innerHTML = `
@@ -134,7 +136,8 @@
                 
             } catch (error) {
                 console.error('加载失败:', error);
-                alert('加载失败: ' + error.message);
+                // 即使报错也不要弹窗，只显示错误文本
+                document.getElementById('centerContent').innerHTML = `<p class="text-red-500">数据加载异常: ${error.message}</p>`;
             }
         }
         

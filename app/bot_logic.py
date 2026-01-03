@@ -297,8 +297,8 @@ def get_main_account_id(telegram_id, username=None):
         conn.close()
         
         if row:
-            print(f"✅ [账号劫持成功] 备用号 {target_id_str} 正在登录 -> 切换为主账号 {row[0]}")
-            return row[0]
+            print(f"✅ [账号映射] {target_id_str} -> 主账号 {row[0]}")
+            return int(row[0]) # 确保返回整数
         
         return telegram_id
     except Exception as e:
@@ -1123,61 +1123,57 @@ async def fission_handler(event):
 
 @multi_bot_on(events.NewMessage(pattern=BTN_PROFILE))
 async def profile_handler(event):
-    """个人中心"""
+    """个人中心 (修复版)"""
     try:
         original_id = event.sender_id
-        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
-    except:
-        pass
+        # 【核心修复】先解析主账号ID
+        main_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
 
+        # 2. 临时修改 event.sender_id 以便后续逻辑复用
+        event.sender_id = main_id
+
+        print(f"[个人中心] 请求者: {original_id}, 映射为主账号: {main_id}")
+    except Exception as e:
+        print(f"[个人中心] ID映射失败: {e}")
+
+    # 3. 使用主ID查询数据库
     member = DB.get_member(event.sender_id)
+
     if not member:
-        # 如果是备用号登录，尝试为其创建主账号记录
-        if original_id != event.sender_id:
-            # 这是一个备用号，创建主账号记录
-            username = getattr(event.sender, 'username', None) or f'user_{event.sender_id}'
-            try:
-                DB.create_member(event.sender_id, username, None)  # 创建主账号记录
-                member = DB.get_member(event.sender_id)
-                print(f"✅ 为备用号用户创建了主账号记录: {event.sender_id}")
-            except Exception as e:
-                print(f"❌ 创建主账号记录失败: {e}")
-                await event.respond('请先发送 /start 注册')
-                return
-        else:
-            await event.respond('请先发送 /start 注册')
-            return
-    
+        # 只有当确实查不到记录时，才提示注册
+        await event.respond('❌ 未找到账号信息，请先发送 /start 注册')
+        return
+
+    # 4. 构建界面 (保持原样)
     buttons = [
         [Button.inline('🔗 设置群链接', b'set_group'), Button.inline('✏️ 设置备用号', b'set_backup')],
         [Button.inline('💳 提现', b'withdraw'), Button.inline('💰 充值', b'do_recharge'), Button.inline('💎 开通VIP', b'open_vip')],
         [Button.inline('📊 收益记录', b'earnings_history')],
     ]
-    
+
     backup_display = format_backup_account_display(member.get("backup_account"))
-    
+
     # 获取推荐人信息
     referrer_info = ""
     if member.get("referrer_id"):
         referrer = DB.get_member(member["referrer_id"])
         if referrer:
-            referrer_username = referrer.get("username", "")
-            referrer_info = f'👥 推荐人: @{referrer_username} ({member["referrer_id"]})' if referrer_username else f'👥 推荐人ID: {member["referrer_id"]}'
-        else:
-            referrer_info = f'👥 推荐人ID: {member["referrer_id"]}'
-    
-    text = f'👤 个人中心 (已同步主账号)\n\n'
-    text += f'🆔 主账号ID: `{member["telegram_id"]}`\n'
-    text += f'👤 主账号名: @{member["username"]}\n'
-    if referrer_info:
-        text += f'{referrer_info}\n'
+            r_name = referrer.get("username", "")
+            referrer_info = f'👥 推荐人: @{r_name}' if r_name else f'👥 推荐人ID: {member["referrer_id"]}'
+
+    # 显示信息
+    text = f'👤 个人中心\n\n'
+    text += f'🆔 账号ID: `{member["telegram_id"]}`\n'  # 显示主ID
+    if original_id != main_id:
+        text += f'📱 当前登录: 备用号 ({original_id})\n'
+    text += f'👤 用户名: @{member["username"]}\n'
+    if referrer_info: text += f'{referrer_info}\n'
     text += f'💎 VIP状态: {"✅ 已开通" if member["is_vip"] else "❌ 未开通"}\n'
     text += f'💰 余额: {member["balance"]} U\n'
     text += f'📉 错过余额: {member["missed_balance"]} U\n'
     text += f'🔗 群链接: {member["group_link"] or "未设置"}\n'
     text += f'📱 绑定备用号: {backup_display}\n'
-    text += f'\n📅 注册时间: {member["register_time"][:10] if member["register_time"] else "未知"}'
-    
+
     await event.respond(text, buttons=buttons)
 
 # ==================== 个人中心按钮回调处理 ====================
