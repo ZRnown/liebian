@@ -670,11 +670,15 @@ def api_member_graph(telegram_id):
                 })
                 break
 
-            # 简化的计数查询，避免复杂SQL
+            # 实时计算该用户的直推和团队数量
+            downline_counts = DB.get_downline_count(ref_row[0], 10)
+            direct_count = downline_counts[0]['total'] if downline_counts and len(downline_counts) > 0 else 0
+            team_count = sum(item.get('total', 0) for item in downline_counts) if downline_counts else 0
+
             uplines.append({
                 'telegram_id': ref_row[0], 'username': ref_row[1] or '未设置', 'is_vip': ref_row[2],
                 'level': level, 'is_group_bound': ref_row[4], 'is_bot_admin': ref_row[5],
-                'is_joined_upline': ref_row[6], 'direct_count': 0, 'team_count': 0
+                'is_joined_upline': ref_row[6], 'direct_count': direct_count, 'team_count': team_count
             })
             current_ref = ref_row[3]
             level += 1
@@ -690,10 +694,15 @@ def api_member_graph(telegram_id):
 
             rows = c.fetchall()
             for row in rows:
+                # 实时计算该用户的直推和团队数量
+                downline_counts = DB.get_downline_count(row[0], 10)  # 获取10层数据
+                direct_count = downline_counts[0]['total'] if downline_counts and len(downline_counts) > 0 else 0
+                team_count = sum(item.get('total', 0) for item in downline_counts) if downline_counts else 0
+
                 downlines.append({
                     'telegram_id': row[0], 'username': row[1] or '未设置', 'is_vip': row[2],
                     'level': current_level, 'is_group_bound': row[4], 'is_bot_admin': row[5],
-                    'is_joined_upline': row[6], 'direct_count': 0, 'team_count': 0
+                    'is_joined_upline': row[6], 'direct_count': direct_count, 'team_count': team_count
                 })
                 # 递归
                 get_downline_recursive(row[0], current_level + 1, max_level)
