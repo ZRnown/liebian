@@ -327,6 +327,111 @@ def format_backup_account_display(backup_account):
     except (ValueError, Exception):
         return backup_account_str
 
+async def check_user_group_binding_status(user_id, clients):
+    """检查用户的群组绑定是否仍然有效"""
+    try:
+        # 获取用户的群组绑定信息
+        member = DB.get_member(user_id)
+        if not member or not member.get('group_link') or not member.get('is_group_bound'):
+            return False
+
+        group_link = member['group_link']
+        print(f'[群组检测] 检查用户 {user_id} 的群组绑定: {group_link}')
+
+        # 使用多机器人逻辑检查是否有机器人仍在群组中且为管理员
+        from core_functions import check_any_bot_in_group
+        is_any_bot_in_group, admin_bot_id = await check_any_bot_in_group(clients, group_link)
+
+        if not is_any_bot_in_group:
+            # 没有机器人加入群组，标记绑定失效
+            print(f'[群组检测] 用户 {user_id} 的群组绑定失效：没有机器人加入群组')
+            # 更新数据库状态
+            conn = get_db_conn()
+            c = conn.cursor()
+            c.execute('UPDATE members SET is_group_bound = 0, is_bot_admin = 0 WHERE telegram_id = ?', (user_id,))
+            conn.commit()
+            conn.close()
+            return False
+        elif admin_bot_id is None:
+            # 有机器人加入但不是管理员，标记管理员权限失效
+            print(f'[群组检测] 用户 {user_id} 的管理员权限失效：机器人不在群组或不是管理员')
+            # 更新数据库状态
+            conn = get_db_conn()
+            c = conn.cursor()
+            c.execute('UPDATE members SET is_bot_admin = 0 WHERE telegram_id = ?', (user_id,))
+            conn.commit()
+            conn.close()
+            return True  # 绑定仍然有效，只是管理员权限失效
+
+        # 绑定完全有效
+        print(f'[群组检测] 用户 {user_id} 的群组绑定完全有效')
+        return True
+
+    except Exception as e:
+        print(f'[群组检测] 检查用户 {user_id} 群组绑定失败: {e}')
+        return False
+
+async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状态异常"):
+    """通知所有绑定指定群组的用户，群组绑定已失效"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+
+        # 查找所有绑定此群组的用户
+        group_link_pattern = f'%{chat_id}%'
+        c.execute('SELECT telegram_id, username, group_link FROM members WHERE group_link LIKE ?', (group_link_pattern,))
+        bound_users = c.fetchall()
+        conn.close()
+
+        if not bound_users:
+            print(f'[通知] 没有用户绑定群组 {chat_id}')
+            return
+
+        # 重置这些用户的群组绑定状态
+        for user_id, username, group_link in bound_users:
+            try:
+                # 更新数据库：清除群组绑定和管理员状态
+                conn = get_db_conn()
+                c = conn.cursor()
+                c.execute('''
+                    UPDATE members
+                    SET is_group_bound = 0, is_bot_admin = 0
+                    WHERE telegram_id = ?
+                ''', (user_id,))
+                conn.commit()
+                conn.close()
+
+                # 通知用户
+                notification_msg = f'''
+⚠️ **群组绑定状态异常**
+
+您的群组绑定已失效，原因：{reason}
+
+原群链接：{group_link}
+
+请重新设置群组绑定以继续获得分红收益。
+
+发送 /bind_group 重新绑定群组
+                '''.strip()
+
+                # 向所有活跃的机器人发送通知
+                from app.config import clients
+                for client in clients:
+                    try:
+                        await client.send_message(user_id, notification_msg)
+                        print(f'[通知] 已通知用户 {user_id} ({username}) 群组绑定失效')
+                        break  # 成功发送一条就够了
+                    except Exception as e:
+                        print(f'[通知] 向用户 {user_id} 发送通知失败: {e}')
+                        continue
+
+            except Exception as e:
+                print(f'[通知] 处理用户 {user_id} 失败: {e}')
+                continue
+
+    except Exception as e:
+        print(f'[通知] 群组绑定失效通知失败: {e}')
+
 def link_account(main_id, backup_id, backup_username):
     """关联备用号到主账号"""
     clean_username = (backup_username or '').strip().lstrip('@')
@@ -965,11 +1070,24 @@ async def profile_handler(event):
         event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
     except:
         pass
-    
+
     member = DB.get_member(event.sender_id)
     if not member:
-        await event.respond('请先发送 /start 注册')
-        return
+        # 如果是备用号登录，尝试为其创建主账号记录
+        if original_id != event.sender_id:
+            # 这是一个备用号，创建主账号记录
+            username = getattr(event.sender, 'username', None) or f'user_{event.sender_id}'
+            try:
+                DB.create_member(event.sender_id, username, None)  # 创建主账号记录
+                member = DB.get_member(event.sender_id)
+                print(f"✅ 为备用号用户创建了主账号记录: {event.sender_id}")
+            except Exception as e:
+                print(f"❌ 创建主账号记录失败: {e}")
+                await event.respond('请先发送 /start 注册')
+                return
+        else:
+            await event.respond('请先发送 /start 注册')
+            return
     
     buttons = [
         [Button.inline('🔗 设置群链接', b'set_group'), Button.inline('✏️ 设置备用号', b'set_backup')],
@@ -2309,10 +2427,10 @@ async def admin_handler(event):
 
 @multi_bot_on(events.ChatAction)
 async def group_welcome_handler(event):
-    """新成员加入群时发送欢迎语，并自动注册为邀请者下级"""
+    """处理群组相关事件：加入、离开、权限变化等"""
     try:
         print(f'[ChatAction] 收到事件: {type(event.action_message.action).__name__ if event.action_message else "无"}')
-        
+
         # 检查是否是用户加入事件
         if event.user_joined or event.user_added:
             sys_config = get_system_config()
@@ -2395,6 +2513,13 @@ async def group_welcome_handler(event):
                         inviter = DB.get_member(added_by)
                         print(f'[自动注册] 邀请者是会员: {inviter is not None}')
                         if inviter:
+                            # ===== 检测邀请者群组绑定状态 =====
+                            inviter_group_valid = await check_user_group_binding_status(inviter['telegram_id'], clients)
+                            if not inviter_group_valid:
+                                print(f'[自动注册] 邀请者 {added_by} 群组绑定失效，跳过自动注册')
+                                # 由于群组绑定失效，跳过自动注册
+                                return
+
                             # 检查新用户是否已注册
                             existing = DB.get_member(new_user_id)
                             print(f'[自动注册] 新用户已注册: {existing is not None}')
@@ -2441,6 +2566,36 @@ async def group_welcome_handler(event):
                     msg = msg.replace('{id}', str(new_user_id))
                     
                     await event.respond(f'👋 {msg}')
+
+        # ===== 机器人离开/权限变化检测 =====
+        elif event.user_left or event.user_kicked:
+            # 检查是否有机器人被踢出
+            if hasattr(event, 'user_id'):
+                kicked_user_id = event.user_id
+                print(f'[机器人检测] 用户离开/被踢出: {kicked_user_id}')
+
+                # 检查是否是我们的机器人被踢出
+                from app.config import clients
+                bot_ids = []
+                for client in clients:
+                    try:
+                        bot_ids.append((await client.get_me()).id)
+                    except:
+                        continue
+
+                if kicked_user_id in bot_ids:
+                    print(f'[机器人检测] 我们的机器人被踢出群组: {kicked_user_id}')
+                    # 通知所有绑定此群组的用户
+                    await notify_group_binding_invalid(event.chat_id, kicked_user_id, "机器人被踢出群组")
+                    return
+
+        # ===== 群组解散检测 =====
+        elif hasattr(event, 'chat_deleted') and event.chat_deleted:
+            print(f'[群组检测] 群组被解散: {event.chat_id}')
+            # 通知所有绑定此群组的用户
+            await notify_group_binding_invalid(event.chat_id, None, "群组已被解散")
+            return
+
     except Exception as e:
         print(f'群事件处理失败: {e}')
 
