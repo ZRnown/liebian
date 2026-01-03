@@ -610,6 +610,49 @@ async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=Tru
         'stats': stats
     }
 
+# ==================== 辅助函数：检测并处理上级群失效 ====================
+
+async def verify_and_handle_upline_group(bot, upline_id, group_link, clients):
+    """
+    检测上级群是否有效（机器人是否在群且为管理）。
+    如果失效：
+    1. 更新数据库标记该用户群绑定失效
+    2. 发送通知给该上级用户
+    3. 返回 False (表示不可用)
+    """
+    try:
+        # 使用 check_any_bot_in_group 检查 (多机器人支持)
+        from core_functions import check_any_bot_in_group
+        is_in_group, admin_bot_id = await check_any_bot_in_group(clients, group_link)
+
+        if is_in_group and admin_bot_id:
+            return True # 有效：在群且是管理
+
+        # --- 处理失效逻辑 ---
+        print(f"[懒加载检测] 上级 {upline_id} 群组失效: {group_link}")
+
+        # 1. 更新数据库
+        conn = get_db_conn()
+        c = conn.cursor()
+        # 撤销群管状态，保留群链接以便用户知道是哪个群
+        c.execute('UPDATE members SET is_bot_admin = 0 WHERE telegram_id = ?', (upline_id,))
+        conn.commit()
+        conn.close()
+
+        # 2. 通知上级用户 (异步发送，不阻塞当前流程)
+        try:
+            fail_reason = "机器人不是管理员" if is_in_group else "机器人不在群组内"
+            msg = f"⚠️ **群组权限异常通知**\n\n检测到您的群组状态异常：{fail_reason}\n\n这导致您的下级无法加入您的群组，您将**失去分红收益**！\n\n请尽快将机器人重新设为管理员。"
+            await bot.send_message(upline_id, msg)
+        except:
+            pass # 可能被拉黑，忽略
+
+        return False
+
+    except Exception as e:
+        print(f"[懒加载检测] 检查失败: {e}")
+        return False # 保守起见，出错视为无效，转为捡漏
+
 # ==================== 事件处理器 ====================
 
 @multi_bot_on(events.NewMessage(pattern='/start'))
@@ -965,24 +1008,36 @@ async def fission_handler(event):
     #   上2级 (level=2) -> 替换显示第 N-1 项，依此类推
     groups_to_show = [None] * level_count  # 0-based positions
 
-    # 先把上级群放到对应显示位置
+    # 先把上级群放到对应显示位置（增加实时群权检测）
     for item in chain:
         if item.get('is_fallback'):
             continue
+
         level = item['level']
         upline_id = item['id']
         up_member = DB.get_member(upline_id)
+
+        # 只有当上级设置了群链接，才进行深入检测
         if up_member and up_member.get('group_link'):
             try:
+                # 1. 基础条件检查 (DB层面)
                 conds = await check_user_conditions(bot, upline_id)
+
+                # 2. 实时权限检查 (API层面 - 核心修改)
+                # 只有当 DB 显示条件满足时，才去 verify 真实权限，节省资源
+                is_valid = False
                 if conds and conds['all_conditions_met']:
                     group_link = up_member['group_link'].split('\n')[0].strip()
-                    # 计算显示位置（从后向前）
+                    # 【核心】调用懒加载检测
+                    is_valid = await verify_and_handle_upline_group(bot, upline_id, group_link, clients)
+
+                if is_valid:
                     pos = level_count - level  # 0-based index
                     if pos < 0 or pos >= level_count:
                         continue
+
                     group_name = f"第{level}层上级"
-                    # 尝试获取群名称（优先使用实际群标题）
+                    # 尝试获取群名 (代码保持不变...)
                     try:
                         if 't.me/' in group_link:
                             group_username = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
@@ -1011,6 +1066,10 @@ async def fission_handler(event):
                         'name': group_name,
                         'type': 'upline'
                     }
+                else:
+                    # 检测不通过，该位置留空，后续会自动填充捡漏
+                    pass
+
             except Exception as e:
                 print(f"[群裂变列表] 检查第{level}层上级条件失败: {e}")
 
@@ -1533,20 +1592,33 @@ async def verify_groups_callback(event):
     # 构建需要检查的群组列表（按显示顺序，采用与 fission_handler 相同的从后向前替换策略）
     groups_to_check = [None] * required_groups_count
 
-    # 先把真实上级放到对应显示位置（上1级 -> 最后一个位置）
+    # 先把真实上级放到对应显示位置（上1级 -> 最后一个位置，含实时检测）
     for level, info in upline_map.items():
         try:
             pos = required_groups_count - level
             if pos < 0 or pos >= required_groups_count:
                 continue
-            groups_to_check[pos] = {
-                'display_index': pos + 1,
-                'link': info['link'],
-                'level': level,
-                'type': 'upline',
-                'group_name': f"第{level}层上级",
-                'upline_id': info.get('upline_id')
-            }
+
+            # 【核心】实时检测上级群有效性
+            upline_id = info.get('upline_id')
+            group_link = info['link']
+            is_valid = False
+
+            if upline_id:
+                # 调用懒加载检测
+                is_valid = await verify_and_handle_upline_group(bot, upline_id, group_link, clients)
+
+            if is_valid:
+                groups_to_check[pos] = {
+                    'display_index': pos + 1,
+                    'link': group_link,
+                    'level': level,
+                    'type': 'upline',
+                    'group_name': f"第{level}层上级",
+                    'upline_id': upline_id
+                }
+            # 如果检测不通过，该位置留空，后续用捡漏补全
+
         except Exception as e:
             print(f"[验证加群] 构建上级映射失败: {e}")
 

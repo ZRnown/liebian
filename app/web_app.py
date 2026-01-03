@@ -281,14 +281,6 @@ def team_graph_index():
 @login_required
 def team_graph_page(telegram_id):
     """团队图谱详情页面"""
-    # 验证用户是否存在
-    from database import DB
-    member = DB.get_member(telegram_id)
-    if not member:
-        from flask import flash, redirect, url_for
-        flash('用户不存在', 'error')
-        return redirect(url_for('members'))
-
     return render_template('team_graph.html', telegram_id=telegram_id, active_page='team_graph')
 
 # ==================== 支付回调 ====================
@@ -622,97 +614,9 @@ def api_group_send_broadcasts(group_id):
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
-@app.route('/api/team-graph-all')
+@app.route('/api/member/<int:telegram_id>/graph')
 @login_required
-def api_team_graph_all():
-    """获取所有用户的团队图谱数据"""
-    conn = get_db_conn()
-    c = conn.cursor()
-
-    try:
-        # 获取所有成员
-        c.execute("""
-            SELECT telegram_id, username, referrer_id, is_vip, balance,
-                   direct_count, team_count, is_group_bound, is_bot_admin, is_joined_upline
-            FROM members
-            ORDER BY telegram_id
-        """)
-
-        members = []
-        for row in c.fetchall():
-            members.append({
-                'telegram_id': row[0],
-                'username': row[1] or f'user_{row[0]}',
-                'referrer_id': row[2],
-                'is_vip': bool(row[3]),
-                'balance': float(row[4] or 0),
-                'direct_count': int(row[5] or 0),
-                'team_count': int(row[6] or 0),
-                'is_group_bound': bool(row[7]),
-                'is_bot_admin': bool(row[8]),
-                'is_joined_upline': bool(row[9])
-            })
-
-        # 计算统计信息
-        total_members = len(members)
-        vip_count = sum(1 for m in members if m['is_vip'])
-
-        # 计算最大层级深度
-        max_depth = 0
-        if members:
-            # 构建成员映射
-            member_map = {m['telegram_id']: m for m in members}
-
-            def get_depth(member_id, visited=None):
-                if visited is None:
-                    visited = set()
-                if member_id in visited:
-                    return 0  # 避免循环引用
-                visited.add(member_id)
-
-                member = member_map.get(member_id)
-                if not member or not member['referrer_id']:
-                    return 0
-
-                parent_depth = get_depth(member['referrer_id'], visited.copy())
-                return parent_depth + 1
-
-            # 计算所有成员的深度
-            depths = []
-            for member in members:
-                depth = get_depth(member['telegram_id'])
-                depths.append(depth)
-
-            max_depth = max(depths) if depths else 0
-
-        # 计算顶级会员数量（没有上级或上级不在系统中）
-        top_level = 0
-        for member in members:
-            if not member['referrer_id'] or member['referrer_id'] not in member_map:
-                top_level += 1
-
-        stats = {
-            'total': total_members,
-            'vip_count': vip_count,
-            'max_depth': max_depth,
-            'top_level': top_level
-        }
-
-        conn.close()
-        return jsonify({
-            'success': True,
-            'members': members,
-            'stats': stats
-        })
-
-    except Exception as e:
-        conn.close()
-        print(f"团队图谱总览API错误: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-@app.route('/api/team-graph/<int:telegram_id>')
-@login_required
-def api_team_graph(telegram_id):
+def api_member_graph(telegram_id):
     """获取会员关系图谱"""
     conn = get_db_conn()
     c = conn.cursor()
@@ -798,16 +702,8 @@ def api_team_graph(telegram_id):
 
     get_downline_with_counts(telegram_id)
 
-    result = {'center': center, 'uplines': uplines, 'downlines': downlines}
-    print(f"[DEBUG] 团队图谱API返回数据: {result}")
     conn.close()
-    return jsonify(result)
-
-@app.route('/api/member/<int:telegram_id>/graph')
-@login_required
-def api_member_graph(telegram_id):
-    """获取会员关系图谱（别名路由）"""
-    return api_team_graph(telegram_id)
+    return jsonify({'center': center, 'uplines': uplines, 'downlines': downlines})
 
 @app.route('/api/statistics')
 @login_required

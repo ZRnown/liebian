@@ -54,8 +54,8 @@ async def handle_group_link_message(event, bot, DB, clients=None):
         is_admin = admin_bot_id is not None
     else:
         # 回退到单机器人逻辑
-        bot_id = (await bot.get_me()).id
-        is_admin = await check_bot_is_admin(bot, bot_id, group_link)
+    bot_id = (await bot.get_me()).id
+    is_admin = await check_bot_is_admin(bot, bot_id, group_link)
     
     # 更新数据库
     conn = DB.get_conn()

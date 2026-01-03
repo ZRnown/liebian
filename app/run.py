@@ -37,7 +37,7 @@ def main():
         print(f"⚠️ Web后台启动失败: {e}")
         print("继续启动Bot...")
     print()
-
+    
     # 3. 启动 Bot (主线程)
     print("🚀 Telegram机器人启动中...")
     print()
@@ -53,7 +53,7 @@ def main():
     print("   - 按 Ctrl+C 停止所有服务")
     print("=" * 60)
     print()
-
+    
     try:
         run_bot()
     except KeyboardInterrupt:
