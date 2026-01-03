@@ -309,14 +309,14 @@ def format_backup_account_display(backup_account):
     """格式化备用号显示"""
     if not backup_account:
         return "未设置"
-    
+
     backup_account_str = str(backup_account).strip()
-    
+
     if backup_account_str.startswith('@'):
         return backup_account_str
     if not backup_account_str.isdigit():
         return f"@{backup_account_str}"
-    
+
     try:
         backup_id = int(backup_account_str)
         backup_member = DB.get_member(backup_id)
@@ -326,6 +326,14 @@ def format_backup_account_display(backup_account):
             return backup_account_str
     except (ValueError, Exception):
         return backup_account_str
+
+def resolve_sender_id(event):
+    """解析发送者ID，支持备用号映射"""
+    original_id = event.sender_id
+    main_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+
+    # 如果映射成功，返回主号ID；否则返回原始ID
+    return main_id if main_id != original_id else original_id
 
 async def check_user_group_binding_status(user_id, clients):
     """检查用户的群组绑定是否仍然有效"""
@@ -1150,25 +1158,29 @@ async def fission_handler(event):
 @multi_bot_on(events.NewMessage(pattern=BTN_PROFILE))
 async def profile_handler(event):
     """个人中心 (修复版)"""
-    try:
-        original_id = event.sender_id
-        # 【核心修复】先解析主账号ID
-        main_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+    original_id = event.sender_id
+    print(f"[个人中心] 原始请求者ID: {original_id}")
 
-        # 2. 临时修改 event.sender_id 以便后续逻辑复用
-        event.sender_id = main_id
+    # 【核心修复】解析正确的账号ID（支持备用号映射）
+    resolved_id = resolve_sender_id(event)
+    print(f"[个人中心] 解析结果: {original_id} -> {resolved_id}")
 
-        print(f"[个人中心] 请求者: {original_id}, 映射为主账号: {main_id}")
-    except Exception as e:
-        print(f"[个人中心] ID映射失败: {e}")
-
-    # 3. 使用主ID查询数据库
-    member = DB.get_member(event.sender_id)
+    # 直接使用resolved_id查询
+    print(f"[个人中心] 查询数据库: telegram_id = {resolved_id}")
+    member = DB.get_member(resolved_id)
+    print(f"[个人中心] 数据库查询结果: {member is not None}")
 
     if not member:
         # 只有当确实查不到记录时，才提示注册
+        print(f"[个人中心] 未找到会员信息: {resolved_id}")
         await event.respond('❌ 未找到账号信息，请先发送 /start 注册')
         return
+
+    print(f"[个人中心] 找到会员: {member.get('username')}")
+
+    # 设置正确的ID用于后续逻辑
+    main_id = resolved_id
+    event.sender_id = main_id
 
     # 4. 构建界面 (保持原样)
     buttons = [
@@ -1208,15 +1220,16 @@ async def profile_handler(event):
 async def set_group_callback(event):
     """设置群链接回调"""
     # 账号关联处理（备用号->主账号）
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    member = DB.get_member(event.sender_id)
+    original_sender_id = event.sender_id
+    main_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+
+    member = DB.get_member(main_id)
     if not member:
         await event.answer('请先发送 /start 注册')
         return
+
+    # 临时修改用于后续逻辑
+    event.sender_id = main_id
 
     # VIP check
     if not member.get('is_vip'):
