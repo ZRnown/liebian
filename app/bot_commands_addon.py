@@ -37,16 +37,16 @@ async def handle_group_link_message(event, bot, DB, clients=None):
     """处理用户发送的群链接"""
     telegram_id = event.sender_id
     group_link = event.message.text.strip()
-    
+
     # 验证链接格式
     if not (group_link.startswith('https://t.me/') or group_link.startswith('@')):
         await event.respond('❌ 群链接格式不正确\n\n请发送完整的群链接，格式如：\nhttps://t.me/+xxx 或 @groupname')
         return
-    
+
     member = DB.get_member(telegram_id)
     if not member or not member['is_vip']:
         return
-    
+
     # 检测是否有机器人加入群组且为管理员（结果仅作提示，不阻断操作）
     if clients and len(clients) > 0:
         # 使用多机器人逻辑
@@ -54,20 +54,20 @@ async def handle_group_link_message(event, bot, DB, clients=None):
         is_admin = admin_bot_id is not None
     else:
         # 回退到单机器人逻辑
-    bot_id = (await bot.get_me()).id
-    is_admin = await check_bot_is_admin(bot, bot_id, group_link)
-    
+        bot_id = (await bot.get_me()).id
+        is_admin = await check_bot_is_admin(bot, bot_id, group_link)
+
     # 更新数据库
     conn = DB.get_conn()
     c = conn.cursor()
     c.execute('''
-        UPDATE members 
+        UPDATE members
         SET group_link = ?, is_group_bound = 1, is_bot_admin = ?
         WHERE telegram_id = ?
     ''', (group_link, 1 if is_admin else 0, telegram_id))
     conn.commit()
     conn.close()
-    
+
     if is_admin:
         await event.respond(
             '✅ 群组绑定成功！\n\n'
