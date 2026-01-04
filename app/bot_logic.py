@@ -441,7 +441,6 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                 '''.strip()
 
                 # 向所有活跃的机器人发送通知
-                from app.config import clients
                 for client in clients:
                     try:
                         await client.send_message(user_id, notification_msg)
@@ -2685,7 +2684,6 @@ async def group_welcome_handler(event):
                 print(f'[机器人检测] 用户离开/被踢出: {kicked_user_id}')
 
                 # 检查是否是我们的机器人被踢出
-                from app.config import clients
                 bot_ids = []
                 for client in clients:
                     try:
@@ -2707,7 +2705,6 @@ async def group_welcome_handler(event):
                 print(f'[权限检测] 用户权限变化: {demoted_user_id}, admin={getattr(event, "user_admin", None)}')
 
                 # 检查是否是我们的机器人权限被撤销
-                from app.config import clients
                 bot_ids = []
                 for client in clients:
                     try:
