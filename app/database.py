@@ -1085,9 +1085,16 @@ async def sync_member_groups_from_members(connected_clients=None):
                                     print(f'[sync_member_groups] 尝试获取群组ID: {tail} for user {tg_id} (尝试 {attempt+1}/{max_retries})')
 
                                     entity = await bot.get_entity(tail)
-                                    group_id = getattr(entity, 'id', None)
+                                    raw_id = getattr(entity, 'id', None)
+                                    # Telegram群组ID需要转换为完整格式
+                                    if raw_id and raw_id > 0:
+                                        # 对于频道和supergroup，完整ID是 -100 + 原始ID
+                                        group_id = int(f"-100{raw_id}")
+                                    else:
+                                        group_id = raw_id
+
                                     group_name = getattr(entity, 'title', tail)
-                                    print(f'[sync_member_groups] ✅ 获取成功: group_id={group_id}, name={group_name}')
+                                    print(f'[sync_member_groups] ✅ 获取成功: raw_id={raw_id}, group_id={group_id}, name={group_name}')
                                     break  # 成功后退出重试循环
                                 except Exception as e:
                                     error_msg = str(e)
