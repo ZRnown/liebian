@@ -3139,8 +3139,10 @@ async def message_handler(event):
         # 只允许 http(s)://t.me/ 开头的链接
         if link.startswith('http://t.me/') or link.startswith('https://t.me/'):
             # 验证群链接（使用多机器人逻辑）
-            verification_result = await verify_group_link(bot, link, clients)
-            
+            bot_client = event.client if hasattr(event, 'client') else bot
+            verification_result = await verify_group_link(bot_client, link, clients)
+            print(f'[群绑定] verify_group_link结果: {verification_result}')
+
             if verification_result['success']:
                 # 根据是否成功检测管理员来设置 is_bot_admin
                 is_admin_flag = 1 if verification_result.get('admin_checked') else 0
