@@ -18,13 +18,9 @@ def main():
     
     # 同步已有会员群链接到 member_groups
     print("🔄 同步会员群组数据...")
-    try:
-        # 同步会员群组数据到member_groups表
-        import asyncio
-        asyncio.run(sync_member_groups_from_members())
-        print("✅ 会员群组数据同步完成")
-    except Exception as e:
-        print(f"⚠️ 会员群组数据同步失败: {e}")
+    # 注意：这里不进行同步，因为此时机器人还没有启动
+    # 同步将在机器人启动后进行
+    print("ℹ️ 跳过启动时的群组数据同步，将在机器人启动后进行")
     print()
     
     # 2. 启动 Web 后台 (在独立线程中)

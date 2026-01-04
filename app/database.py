@@ -1025,6 +1025,33 @@ def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_adm
 async def sync_member_groups_from_members():
     """启动时同步已存在的会员群链接到 member_groups，避免后台列表为空"""
     try:
+        # 导入机器人客户端，用于获取群组ID
+        from app.bot_logic import clients
+
+        if not clients:
+            print('[sync_member_groups] 警告：没有可用的机器人客户端，跳过group_id获取')
+            # 如果没有机器人客户端，仍然创建记录但group_id为None
+            conn = get_db_conn()
+            c = conn.cursor()
+            c.execute("SELECT telegram_id, username, group_link FROM members WHERE group_link IS NOT NULL AND group_link != ''")
+            rows = c.fetchall()
+            conn.close()
+
+            synced_count = 0
+            for r in rows:
+                tg_id, uname, glink = r
+                try:
+                    upsert_member_group(tg_id, glink, uname or None, is_bot_admin=1, group_id=None)
+                    synced_count += 1
+                except Exception as inner_err:
+                    print(f'[sync_member_groups] 单条失败 {tg_id}: {inner_err}')
+            print(f'[sync_member_groups] 同步完成（无机器人客户端），共处理 {len(rows)} 条记录，成功 {synced_count} 条')
+            return
+
+        # 使用第一个可用的机器人客户端
+        bot = clients[0]
+        print(f'[sync_member_groups] 使用机器人客户端获取group_id: {bot}')
+
         conn = get_db_conn()
         c = conn.cursor()
         c.execute("SELECT telegram_id, username, group_link FROM members WHERE group_link IS NOT NULL AND group_link != ''")
@@ -1035,24 +1062,48 @@ async def sync_member_groups_from_members():
         for r in rows:
             tg_id, uname, glink = r
             try:
-                # 尝试从现有链接解析group_id
                 group_id = None
+                group_name = None
 
-                # 如果链接看起来像是我们之前存储的格式，尝试提取group_id
-                if glink and ('Private Group (ID: ' in glink or glink.startswith('https://t.me/')):
-                    if 'Private Group (ID: ' in glink:
-                        # 从私有群格式提取ID
+                # 解析链接获取group_id
+                if glink.startswith('https://t.me/') or glink.startswith('http://t.me/'):
+                    tail = glink.replace('https://t.me/', '').replace('http://t.me/', '').split('?')[0]
+
+                    # 跳过私有链接（无法获取ID）
+                    if tail.startswith('+') or tail.startswith('joinchat/'):
+                        print(f'[sync_member_groups] 私有链接 {glink} for user {tg_id}，无法获取group_id')
+                    else:
+                        # 公开群组，尝试获取ID
                         try:
-                            id_str = glink.split('Private Group (ID: ')[1].split(')')[0]
-                            group_id = int(id_str)
-                            print(f'[sync_member_groups] 从私有群链接提取到group_id: {group_id} for user {tg_id}')
-                        except:
-                            pass
-                    elif glink.startswith('https://t.me/'):
-                        # 对于公开群，暂时保持None，后续可以通过其他方式获取
-                        print(f'[sync_member_groups] 公开群链接 {glink} for user {tg_id}，暂时无法获取group_id')
+                            print(f'[sync_member_groups] 尝试获取群组ID: {tail} for user {tg_id}')
+                            entity = await bot.get_entity(tail)
+                            group_id = getattr(entity, 'id', None)
+                            group_name = getattr(entity, 'title', tail)
+                            print(f'[sync_member_groups] ✅ 获取成功: group_id={group_id}, name={group_name}')
+                        except Exception as e:
+                            print(f'[sync_member_groups] ❌ 获取失败 {tail}: {e}')
+                elif 'Private Group (ID: ' in glink:
+                    # 从私有群格式提取ID
+                    try:
+                        id_str = glink.split('Private Group (ID: ')[1].split(')')[0]
+                        group_id = int(id_str)
+                        print(f'[sync_member_groups] 从私有群格式提取到group_id: {group_id} for user {tg_id}')
+                    except:
+                        pass
 
                 upsert_member_group(tg_id, glink, uname or None, is_bot_admin=1, group_id=group_id)
+
+                # 如果获取到了群名，更新一下
+                if group_name and group_id:
+                    try:
+                        conn = get_db_conn()
+                        c = conn.cursor()
+                        c.execute("UPDATE member_groups SET group_name = ? WHERE group_id = ?", (group_name, group_id))
+                        conn.commit()
+                        conn.close()
+                    except Exception as e:
+                        print(f'[sync_member_groups] 更新群名失败: {e}')
+
                 synced_count += 1
             except Exception as inner_err:
                 print(f'[sync_member_groups] 单条失败 {tg_id}: {inner_err}')
@@ -1060,6 +1111,8 @@ async def sync_member_groups_from_members():
         print(f'[sync_member_groups] 同步完成，共处理 {len(rows)} 条记录，成功 {synced_count} 条')
     except Exception as e:
         print(f'[sync_member_groups] 失败: {e}')
+        import traceback
+        traceback.print_exc()
 
 # 在模块加载时执行数据库升级
 upgrade_members_table()

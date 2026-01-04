@@ -3836,6 +3836,19 @@ def run_bot():
                 await asyncio.sleep(1)
 
         loop.create_task(_process_recharge_queue_worker())
+
+        # 在机器人启动后同步会员群组数据
+        async def sync_after_start():
+            try:
+                print("🔄 同步会员群组数据...")
+                from database import sync_member_groups_from_members
+                await sync_member_groups_from_members()
+                print("✅ 会员群组数据同步完成")
+            except Exception as e:
+                print(f"⚠️ 会员群组数据同步失败: {e}")
+
+        loop.create_task(sync_after_start())
+
         print("✅ 所有后台任务已挂载")
         print(f"✅ {len(clients)} 个机器人正在监听消息...")
 
