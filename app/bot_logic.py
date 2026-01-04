@@ -441,13 +441,17 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                 '''.strip()
 
                 # 向所有活跃的机器人发送通知
+                if not clients:
+                    print(f'[通知] ⚠️ 警告：没有活跃的机器人客户端，无法发送通知给用户 {user_id}')
+                    continue
+
                 for client in clients:
                     try:
                         await client.send_message(user_id, notification_msg)
-                        print(f'[通知] 已通知用户 {user_id} ({username}) 群组绑定失效')
+                        print(f'[通知] ✅ 已通知用户 {user_id} ({username}) 群组绑定失效')
                         break  # 成功发送一条就够了
                     except Exception as e:
-                        print(f'[通知] 向用户 {user_id} 发送通知失败: {e}')
+                        print(f'[通知] ❌ 向用户 {user_id} 发送通知失败: {e}')
                         continue
 
             except Exception as e:
@@ -2684,18 +2688,28 @@ async def group_welcome_handler(event):
                 print(f'[机器人检测] 用户离开/被踢出: {kicked_user_id}')
 
                 # 检查是否是我们的机器人被踢出
+                if not clients:
+                    print(f'[机器人检测] ⚠️ 警告：clients列表为空，无法检测机器人状态')
+                    print(f'[机器人检测] 当前活跃机器人数量: {len(clients)}')
+                    return
+
                 bot_ids = []
                 for client in clients:
                     try:
                         bot_ids.append((await client.get_me()).id)
-                    except:
+                    except Exception as e:
+                        print(f'[机器人检测] 获取机器人ID失败: {e}')
                         continue
 
+                print(f'[机器人检测] 当前活跃机器人ID: {bot_ids}')
+
                 if kicked_user_id in bot_ids:
-                    print(f'[机器人检测] 我们的机器人被踢出群组: {kicked_user_id}')
+                    print(f'[机器人检测] ✅ 检测到我们的机器人被踢出群组: {kicked_user_id}')
                     # 通知所有绑定此群组的用户
                     await notify_group_binding_invalid(event.chat_id, kicked_user_id, "机器人被踢出群组")
                     return
+                else:
+                    print(f'[机器人检测] 普通用户离开/被踢出: {kicked_user_id}')
 
         # ===== 新增：机器人管理员权限撤销检测 =====
         elif hasattr(event, 'user_admin') and not event.user_admin:
@@ -2705,18 +2719,28 @@ async def group_welcome_handler(event):
                 print(f'[权限检测] 用户权限变化: {demoted_user_id}, admin={getattr(event, "user_admin", None)}')
 
                 # 检查是否是我们的机器人权限被撤销
+                if not clients:
+                    print(f'[权限检测] ⚠️ 警告：clients列表为空，无法检测机器人状态')
+                    print(f'[权限检测] 当前活跃机器人数量: {len(clients)}')
+                    return
+
                 bot_ids = []
                 for client in clients:
                     try:
                         bot_ids.append((await client.get_me()).id)
-                    except:
+                    except Exception as e:
+                        print(f'[权限检测] 获取机器人ID失败: {e}')
                         continue
 
+                print(f'[权限检测] 当前活跃机器人ID: {bot_ids}')
+
                 if demoted_user_id in bot_ids:
-                    print(f'[权限检测] 我们的机器人管理员权限被撤销: {demoted_user_id}')
+                    print(f'[权限检测] ✅ 检测到我们的机器人管理员权限被撤销: {demoted_user_id}')
                     # 通知所有绑定此群组的用户
                     await notify_group_binding_invalid(event.chat_id, demoted_user_id, "机器人管理员权限被撤销")
                     return
+                else:
+                    print(f'[权限检测] 普通用户权限被撤销: {demoted_user_id}')
 
         # ===== 群组解散检测 =====
         elif hasattr(event, 'chat_deleted') and event.chat_deleted:
