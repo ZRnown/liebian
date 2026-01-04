@@ -1025,16 +1025,19 @@ def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_adm
 async def sync_member_groups_from_members(connected_clients=None):
     """启动时同步已存在的会员群链接到 member_groups，避免后台列表为空"""
     try:
+        # 首先获取需要同步的数据
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute("SELECT telegram_id, username, group_link FROM members WHERE group_link IS NOT NULL AND group_link != ''")
+        rows = c.fetchall()
+        conn.close()
+
+        print(f'[sync_member_groups] 发现 {len(rows)} 条需要同步的记录')
+
         # 使用传入的已连接客户端
         if not connected_clients:
             print('[sync_member_groups] 警告：没有传入已连接的机器人客户端，跳过group_id获取')
             # 如果没有机器人客户端，仍然创建记录但group_id为None
-            conn = get_db_conn()
-            c = conn.cursor()
-            c.execute("SELECT telegram_id, username, group_link FROM members WHERE group_link IS NOT NULL AND group_link != ''")
-            rows = c.fetchall()
-            conn.close()
-
             synced_count = 0
             for r in rows:
                 tg_id, uname, glink = r
@@ -1050,12 +1053,6 @@ async def sync_member_groups_from_members(connected_clients=None):
         bot = connected_clients[0]
         print(f'[sync_member_groups] 使用机器人客户端获取group_id: {bot}')
         print(f'[sync_member_groups] 开始同步 {len(rows)} 条记录...')
-
-        conn = get_db_conn()
-        c = conn.cursor()
-        c.execute("SELECT telegram_id, username, group_link FROM members WHERE group_link IS NOT NULL AND group_link != ''")
-        rows = c.fetchall()
-        conn.close()
 
         synced_count = 0
         for r in rows:
