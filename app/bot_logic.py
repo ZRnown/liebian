@@ -3148,19 +3148,42 @@ async def message_handler(event):
                 # 获取群组的chat_id（用于member_groups表）
                 group_id = None
                 try:
+                    print(f'[群绑定] 开始解析链接: {link}')
                     if link.startswith('http://t.me/') or link.startswith('https://t.me/'):
                         tail = link.replace('http://t.me/', '').replace('https://t.me/', '').split('?')[0]
+                        print(f'[群绑定] 提取的tail: {tail}')
                         if not tail.startswith('+') and not tail.startswith('joinchat/'):
                             # 公开群，可以获取实体
                             username = tail
+                            print(f'[群绑定] 尝试获取实体: {username}')
                             try:
-                                entity = await bot.get_entity(username)
+                                # 使用触发事件的机器人实例
+                                bot_client = event.client if hasattr(event, 'client') else bot
+                                print(f'[群绑定] 使用机器人实例: {bot_client}')
+                                entity = await bot_client.get_entity(username)
+                                print(f'[群绑定] 获取到实体: {entity}')
+                                print(f'[群绑定] 实体类型: {type(entity)}')
                                 group_id = getattr(entity, 'id', None)
                                 print(f'[群绑定] 获取到群组ID: {group_id} for {username}')
+                                if group_id is None:
+                                    print(f'[群绑定] 警告: entity.id 为None，尝试其他属性')
+                                    # 尝试其他可能的ID属性
+                                    for attr in ['id', 'chat_id', 'channel_id']:
+                                        if hasattr(entity, attr):
+                                            potential_id = getattr(entity, attr)
+                                            print(f'[群绑定] {attr}: {potential_id}')
                             except Exception as e:
                                 print(f'[群绑定] 获取群组ID失败: {e}')
+                                import traceback
+                                traceback.print_exc()
+                        else:
+                            print(f'[群绑定] 私有链接，跳过ID获取: {tail}')
+                    else:
+                        print(f'[群绑定] 非t.me链接，跳过ID获取')
                 except Exception as e:
                     print(f'[群绑定] 获取群组ID异常: {e}')
+                    import traceback
+                    traceback.print_exc()
 
                 DB.update_member(sender_id, group_link=link, is_group_bound=1, is_bot_admin=is_admin_flag)
                 try:
