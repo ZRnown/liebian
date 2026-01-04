@@ -1074,9 +1074,13 @@ async def sync_member_groups_from_members():
                         print(f'[sync_member_groups] 私有链接 {glink} for user {tg_id}，无法获取group_id')
                     else:
                         # 公开群组，尝试获取ID
-                        # 验证用户名格式（Telegram用户名通常只包含字母、数字、下划线，长度合理）
-                        if not tail or len(tail) > 50 or not all(c.isalnum() or c in '_-' for c in tail):
-                            print(f'[sync_member_groups] ⚠️ 用户名格式无效: {tail} for user {tg_id}')
+                        # 验证用户名格式（Telegram用户名规则）
+                        # Telegram用户名：3-32个字符，只能包含a-z, 0-9, _
+                        import re
+                        if not tail or len(tail) < 3 or len(tail) > 32 or not re.match(r'^[a-zA-Z0-9_]+$', tail):
+                            print(f'[sync_member_groups] ⚠️ 用户名格式无效 (不符合Telegram规则): {tail} for user {tg_id}')
+                        elif len(tail) > 20:  # 可疑的长用户名
+                            print(f'[sync_member_groups] ⚠️ 用户名过长，可能无效: {tail} ({len(tail)}字符) for user {tg_id}')
                         else:
                             # 重试机制
                             max_retries = 3
@@ -1090,12 +1094,24 @@ async def sync_member_groups_from_members():
                                     break  # 成功后退出重试循环
                                 except Exception as e:
                                     error_msg = str(e)
-                                    if 'Cannot send requests' in error_msg:
-                                        print(f'[sync_member_groups] ❌ 连接问题，跳过此群组: {tail}')
-                                        break  # 连接问题不重试
-                                    elif 'disconnected' in error_msg.lower():
-                                        print(f'[sync_member_groups] ❌ 连接断开，跳过此群组: {tail}')
-                                        break  # 连接问题不重试
+                                    error_lower = error_msg.lower()
+
+                                    # 连接相关错误，不重试
+                                    if ('cannot send requests' in error_lower or
+                                        'disconnected' in error_lower or
+                                        'connection' in error_lower and ('closed' in error_lower or 'lost' in error_lower)):
+                                        print(f'[sync_member_groups] ❌ 连接问题，跳过此群组: {tail} ({error_msg})')
+                                        break
+
+                                    # 权限或访问错误，不重试
+                                    elif ('forbidden' in error_lower or
+                                          'unauthorized' in error_lower or
+                                          'bot was blocked' in error_lower or
+                                          'bot was kicked' in error_lower):
+                                        print(f'[sync_member_groups] ❌ 权限问题，跳过此群组: {tail} ({error_msg})')
+                                        break
+
+                                    # 群组不存在或其他API错误，重试几次
                                     elif attempt < max_retries - 1:
                                         print(f'[sync_member_groups] ⚠️ 获取失败 {tail}, {attempt+1}秒后重试: {error_msg}')
                                         await asyncio.sleep(1)
