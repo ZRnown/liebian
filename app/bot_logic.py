@@ -3972,11 +3972,14 @@ async def check_member_status_task():
                                     print(f"[权限检测] 获取chat_id失败: {e}")
 
                             if chat_id:
+                                # 构建群组显示名称
+                                group_display_name_for_notify = group_display_name if 'group_display_name' in locals() else f"ID:{chat_id}"
+
                                 asyncio.create_task(
                                     notify_group_binding_invalid(
                                         chat_id,
                                         None,
-                                        f"机器人管理员权限被撤销 (群组: {group_username})",
+                                        f"机器人管理员权限被撤销 (群组: {group_display_name_for_notify})",
                                         demoted_bot
                                     )
                                 )
