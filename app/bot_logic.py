@@ -3861,6 +3861,7 @@ async def check_member_status_task():
                         if current_is_joined_upline == 1:
                             print(f"[状态检测] 会员 {telegram_id} 已完成加群任务（永久锁定），跳过加群检测")
                             is_joined_upline = 1  # 保持原有状态
+                            upline_chain = []  # 初始化为空，避免后续使用出错
                         else:
                             # 检查3：用户是否加入了所有10层上级的群（如果存在）
                             # 使用 get_upline_chain 获取完整的10层上级链
@@ -3871,7 +3872,7 @@ async def check_member_status_task():
                             except Exception as import_err:
                                 print(f"[状态检测] 导入get_upline_chain失败: {import_err}")
                                 # upline_chain 已经初始化为空列表
-                        
+
                         # 收集所有有群链接的上级群（排除捡漏账号）
                         upline_groups_to_check = []
                         for item in upline_chain:
