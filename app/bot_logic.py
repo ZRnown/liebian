@@ -2699,6 +2699,28 @@ async def group_welcome_handler(event):
                     await notify_group_binding_invalid(event.chat_id, kicked_user_id, "机器人被踢出群组")
                     return
 
+        # ===== 新增：机器人管理员权限撤销检测 =====
+        elif hasattr(event, 'user_admin') and not event.user_admin:
+            # 检测机器人管理员权限被撤销
+            if hasattr(event, 'user_id'):
+                demoted_user_id = event.user_id
+                print(f'[权限检测] 用户权限变化: {demoted_user_id}, admin={getattr(event, "user_admin", None)}')
+
+                # 检查是否是我们的机器人权限被撤销
+                from app.config import clients
+                bot_ids = []
+                for client in clients:
+                    try:
+                        bot_ids.append((await client.get_me()).id)
+                    except:
+                        continue
+
+                if demoted_user_id in bot_ids:
+                    print(f'[权限检测] 我们的机器人管理员权限被撤销: {demoted_user_id}')
+                    # 通知所有绑定此群组的用户
+                    await notify_group_binding_invalid(event.chat_id, demoted_user_id, "机器人管理员权限被撤销")
+                    return
+
         # ===== 群组解散检测 =====
         elif hasattr(event, 'chat_deleted') and event.chat_deleted:
             print(f'[群组检测] 群组被解散: {event.chat_id}')
