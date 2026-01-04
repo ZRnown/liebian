@@ -1049,14 +1049,7 @@ async def sync_member_groups_from_members(connected_clients=None):
         # 使用第一个可用的机器人客户端
         bot = connected_clients[0]
         print(f'[sync_member_groups] 使用机器人客户端获取group_id: {bot}')
-
-        # 在开始同步前再次检查连接
-        try:
-            me = await bot.get_me()
-            print(f'[sync_member_groups] 确认机器人连接: {me.username or me.id}')
-        except Exception as e:
-            print(f'[sync_member_groups] ❌ 机器人连接检查失败: {e}')
-            return
+        print(f'[sync_member_groups] 开始同步 {len(rows)} 条记录...')
 
         conn = get_db_conn()
         c = conn.cursor()
@@ -1093,11 +1086,6 @@ async def sync_member_groups_from_members(connected_clients=None):
                             for attempt in range(max_retries):
                                 try:
                                     print(f'[sync_member_groups] 尝试获取群组ID: {tail} for user {tg_id} (尝试 {attempt+1}/{max_retries})')
-
-                                    # 首先测试基本连接
-                                    test_me = await bot.get_me()
-                                    if not test_me:
-                                        raise Exception("机器人信息获取失败")
 
                                     entity = await bot.get_entity(tail)
                                     group_id = getattr(entity, 'id', None)

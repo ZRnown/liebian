@@ -3845,16 +3845,17 @@ def run_bot():
                 await asyncio.sleep(10)
                 print("🔄 同步会员群组数据...")
 
-                # 检查机器人连接状态 (更严格的检查)
+                # 检查机器人连接状态 (机器人API兼容的检查)
                 connected_clients = []
                 for i, client in enumerate(clients):
                     try:
-                        # 更严格的连接检查：尝试获取对话列表
-                        dialogs = await client.get_dialogs(limit=1)
-                        # 确保连接是活跃的
+                        # 机器人只能使用允许的API方法：get_me()
                         me = await client.get_me()
-                        connected_clients.append(client)
-                        print(f"✅ 机器人 {i+1} 连接正常 (ID: {me.id})")
+                        if me and me.id:
+                            connected_clients.append(client)
+                            print(f"✅ 机器人 {i+1} 连接正常 (ID: {me.id})")
+                        else:
+                            print(f"⚠️ 机器人 {i+1} 无法获取机器人信息")
                     except Exception as e:
                         print(f"⚠️ 机器人 {i+1} 连接异常: {e}")
 
