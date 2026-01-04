@@ -3839,6 +3839,7 @@ def run_bot():
 
         # 在机器人启动后同步会员群组数据 (延迟执行，确保连接完成)
         async def sync_after_start():
+            global clients  # 声明全局变量
             try:
                 # 等待一段时间，确保机器人完全连接
                 await asyncio.sleep(10)
@@ -3860,7 +3861,6 @@ def run_bot():
                     return
 
                 # 临时替换clients为已连接的客户端
-                global clients
                 original_clients = clients
                 clients = connected_clients
 
