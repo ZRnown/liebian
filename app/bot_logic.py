@@ -397,7 +397,7 @@ async def check_user_group_binding_status(user_id, clients):
         print(f'[群组检测] 检查用户 {user_id} 群组绑定失败: {e}')
         return False
 
-async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状态异常"):
+async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状态异常", notify_bot=None):
     """通知所有绑定指定群组的用户，群组绑定已失效"""
     try:
         conn = get_db_conn()
@@ -445,23 +445,29 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
 原群链接：{group_link}
 
 请重新设置群组绑定以继续获得分红收益。
-
-发送 /bind_group 重新绑定群组
                 '''.strip()
 
-                # 向所有活跃的机器人发送通知
-                if not clients:
-                    print(f'[通知] ⚠️ 警告：没有活跃的机器人客户端，无法发送通知给用户 {user_id}')
-                    continue
-
-                for client in clients:
+                # 使用指定的机器人发送通知，如果没有指定则使用全局bot
+                if notify_bot:
                     try:
-                        await client.send_message(user_id, notification_msg)
-                        print(f'[通知] ✅ 已通知用户 {user_id} ({username}) 群组绑定失效')
-                        break  # 成功发送一条就够了
+                        await notify_bot.send_message(user_id, notification_msg)
+                        print(f'[通知] ✅ 使用指定机器人({notify_bot.me.username or notify_bot.me.id}) 已通知用户 {user_id} ({username}) 群组绑定失效')
                     except Exception as e:
-                        print(f'[通知] ❌ 向用户 {user_id} 发送通知失败: {e}')
+                        print(f'[通知] ❌ 使用指定机器人向用户 {user_id} 发送通知失败: {e}')
+                else:
+                    # 回退到使用所有活跃的机器人发送通知
+                    if not clients:
+                        print(f'[通知] ⚠️ 警告：没有活跃的机器人客户端，无法发送通知给用户 {user_id}')
                         continue
+
+                    for client in clients:
+                        try:
+                            await client.send_message(user_id, notification_msg)
+                            print(f'[通知] ✅ 已通知用户 {user_id} ({username}) 群组绑定失效')
+                            break  # 成功发送一条就够了
+                        except Exception as e:
+                            print(f'[通知] ❌ 向用户 {user_id} 发送通知失败: {e}')
+                            continue
 
             except Exception as e:
                 print(f'[通知] 处理用户 {user_id} 失败: {e}')
@@ -2807,40 +2813,89 @@ async def group_welcome_handler(event):
 
                 if kicked_user_id in bot_ids:
                     print(f'[机器人检测] ✅ 检测到我们的机器人被踢出群组: {kicked_user_id}')
-                    # 通知所有绑定此群组的用户
-                    await notify_group_binding_invalid(event.chat_id, kicked_user_id, "机器人被踢出群组")
+                    # 找到被踢出的机器人实例
+                    kicked_bot = None
+                    for client in clients:
+                        try:
+                            if (await client.get_me()).id == kicked_user_id:
+                                kicked_bot = client
+                                break
+                        except Exception as e:
+                            continue
+
+                    # 使用被踢出的机器人发送通知
+                    await notify_group_binding_invalid(event.chat_id, kicked_user_id, "机器人被踢出群组", kicked_bot)
                     return
                 else:
                     print(f'[机器人检测] 普通用户离开/被踢出: {kicked_user_id}')
 
         # ===== 新增：机器人管理员权限撤销检测 =====
-        elif hasattr(event, 'user_admin') and not event.user_admin:
-            # 检测机器人管理员权限被撤销
-            if hasattr(event, 'user_id'):
-                demoted_user_id = event.user_id
-                print(f'[权限检测] 用户权限变化: {demoted_user_id}, admin={getattr(event, "user_admin", None)}')
+        # 检测ChatAction类型的事件
+        elif event.action_message and hasattr(event.action_message.action, '__class__'):
+            action_type = type(event.action_message.action).__name__
+            print(f'[权限检测] 收到ChatAction事件: {action_type}')
 
-                # 检查是否是我们的机器人权限被撤销
-                if not clients:
-                    print(f'[权限检测] ⚠️ 警告：clients列表为空，无法检测机器人状态')
-                    print(f'[权限检测] 当前活跃机器人数量: {len(clients)}')
-                    return
+            # 检查是否是权限相关的动作
+            if action_type in ['ChatParticipantAdmin', 'ChatParticipantCreator']:
+                # 获取权限变化的用户ID
+                if hasattr(event.action_message.action, 'user_id'):
+                    changed_user_id = event.action_message.action.user_id
+                    print(f'[权限检测] 用户权限变化: {changed_user_id}')
 
-                bot_ids = []
-                for client in clients:
-                    try:
-                        bot_ids.append((await client.get_me()).id)
-                    except Exception as e:
-                        print(f'[权限检测] 获取机器人ID失败: {e}')
-                        continue
+                    # 检查是否是我们的机器人权限被撤销
+                    if not clients:
+                        print(f'[权限检测] ⚠️ 警告：clients列表为空，无法检测机器人状态')
+                        return
 
-                print(f'[权限检测] 当前活跃机器人ID: {bot_ids}')
+                    bot_ids = []
+                    for client in clients:
+                        try:
+                            bot_ids.append((await client.get_me()).id)
+                        except Exception as e:
+                            print(f'[权限检测] 获取机器人ID失败: {e}')
+                            continue
 
-                if demoted_user_id in bot_ids:
-                    print(f'[权限检测] ✅ 检测到我们的机器人管理员权限被撤销: {demoted_user_id}')
-                    # 通知所有绑定此群组的用户
-                    await notify_group_binding_invalid(event.chat_id, demoted_user_id, "机器人管理员权限被撤销")
-                    return
+                    print(f'[权限检测] 当前活跃机器人ID: {bot_ids}')
+
+                    if changed_user_id in bot_ids:
+                        # 检查是否是权限被撤销（从管理员变为普通用户）
+                        # 注意：这里我们假设任何权限变化都可能是问题，需要进一步检查
+                        print(f'[权限检测] ✅ 检测到我们的机器人权限发生变化: {changed_user_id}')
+
+                        # 尝试验证机器人是否仍有管理员权限
+                        try:
+                            permissions = await event.client.get_permissions(event.chat_id, changed_user_id)
+                            if not permissions.is_admin and not permissions.is_creator:
+                                print(f'[权限检测] ✅ 确认机器人已失去管理员权限: {changed_user_id}')
+                                # 找到对应的机器人实例
+                                demoted_bot = None
+                                for client in clients:
+                                    try:
+                                        if (await client.get_me()).id == changed_user_id:
+                                            demoted_bot = client
+                                            break
+                                    except Exception as e:
+                                        continue
+
+                                # 使用失去权限的机器人发送通知
+                                await notify_group_binding_invalid(event.chat_id, changed_user_id, "机器人管理员权限被撤销", demoted_bot)
+                                return
+                            else:
+                                print(f'[权限检测] 机器人仍具有管理员权限，忽略此次权限变化')
+                        except Exception as e:
+                            print(f'[权限检测] 无法验证机器人权限: {e}')
+                            # 如果无法验证，假设权限被撤销
+                            demoted_bot = None
+                            for client in clients:
+                                try:
+                                    if (await client.get_me()).id == changed_user_id:
+                                        demoted_bot = client
+                                        break
+                                except Exception as e:
+                                    continue
+
+                            await notify_group_binding_invalid(event.chat_id, changed_user_id, "机器人权限状态异常", demoted_bot)
+                            return
                 else:
                     print(f'[权限检测] 普通用户权限被撤销: {demoted_user_id}')
 
