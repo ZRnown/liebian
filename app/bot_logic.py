@@ -3775,24 +3775,34 @@ async def check_member_status_task():
             
             for telegram_id, group_link in members:
                 try:
-                    # 【核心修复】先查询当前状态
-                    c.execute("SELECT is_joined_upline FROM members WHERE telegram_id = ?", (telegram_id,))
+                    # 【核心修复】先查询当前状态和group_id
+                    c.execute("SELECT m.is_joined_upline, mg.group_id FROM members m LEFT JOIN member_groups mg ON m.telegram_id = mg.telegram_id WHERE m.telegram_id = ?", (telegram_id,))
                     current_status = c.fetchone()
-                    current_is_joined_upline = current_status[0] if current_status else 0
+                    current_is_joined_upline = current_status[0] if current_status and current_status[0] is not None else 0
+                    stored_group_id = current_status[1] if current_status and len(current_status) > 1 else None
 
-                    print(f"[状态检测] 检查会员 {telegram_id}, 当前状态: is_joined_upline={current_is_joined_upline}")
+                    print(f"[状态检测] 检查会员 {telegram_id}, 当前状态: is_joined_upline={current_is_joined_upline}, group_id={stored_group_id}")
 
-                    # 提取群组用户名或ID
-                    if group_link.startswith('https://t.me/'):
-                        group_username = group_link.replace('https://t.me/', '').split('/')[0].split('?')[0]
-                    elif group_link.startswith('@'):
-                        group_username = group_link[1:]
+                    # 优先使用存储的group_id，其次从链接提取用户名
+                    if stored_group_id:
+                        # 使用group_id进行检查（更可靠）
+                        group_identifier = int(stored_group_id)
+                        group_display_name = f"ID:{stored_group_id}"
                     else:
-                        group_username = group_link
+                        # 从链接提取用户名
+                        if group_link.startswith('https://t.me/'):
+                            group_username = group_link.replace('https://t.me/', '').split('/')[0].split('?')[0]
+                        elif group_link.startswith('@'):
+                            group_username = group_link[1:]
+                        else:
+                            group_username = group_link
 
-                    # 跳过私有群链接
-                    if group_username.startswith('+'):
-                        continue
+                        # 跳过私有群链接
+                        if group_username.startswith('+'):
+                            continue
+
+                        group_identifier = group_username
+                        group_display_name = group_username
 
                     # 总是检查机器人管理员权限（即使会员已完成任务）
                     is_group_bound = 0
@@ -3821,23 +3831,23 @@ async def check_member_status_task():
                     
                     try:
                         # 获取群组信息
-                        chat = await bot.get_entity(group_username)
+                        chat = await bot.get_entity(group_identifier)
                         is_group_bound = 1  # 群链接有效
-                        
+
                         # 检查2：机器人是否是群管理员
                         try:
                             me = await bot.get_me()
-                            print(f"[状态检测] 🔍 检查机器人权限: {me.username or me.id} 在群 {group_username}")
+                            print(f"[状态检测] 🔍 检查机器人权限: {me.username or me.id} 在群 {group_display_name}")
                             # 使用get_permissions检查机器人权限（更可靠）
                             permissions = await bot.get_permissions(chat, me.id)
                             print(f"[状态检测] 📊 权限详情: admin={permissions.is_admin}, creator={permissions.is_creator}")
                             if permissions.is_admin or permissions.is_creator:
                                 is_bot_admin = 1
-                                print(f"[状态检测] ✅ 机器人是管理员: {group_username}")
+                                print(f"[状态检测] ✅ 机器人是管理员: {group_display_name}")
                             else:
-                                print(f"[状态检测] ❌ 机器人不是管理员: {group_username}")
+                                print(f"[状态检测] ❌ 机器人不是管理员: {group_display_name}")
                         except Exception as admin_err:
-                            print(f"[状态检测] 检查群管失败 {group_username}: {admin_err}")
+                            print(f"[状态检测] 检查群管失败 {group_display_name}: {admin_err}")
                             # 权限检查失败，可能是：
                             # 1. 机器人不在群组中
                             # 2. 群组是私有的，机器人无法访问
@@ -3941,18 +3951,27 @@ async def check_member_status_task():
 
                         # 发送通知（异步，不阻塞状态检查）
                         try:
-                            # 构建chat_id（从group_username转换为chat_id）
+                            # 构建chat_id
                             chat_id = None
-                            try:
-                                if group_username.startswith('@'):
-                                    group_entity = await bot.get_entity(group_username[1:])
-                                else:
-                                    group_entity = await bot.get_entity(group_username)
-                                chat_id = getattr(group_entity, 'id', None)
-                                if chat_id and chat_id > 0:
-                                    chat_id = int(f"-100{chat_id}")
-                            except Exception as e:
-                                print(f"[权限检测] 获取chat_id失败: {e}")
+                            if stored_group_id:
+                                # 直接使用存储的group_id
+                                chat_id = int(stored_group_id)
+                            else:
+                                # 从group_identifier转换chat_id
+                                try:
+                                    if isinstance(group_identifier, str):
+                                        if group_identifier.startswith('@'):
+                                            group_entity = await bot.get_entity(group_identifier[1:])
+                                        else:
+                                            group_entity = await bot.get_entity(group_identifier)
+                                        chat_id = getattr(group_entity, 'id', None)
+                                        if chat_id and chat_id > 0:
+                                            chat_id = int(f"-100{chat_id}")
+                                    else:
+                                        # group_identifier已经是ID
+                                        chat_id = group_identifier
+                                except Exception as e:
+                                    print(f"[权限检测] 获取chat_id失败: {e}")
 
                             if chat_id:
                                 asyncio.create_task(
