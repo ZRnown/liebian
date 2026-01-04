@@ -1074,14 +1074,33 @@ async def sync_member_groups_from_members():
                         print(f'[sync_member_groups] 私有链接 {glink} for user {tg_id}，无法获取group_id')
                     else:
                         # 公开群组，尝试获取ID
-                        try:
-                            print(f'[sync_member_groups] 尝试获取群组ID: {tail} for user {tg_id}')
-                            entity = await bot.get_entity(tail)
-                            group_id = getattr(entity, 'id', None)
-                            group_name = getattr(entity, 'title', tail)
-                            print(f'[sync_member_groups] ✅ 获取成功: group_id={group_id}, name={group_name}')
-                        except Exception as e:
-                            print(f'[sync_member_groups] ❌ 获取失败 {tail}: {e}')
+                        # 验证用户名格式（Telegram用户名通常只包含字母、数字、下划线，长度合理）
+                        if not tail or len(tail) > 50 or not all(c.isalnum() or c in '_-' for c in tail):
+                            print(f'[sync_member_groups] ⚠️ 用户名格式无效: {tail} for user {tg_id}')
+                        else:
+                            # 重试机制
+                            max_retries = 3
+                            for attempt in range(max_retries):
+                                try:
+                                    print(f'[sync_member_groups] 尝试获取群组ID: {tail} for user {tg_id} (尝试 {attempt+1}/{max_retries})')
+                                    entity = await bot.get_entity(tail)
+                                    group_id = getattr(entity, 'id', None)
+                                    group_name = getattr(entity, 'title', tail)
+                                    print(f'[sync_member_groups] ✅ 获取成功: group_id={group_id}, name={group_name}')
+                                    break  # 成功后退出重试循环
+                                except Exception as e:
+                                    error_msg = str(e)
+                                    if 'Cannot send requests' in error_msg:
+                                        print(f'[sync_member_groups] ❌ 连接问题，跳过此群组: {tail}')
+                                        break  # 连接问题不重试
+                                    elif 'disconnected' in error_msg.lower():
+                                        print(f'[sync_member_groups] ❌ 连接断开，跳过此群组: {tail}')
+                                        break  # 连接问题不重试
+                                    elif attempt < max_retries - 1:
+                                        print(f'[sync_member_groups] ⚠️ 获取失败 {tail}, {attempt+1}秒后重试: {error_msg}')
+                                        await asyncio.sleep(1)
+                                    else:
+                                        print(f'[sync_member_groups] ❌ 获取失败 {tail} (已重试{max_retries}次): {error_msg}')
                 elif 'Private Group (ID: ' in glink:
                     # 从私有群格式提取ID
                     try:

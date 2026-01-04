@@ -3837,15 +3837,45 @@ def run_bot():
 
         loop.create_task(_process_recharge_queue_worker())
 
-        # 在机器人启动后同步会员群组数据
+        # 在机器人启动后同步会员群组数据 (延迟执行，确保连接完成)
         async def sync_after_start():
             try:
+                # 等待一段时间，确保机器人完全连接
+                await asyncio.sleep(10)
                 print("🔄 同步会员群组数据...")
-                from database import sync_member_groups_from_members
-                await sync_member_groups_from_members()
-                print("✅ 会员群组数据同步完成")
+
+                # 检查机器人连接状态
+                connected_clients = []
+                for i, client in enumerate(clients):
+                    try:
+                        # 尝试获取机器人信息来检查连接状态
+                        await client.get_me()
+                        connected_clients.append(client)
+                        print(f"✅ 机器人 {i+1} 连接正常")
+                    except Exception as e:
+                        print(f"⚠️ 机器人 {i+1} 连接异常: {e}")
+
+                if not connected_clients:
+                    print("❌ 没有可用的机器人连接，跳过同步")
+                    return
+
+                # 临时替换clients为已连接的客户端
+                global clients
+                original_clients = clients
+                clients = connected_clients
+
+                try:
+                    from database import sync_member_groups_from_members
+                    await sync_member_groups_from_members()
+                    print("✅ 会员群组数据同步完成")
+                finally:
+                    # 恢复原始clients列表
+                    clients = original_clients
+
             except Exception as e:
                 print(f"⚠️ 会员群组数据同步失败: {e}")
+                import traceback
+                traceback.print_exc()
 
         loop.create_task(sync_after_start())
 
