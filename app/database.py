@@ -974,7 +974,7 @@ def upgrade_broadcast_table():
     conn.commit()
     conn.close()
 
-def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_admin=1):
+def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_admin=1, group_id=None):
     """
     写入或更新 member_groups 表，便于后台列表展示。
     默认 is_bot_admin=1，因为验证通过后才会调用。
@@ -988,21 +988,37 @@ def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_adm
         row = c.fetchone()
         now = get_cn_time()
         if row:
+            # 更新现有记录
+            update_fields = ['group_link = ?']
+            update_values = [group_link]
+
+            if owner_username is not None:
+                update_fields.append('owner_username = ?')
+                update_values.append(owner_username)
+
+            if group_id is not None:
+                update_fields.append('group_id = ?')
+                update_values.append(group_id)
+
+            update_values.append(row[0])  # WHERE id = ?
+
             c.execute(
-                '''UPDATE member_groups 
-                   SET group_link = ?, owner_username = COALESCE(?, owner_username)
+                f'''UPDATE member_groups
+                   SET {', '.join(update_fields)}
                  WHERE id = ?''',
-                (group_link, owner_username, row[0])
+                update_values
             )
         else:
+            # 插入新记录
             c.execute(
-                '''INSERT INTO member_groups 
-                   (telegram_id, group_name, group_link, is_bot_admin, create_time, owner_username, group_type, schedule_broadcast)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                (telegram_id, '', group_link, is_bot_admin, now, owner_username or '', 'group', 1)
+                '''INSERT INTO member_groups
+                   (telegram_id, group_id, group_name, group_link, is_bot_admin, create_time, owner_username, group_type, schedule_broadcast)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (telegram_id, group_id, '', group_link, is_bot_admin, now, owner_username or '', 'group', 1)
             )
         conn.commit()
         conn.close()
+        print(f'[member_groups upsert] 成功写入用户 {telegram_id} 的群组绑定，group_id={group_id}')
     except Exception as e:
         print(f'[member_groups upsert] error: {e}')
 

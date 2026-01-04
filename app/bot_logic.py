@@ -3144,12 +3144,29 @@ async def message_handler(event):
             if verification_result['success']:
                 # 根据是否成功检测管理员来设置 is_bot_admin
                 is_admin_flag = 1 if verification_result.get('admin_checked') else 0
-                
+
+                # 获取群组的chat_id（用于member_groups表）
+                group_id = None
+                try:
+                    if link.startswith('http://t.me/') or link.startswith('https://t.me/'):
+                        tail = link.replace('http://t.me/', '').replace('https://t.me/', '').split('?')[0]
+                        if not tail.startswith('+') and not tail.startswith('joinchat/'):
+                            # 公开群，可以获取实体
+                            username = tail
+                            try:
+                                entity = await bot.get_entity(username)
+                                group_id = getattr(entity, 'id', None)
+                                print(f'[群绑定] 获取到群组ID: {group_id} for {username}')
+                            except Exception as e:
+                                print(f'[群绑定] 获取群组ID失败: {e}')
+                except Exception as e:
+                    print(f'[群绑定] 获取群组ID异常: {e}')
+
                 DB.update_member(sender_id, group_link=link, is_group_bound=1, is_bot_admin=is_admin_flag)
                 try:
                     sender_username = getattr(event.sender, 'username', None) if hasattr(event, 'sender') else None
                     from database import upsert_member_group
-                    upsert_member_group(sender_id, link, sender_username, is_bot_admin=is_admin_flag)
+                    upsert_member_group(sender_id, link, sender_username, is_bot_admin=is_admin_flag, group_id=group_id)
                 except Exception as sync_err:
                     print(f'[绑定群写入member_groups失败] {sync_err}')
                 del waiting_for_group_link[sender_id]
