@@ -405,17 +405,36 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
         conn = get_db_conn()
         c = conn.cursor()
 
-        # 查找所有绑定此群组的用户 (从member_groups表查询)
-        c.execute('SELECT telegram_id, group_name, group_link FROM member_groups WHERE group_id = ?', (chat_id,))
+        # 【核心修复】ID 格式兼容处理
+        # 尝试查找匹配的 ID，考虑到 -100 前缀的情况
+        target_ids = [chat_id]
+        if isinstance(chat_id, int):
+            # 如果是正数，尝试添加 -100 前缀 (Telegram 超级群组 ID)
+            if chat_id > 0:
+                target_ids.append(int(f"-100{chat_id}"))
+            # 如果是负数且以 -100 开头，尝试去掉前缀 (以防数据库存的是短 ID)
+            elif str(chat_id).startswith('-100'):
+                try:
+                    target_ids.append(int(str(chat_id)[4:]))
+                except:
+                    pass
+
+        placeholders = ','.join(['?'] * len(target_ids))
+        query = f'SELECT telegram_id, group_name, group_link, group_id FROM member_groups WHERE group_id IN ({placeholders})'
+
+        print(f'[通知] 正在查找绑定群组的用户，尝试匹配ID: {target_ids}')
+        c.execute(query, target_ids)
         bound_users = c.fetchall()
         conn.close()
 
         if not bound_users:
-            print(f'[通知] 没有用户绑定群组 {chat_id}')
+            print(f'[通知] ❌ 未在数据库中找到绑定群组 {chat_id} (或变体 {target_ids}) 的用户')
             return
 
+        print(f'[通知] ✅ 找到 {len(bound_users)} 个绑定用户，准备发送通知')
+
         # 重置这些用户的群组绑定状态
-        for user_id, group_name, group_link in bound_users:
+        for user_id, group_name, group_link, db_group_id in bound_users:
             try:
                 # 为每个用户单独处理数据库操作，避免并发问题
                 user_conn = get_db_conn()
@@ -3975,10 +3994,13 @@ async def check_member_status_task():
                             if chat_id:
                                 # 构建群组显示名称
                                 group_display_name_for_notify = group_display_name if 'group_display_name' in locals() else f"ID:{chat_id}"
-
+                                # 【核心修复】确保传入的 chat_id 是数据库中能匹配到的格式
+                                # notify_group_binding_invalid 现在支持自动匹配，但为了保险，
+                                # 如果 stored_group_id 存在，直接用它
+                                final_notify_group_id = int(stored_group_id) if stored_group_id else chat_id
                                 asyncio.create_task(
                                     notify_group_binding_invalid(
-                                        chat_id,
+                                        final_notify_group_id,
                                         None,
                                         f"机器人管理员权限被撤销 (群组: {group_display_name_for_notify})",
                                         demoted_bot

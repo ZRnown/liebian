@@ -24,7 +24,7 @@ from database import DB, get_cn_time, get_system_config, get_db_conn
 from core_functions import (
     get_upline_chain, check_user_conditions, update_level_path,
     distribute_vip_rewards, check_user_in_group, check_bot_is_admin,
-    verify_group_link
+    verify_group_link, check_any_bot_in_group
 )
 from bot_commands_addon import (
     handle_bind_group, handle_join_upline, handle_group_link_message,
@@ -370,7 +370,6 @@ async def check_user_group_binding_status(user_id, clients):
         print(f'[群组检测] 检查用户 {user_id} 的群组绑定: {group_link}')
 
         # 使用多机器人逻辑检查是否有机器人仍在群组中且为管理员
-        from core_functions import check_any_bot_in_group
         is_any_bot_in_group, admin_bot_id = await check_any_bot_in_group(clients, group_link)
 
         if not is_any_bot_in_group:
@@ -420,28 +419,30 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
         # 重置这些用户的群组绑定状态
         for user_id, group_name, group_link in bound_users:
             try:
-                # 获取用户真实姓名
-                conn = get_db_conn()
-                c = conn.cursor()
-                c.execute('SELECT username FROM members WHERE telegram_id = ?', (user_id,))
-                user_row = c.fetchone()
-                username = user_row[0] if user_row else f'用户{user_id}'
+                # 为每个用户单独处理数据库操作，避免并发问题
+                user_conn = get_db_conn()
+                user_cursor = user_conn.cursor()
 
-                # 更新数据库：清除群组绑定和管理员状态，并重置加群任务状态
-                c.execute('''
-                    UPDATE members
-                    SET is_group_bound = 0, is_bot_admin = 0, is_joined_upline = 0
-                    WHERE telegram_id = ?
-                ''', (user_id,))
+                try:
+                    # 获取用户真实姓名
+                    user_cursor.execute('SELECT username FROM members WHERE telegram_id = ?', (user_id,))
+                    user_row = user_cursor.fetchone()
+                    username = user_row[0] if user_row else f'用户{user_id}'
 
-                # 同时删除member_groups表中的记录
-                c.execute('DELETE FROM member_groups WHERE telegram_id = ? AND group_id = ?', (user_id, chat_id))
+                    # 更新数据库：清除群组绑定和管理员状态，并重置加群任务状态
+                    user_cursor.execute('''
+                        UPDATE members
+                        SET is_group_bound = 0, is_bot_admin = 0, is_joined_upline = 0
+                        WHERE telegram_id = ?
+                    ''', (user_id,))
 
-                conn.commit()
-                conn.close()
+                    # 同时删除member_groups表中的记录
+                    user_cursor.execute('DELETE FROM member_groups WHERE telegram_id = ? AND group_id = ?', (user_id, chat_id))
 
-                # 通知用户
-                notification_msg = f'''
+                    user_conn.commit()
+
+                    # 通知用户
+                    notification_msg = f'''
 ⚠️ **群组绑定状态异常**
 
 您的群组绑定已失效，原因：{reason}
@@ -450,31 +451,42 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
 原群链接：{group_link}
 
 请重新设置群组绑定以继续获得分红收益。
-                '''.strip()
+                    '''.strip()
 
-                # 使用指定的机器人发送通知，如果没有指定则使用全局bot
-                if notify_bot:
-                    try:
-                        bot_info = await notify_bot.get_me()
-                        bot_name = bot_info.username or str(bot_info.id)
-                        await notify_bot.send_message(user_id, notification_msg)
-                        print(f'[通知] ✅ 使用指定机器人({bot_name}) 已通知用户 {user_id} ({username}) 群组绑定失效')
-                    except Exception as e:
-                        print(f'[通知] ❌ 使用指定机器人向用户 {user_id} 发送通知失败: {e}')
-                else:
-                    # 回退到使用所有活跃的机器人发送通知
-                    if not clients:
-                        print(f'[通知] ⚠️ 警告：没有活跃的机器人客户端，无法发送通知给用户 {user_id}')
-                        continue
-
-                    for client in clients:
+                    # 使用指定的机器人发送通知，如果没有指定则使用全局bot
+                    notification_sent = False
+                    if notify_bot:
                         try:
-                            await client.send_message(user_id, notification_msg)
-                            print(f'[通知] ✅ 已通知用户 {user_id} ({username}) 群组绑定失效')
-                            break  # 成功发送一条就够了
+                            bot_info = await notify_bot.get_me()
+                            bot_name = bot_info.username or str(bot_info.id)
+                            await notify_bot.send_message(user_id, notification_msg)
+                            print(f'[通知] ✅ 使用指定机器人({bot_name}) 已通知用户 {user_id} ({username}) 群组绑定失效')
+                            notification_sent = True
                         except Exception as e:
-                            print(f'[通知] ❌ 向用户 {user_id} 发送通知失败: {e}')
-                            continue
+                            print(f'[通知] ❌ 使用指定机器人向用户 {user_id} 发送通知失败: {e}')
+
+                    if not notification_sent:
+                        # 回退到使用所有活跃的机器人发送通知
+                        for client in clients:
+                            try:
+                                await client.send_message(user_id, notification_msg)
+                                print(f'[通知] ✅ 使用机器人已通知用户 {user_id} ({username}) 群组绑定失效')
+                                notification_sent = True
+                                break
+                            except Exception as e:
+                                print(f'[通知] ❌ 使用机器人向用户 {user_id} 发送通知失败: {e}')
+                                continue
+
+                    if not notification_sent:
+                        print(f'[通知] ❌ 所有机器人向用户 {user_id} ({username}) 发送通知都失败了')
+
+                finally:
+                    # 确保数据库连接总是被关闭
+                    user_conn.close()
+
+            except Exception as user_err:
+                print(f'[通知] 处理用户 {user_id} 失败: {user_err}')
+                continue
 
             except Exception as e:
                 print(f'[通知] 处理用户 {user_id} 失败: {e}')
@@ -699,7 +711,6 @@ async def verify_and_handle_upline_group(bot, upline_id, group_link, clients):
     """
     try:
         # 使用 check_any_bot_in_group 检查 (多机器人支持)
-        from core_functions import check_any_bot_in_group
         is_in_group, admin_bot_id = await check_any_bot_in_group(clients, group_link)
 
         if is_in_group and admin_bot_id:
@@ -2660,7 +2671,7 @@ async def raw_update_handler(event):
         # 显示所有Raw更新（调试用，生产环境可以注释掉）
         if hasattr(event, 'update') and hasattr(event.update, '__class__'):
             update_type = type(event.update).__name__
-            print(f'[Raw事件] 收到更新: {update_type}')  # 启用调试，查看所有Raw更新
+            print(f'[Raw事件] 📡 收到更新: {update_type}')  # 启用调试，查看所有Raw更新
 
             # 更宽泛地检测权限相关更新
             if 'Participant' in update_type or 'Admin' in update_type:
@@ -3831,41 +3842,29 @@ async def check_member_status_task():
                     if current_admin_status:
                         original_is_bot_admin = current_admin_status[0] or 0
                     
+                    # 使用多机器人检测：检查是否有任何机器人加入群组并担任管理员
                     try:
-                        # 获取群组信息
-                        chat = await bot.get_entity(group_identifier)
-                        is_group_bound = 1  # 群链接有效
+                        # 调用 check_any_bot_in_group 进行多机器人轮询检测
+                        is_in_group, admin_bot_id = await check_any_bot_in_group(clients, group_identifier)
 
-                        # 检查2：机器人是否是群管理员
-                        try:
-                            me = await bot.get_me()
-                            print(f"[状态检测] 🔍 检查机器人权限: {me.username or me.id} 在群 {group_display_name}")
-                            # 使用get_permissions检查机器人权限（更可靠）
-                            permissions = await bot.get_permissions(chat, me.id)
-                            print(f"[状态检测] 📊 权限详情: admin={permissions.is_admin}, creator={permissions.is_creator}")
-                            if permissions.is_admin or permissions.is_creator:
+                        if is_in_group:
+                            is_group_bound = 1
+                            if admin_bot_id:
                                 is_bot_admin = 1
-                                print(f"[状态检测] ✅ 机器人是管理员: {group_display_name}")
+                                print(f"[状态检测] ✅ 机器人是管理员: {group_display_name} (Bot ID: {admin_bot_id})")
                             else:
-                                print(f"[状态检测] ❌ 机器人不是管理员: {group_display_name}")
-                        except Exception as admin_err:
-                            print(f"[状态检测] 检查群管失败 {group_display_name}: {admin_err}")
-                            # 权限检查失败，可能是：
-                            # 1. 机器人不在群组中
-                            # 2. 群组是私有的，机器人无法访问
-                            # 3. 网络或API临时错误
+                                print(f"[状态检测] ⚠️ 机器人加入群组但不是管理员: {group_display_name}")
+                                is_bot_admin = 0  # 明确设置为非管理员
+                        else:
+                            print(f"[状态检测] ❌ 没有任何机器人加入该群组或群组不存在: {group_display_name}")
+                            is_group_bound = 0  # 没有机器人加入，群组绑定失效
 
-                            # 对于这种情况，我们无法确定管理员状态
-                            # 如果是已完成任务的用户，保持原有状态
-                            # 如果是新用户，设置为非管理员
-                            if current_is_joined_upline == 1:
-                                is_bot_admin = original_is_bot_admin  # 保持原有状态
-                                print(f"[状态检测] 保持原有管理员状态: {original_is_bot_admin}")
-                            else:
-                                is_bot_admin = 0  # 新会员默认非管理员
-                                print(f"[状态检测] 新用户默认非管理员状态")
-
-                            # 群组绑定状态保持不变（已在前面设置为1）
+                    except Exception as e:
+                        print(f"[状态检测] 多机器人检测异常 {group_display_name}: {e}")
+                        # 多机器人检测都失败了，可能是网络问题或所有机器人都不在群组中
+                        # 在这种情况下，我们保守地保持原有状态不变，避免误判
+                        is_bot_admin = original_is_bot_admin
+                        print(f"[状态检测] 检测异常，保持原有管理员状态: {original_is_bot_admin}")
 
                         # 【核心修复】如果已经完成加群任务，永久跳过加群检测（永久锁死）
                         if current_is_joined_upline == 1:
@@ -3976,11 +3975,14 @@ async def check_member_status_task():
                                     print(f"[权限检测] 获取chat_id失败: {e}")
 
                             if chat_id:
+                                # 构建群组显示名称
+                                group_display_name_for_notify = group_display_name if 'group_display_name' in locals() else f"ID:{chat_id}"
+
                                 asyncio.create_task(
                                     notify_group_binding_invalid(
                                         chat_id,
                                         None,
-                                        f"机器人管理员权限被撤销 (群组: {group_username})",
+                                        f"机器人管理员权限被撤销 (群组: {group_display_name_for_notify})",
                                         demoted_bot
                                     )
                                 )
@@ -7125,24 +7127,42 @@ async def check_any_bot_in_group(clients, group_link):
     for client in clients:
         try:
             bot_id = (await client.get_me()).id
-            group_entity = await client.get_entity(group_link)
 
-            # 获取机器人在群组中的身份
-            participant = await client(GetParticipantRequest(group_entity, bot_id))
+            # 首先尝试获取群组实体
+            try:
+                group_entity = await client.get_entity(group_link)
+            except Exception as entity_err:
+                # 如果连实体都获取不到，说明：
+                # 1. 群组不存在
+                # 2. 群组是私有的且机器人不在里面
+                # 3. 机器人被ban了
+                continue
 
-            # 检查是否在群组中（包括所有类型的参与者）
-            if isinstance(participant.participant, (ChannelParticipantAdmin, ChannelParticipantCreator,
-                                                  ChannelParticipant, ChatParticipant,
-                                                  ChatParticipantAdmin, ChatParticipantCreator)):
-                # 检查是否为管理员或创建者
+            # 实体获取成功，说明机器人至少知道这个群组
+            # 现在尝试获取机器人在群组中的身份
+            try:
+                participant = await client(GetParticipantRequest(group_entity, bot_id))
+
+                # 检查是否在群组中（包括所有类型的参与者）
                 if isinstance(participant.participant, (ChannelParticipantAdmin, ChannelParticipantCreator,
+                                                      ChannelParticipant, ChatParticipant,
                                                       ChatParticipantAdmin, ChatParticipantCreator)):
-                    return True, bot_id  # 返回True和管理员bot_id
-                else:
-                    return True, None  # 在群组中但不是管理员
+                    # 检查是否为管理员或创建者
+                    if isinstance(participant.participant, (ChannelParticipantAdmin, ChannelParticipantCreator,
+                                                          ChatParticipantAdmin, ChatParticipantCreator)):
+                        return True, bot_id  # 返回True和管理员bot_id
+                    else:
+                        return True, None  # 在群组中但不是管理员
+
+            except Exception as participant_err:
+                # GetParticipantRequest 失败
+                # 这可能意味着机器人不在群组中，或者API权限不足
+                # 由于我们已经能获取实体，我们保守地认为机器人可能在群组中但权限不足
+                # 返回 True, None 表示在群组中但不是管理员
+                return True, None
 
         except Exception as e:
-            # 这个机器人不在群组中，继续检查下一个
+            # 其他异常，继续检查下一个机器人
             continue
 
     return False, None  # 没有机器人加入群组
