@@ -2653,21 +2653,32 @@ async def raw_update_handler(event):
         # 检查是否是ChatParticipant更新（权限变化）
         if hasattr(event, 'update') and hasattr(event.update, '__class__'):
             update_type = type(event.update).__name__
+            print(f'[Raw事件] 收到更新: {update_type}')  # 调试：显示所有Raw更新
 
             # 检测管理员权限相关的更新
-            if update_type in ['UpdateChatParticipant', 'UpdateChatParticipantAdmin']:
-                print(f'[Raw权限检测] 检测到参与者更新: {update_type}')
+            if update_type in ['UpdateChatParticipant', 'UpdateChatParticipantAdmin', 'UpdateChannelParticipant']:
+                print(f'[Raw权限检测] 🎯 检测到参与者更新: {update_type}')
 
                 # 提取相关信息
-                if hasattr(event.update, 'chat_id') and hasattr(event.update, 'user_id'):
-                    chat_id = event.update.chat_id
-                    user_id = event.update.user_id
+                chat_id = None
+                user_id = None
 
+                if hasattr(event.update, 'chat_id'):
+                    chat_id = event.update.chat_id
+                elif hasattr(event.update, 'channel_id'):
+                    chat_id = event.update.channel_id
+
+                if hasattr(event.update, 'user_id'):
+                    user_id = event.update.user_id
+                elif hasattr(event.update, 'participant') and hasattr(event.update.participant, 'user_id'):
+                    user_id = event.update.participant.user_id
+
+                if chat_id and user_id:
                     # 转换为正数chat_id（如果需要）
                     if chat_id < 0:
                         chat_id = -chat_id
 
-                    print(f'[Raw权限检测] 群组 {chat_id}, 用户 {user_id} 权限发生变化')
+                    print(f'[Raw权限检测] 📍 群组 {chat_id}, 用户 {user_id} 权限发生变化')
 
                     # 检查是否是我们的机器人
                     if clients:
@@ -2679,38 +2690,39 @@ async def raw_update_handler(event):
                                 continue
 
                         if user_id in bot_ids:
-                            print(f'[Raw权限检测] ✅ 检测到机器人 {user_id} 权限变化')
+                            print(f'[Raw权限检测] 🚨 检测到机器人 {user_id} 权限变化于群组 {chat_id}')
 
                             # 等待一下再检查权限，避免立即检查时的延迟
-                            await asyncio.sleep(2)
+                            await asyncio.sleep(3)
 
                             # 验证机器人是否仍具有管理员权限
                             try:
-                                # 使用任意一个客户端来检查权限
-                                permissions = await clients[0].get_permissions(chat_id, user_id)
-                                if not permissions.is_admin and not permissions.is_creator:
-                                    print(f'[Raw权限检测] ✅ 确认机器人已失去管理员权限: {user_id}')
+                                # 使用对应的机器人客户端来检查权限
+                                target_bot = None
+                                for client in clients:
+                                    try:
+                                        if (await client.get_me()).id == user_id:
+                                            target_bot = client
+                                            break
+                                    except Exception as e:
+                                        continue
 
-                                    # 找到对应的机器人实例
-                                    demoted_bot = None
-                                    for client in clients:
-                                        try:
-                                            if (await client.get_me()).id == user_id:
-                                                demoted_bot = client
-                                                break
-                                        except Exception as e:
-                                            continue
+                                if target_bot:
+                                    permissions = await target_bot.get_permissions(chat_id, user_id)
+                                    if not permissions.is_admin and not permissions.is_creator:
+                                        print(f'[Raw权限检测] ❌ 确认机器人已失去管理员权限: {user_id} 在群组 {chat_id}')
 
-                                    # 发送通知
-                                    await notify_group_binding_invalid(chat_id, user_id, "机器人管理员权限被撤销", demoted_bot)
+                                        # 发送通知
+                                        await notify_group_binding_invalid(chat_id, user_id, "机器人管理员权限被撤销", target_bot)
+                                    else:
+                                        print(f'[Raw权限检测] ✅ 机器人仍具有管理员权限: {user_id} 在群组 {chat_id}')
                                 else:
-                                    print(f'[Raw权限检测] 机器人仍具有管理员权限，忽略此次变化')
+                                    print(f'[Raw权限检测] ⚠️ 找不到对应的机器人客户端')
                             except Exception as e:
                                 print(f'[Raw权限检测] 权限检查失败: {e}')
 
     except Exception as e:
-        # Raw事件处理不应该崩溃，静默处理错误
-        pass
+        print(f'[Raw事件] 处理错误: {e}')
 
 @multi_bot_on(events.ChatAction)
 async def group_welcome_handler(event):
@@ -3720,7 +3732,7 @@ async def check_member_status_task():
     """定期检查会员状态（拉群、群管、加群）"""
     while True:
         try:
-            await asyncio.sleep(60)  # 每1分钟检查一次
+            await asyncio.sleep(30)  # 每30秒检查一次（临时加快以便测试）
             print("[状态检测] 开始检查会员状态...")
             
             conn = get_db_conn()
@@ -3785,12 +3797,18 @@ async def check_member_status_task():
                         # 检查2：机器人是否是群管理员
                         try:
                             me = await bot.get_me()
-                            participants = await bot.get_participants(chat, filter=ChannelParticipantsAdmins())
-                            admin_ids = [p.id for p in participants]
-                            if me.id in admin_ids:
+                            print(f"[状态检测] 🔍 检查机器人权限: {me.username or me.id} 在群 {group_username}")
+                            # 使用get_permissions检查机器人权限（更可靠）
+                            permissions = await bot.get_permissions(chat, me.id)
+                            print(f"[状态检测] 📊 权限详情: admin={permissions.is_admin}, creator={permissions.is_creator}")
+                            if permissions.is_admin or permissions.is_creator:
                                 is_bot_admin = 1
+                                print(f"[状态检测] ✅ 机器人是管理员: {group_username}")
+                            else:
+                                print(f"[状态检测] ❌ 机器人不是管理员: {group_username}")
                         except Exception as admin_err:
                             print(f"[状态检测] 检查群管失败 {group_username}: {admin_err}")
+                            # 如果检查失败，可能是网络问题或权限问题，保持原有状态
                         
                         # 【核心修复】检查3：用户是否加入了所有10层上级的群（如果存在）
                         # 使用 get_upline_chain 获取完整的10层上级链
