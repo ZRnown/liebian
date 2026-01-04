@@ -2658,7 +2658,7 @@ async def raw_update_handler(event):
         # 显示所有Raw更新（调试用，生产环境可以注释掉）
         if hasattr(event, 'update') and hasattr(event.update, '__class__'):
             update_type = type(event.update).__name__
-            # print(f'[Raw事件] 收到更新: {update_type}')  # 暂时注释，避免日志过多
+            print(f'[Raw事件] 收到更新: {update_type}')  # 启用调试，查看所有Raw更新
 
             # 更宽泛地检测权限相关更新
             if 'Participant' in update_type or 'Admin' in update_type:
@@ -3775,16 +3775,13 @@ async def check_member_status_task():
             
             for telegram_id, group_link in members:
                 try:
-                    # 【核心修复】先查询当前状态，如果 is_joined_upline 已经是 1，则永久跳过检测
+                    # 【核心修复】先查询当前状态
                     c.execute("SELECT is_joined_upline FROM members WHERE telegram_id = ?", (telegram_id,))
                     current_status = c.fetchone()
                     current_is_joined_upline = current_status[0] if current_status else 0
-                    
-                    # 【核心修复】如果已经完成加群任务，永久跳过检测（永久锁死）
-                    if current_is_joined_upline == 1:
-                        print(f"[状态检测] 会员 {telegram_id} 已完成加群任务（永久锁定），跳过检测")
-                        continue
-                    
+
+                    print(f"[状态检测] 检查会员 {telegram_id}, 当前状态: is_joined_upline={current_is_joined_upline}")
+
                     # 提取群组用户名或ID
                     if group_link.startswith('https://t.me/'):
                         group_username = group_link.replace('https://t.me/', '').split('/')[0].split('?')[0]
@@ -3792,10 +3789,20 @@ async def check_member_status_task():
                         group_username = group_link[1:]
                     else:
                         group_username = group_link
-                    
+
                     # 跳过私有群链接
                     if group_username.startswith('+'):
                         continue
+
+                    # 总是检查机器人管理员权限（即使会员已完成任务）
+                    is_group_bound = 0
+                    is_bot_admin = 0
+                    is_joined_upline = 0
+
+                    # 获取当前数据库中记录的管理员状态
+                    c.execute("SELECT is_bot_admin FROM members WHERE telegram_id = ?", (telegram_id,))
+                    current_admin_status = c.fetchone()
+                    original_is_bot_admin = current_admin_status[0] or 0
                     
                     # 检查1：是否已拉群（群链接是否有效）
                     is_group_bound = 0
@@ -3832,10 +3839,15 @@ async def check_member_status_task():
                         except Exception as admin_err:
                             print(f"[状态检测] 检查群管失败 {group_username}: {admin_err}")
                             # 如果检查失败，可能是网络问题或权限问题，保持原有状态
-                        
-                        # 【核心修复】检查3：用户是否加入了所有10层上级的群（如果存在）
-                        # 使用 get_upline_chain 获取完整的10层上级链
-                        from core_functions import get_upline_chain
+
+                        # 【核心修复】如果已经完成加群任务，永久跳过加群检测（永久锁死）
+                        if current_is_joined_upline == 1:
+                            print(f"[状态检测] 会员 {telegram_id} 已完成加群任务（永久锁定），跳过加群检测")
+                            is_joined_upline = 1  # 保持原有状态
+                        else:
+                            # 检查3：用户是否加入了所有10层上级的群（如果存在）
+                            # 使用 get_upline_chain 获取完整的10层上级链
+                            from core_functions import get_upline_chain
                         upline_chain = get_upline_chain(telegram_id, level_count)
                         
                         # 收集所有有群链接的上级群（排除捡漏账号）
@@ -3889,7 +3901,7 @@ async def check_member_status_task():
                             # 如果没有需要检查的上级群，默认标记为完成（可能是顶层用户）
                             is_joined_upline = 1
                             print(f"[状态检测] 会员 {telegram_id} 没有需要加入的上级群")
-                    
+
                     except Exception as e:
                         print(f"[状态检测] 检查群组失败 {group_username}: {e}")
                     
