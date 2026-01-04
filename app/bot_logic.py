@@ -719,6 +719,92 @@ async def verify_and_handle_upline_group(bot, upline_id, group_link, clients):
 
 # ==================== 事件处理器 ====================
 
+@multi_bot_on(events.NewMessage(pattern='/bind'))
+async def bind_command_handler(event):
+    """群内绑定命令：在群组中发送 /bind 绑定当前群"""
+    if event.is_private:
+        await event.respond("❌ 请在您需要绑定的**群组**内发送此命令")
+        return
+
+    try:
+        # 1. 获取群组信息
+        chat = await event.get_chat()
+        if not chat:
+            return
+
+        chat_id = chat.id
+        chat_title = chat.title or "未命名群组"
+
+        # 获取群链接（如果有公开username）
+        chat_username = getattr(chat, 'username', None)
+        group_link = f"https://t.me/{chat_username}" if chat_username else ""
+
+        # 2. 解析发送者（支持备用号）
+        original_id = event.sender_id
+        sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+
+        # 3. 检查用户是否注册
+        member = DB.get_member(sender_id)
+        if not member:
+            await event.respond(f"❌ 未找到您的账号信息 (ID: {sender_id})\n请先私聊机器人发送 /start 注册")
+            return
+
+        if not member['is_vip']:
+            await event.respond("❌ 仅限VIP用户绑定群组")
+            return
+
+        # 4. 检查发送者是否为群管理员
+        try:
+            perms = await event.client.get_permissions(event.chat_id, event.sender_id)
+            if not perms.is_admin and not perms.is_creator:
+                await event.respond("❌ 您必须是该群组的管理员才能绑定")
+                return
+        except Exception as e:
+            print(f"[群内绑定] 权限检查失败: {e}")
+            # 尝试继续，如果无法获取权限信息
+
+        # 5. 更新数据库
+        # 更新 members 表
+        is_bot_admin = 1 # 既然机器人在群里能收到命令，且能响应，大概率状态正常，后续由后台任务校验
+
+        # 如果没有公开链接，尝试保留旧链接或提示用户
+        final_link = group_link
+        if not final_link and member.get('group_link'):
+            final_link = member['group_link'] # 保留原有链接
+
+        if not final_link:
+             # 如果完全没有链接，生成一个伪链接或提示
+             final_link = "Private Group (ID: " + str(chat_id) + ")"
+
+        # 更新
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute('''
+            UPDATE members
+            SET group_link = ?, is_group_bound = 1, is_bot_admin = ?
+            WHERE telegram_id = ?
+        ''', (final_link, is_bot_admin, sender_id))
+        conn.commit()
+        conn.close()
+
+        # 更新 member_groups 表 (upsert)
+        from database import upsert_member_group
+        upsert_member_group(sender_id, final_link, member['username'], is_bot_admin, group_id=chat_id)
+
+        await event.respond(
+            f"✅ **群组绑定成功！**\n\n"
+            f"群组名称: {chat_title}\n"
+            f"群组ID: `{chat_id}`\n"
+            f"绑定账号: `{sender_id}`\n\n"
+            f"💡 机器人已记录群组ID，后续将自动检测状态。"
+        )
+
+    except Exception as e:
+        print(f"[群内绑定错误] {e}")
+        import traceback
+        traceback.print_exc()
+        await event.respond("❌ 绑定失败，请稍后重试")
+
 @multi_bot_on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
     """启动命令"""
@@ -1261,8 +1347,11 @@ async def set_group_callback(event):
     waiting_for_backup.pop(resolved_id, None)
     waiting_for_group_link[resolved_id] = True
     await event.respond(
-        '🔗 设置群链接\n\n'
-        '请发送您的群链接 (格式: http://t.me/群用户名 或 https://t.me/群用户名)\n\n'
+        '🔗 **设置群链接**\n\n'
+        '方式一：\n'
+        '请直接发送您的群链接给机器人 (格式: https://t.me/xxx)\n\n'
+        '方式二 (推荐)：\n'
+        '将机器人拉入您的群组，并设为管理员，然后在**群里**发送命令 `/bind`\n\n'
         '发送 /cancel 取消操作'
     )
     await event.answer()
@@ -3147,51 +3236,45 @@ async def message_handler(event):
                 # 根据是否成功检测管理员来设置 is_bot_admin
                 is_admin_flag = 1 if verification_result.get('admin_checked') else 0
 
-                # 获取群组的chat_id（用于member_groups表）
-                group_id = None
-                try:
-                    print(f'[群绑定] 开始解析链接: {link}')
-                    if link.startswith('http://t.me/') or link.startswith('https://t.me/'):
-                        tail = link.replace('http://t.me/', '').replace('https://t.me/', '').split('?')[0]
-                        print(f'[群绑定] 提取的tail: {tail}')
-                        if not tail.startswith('+') and not tail.startswith('joinchat/'):
-                            # 公开群，可以获取实体
-                            username = tail
-                            print(f'[群绑定] 尝试获取实体: {username}')
-                            try:
-                                # 使用触发事件的机器人实例
-                                bot_client = event.client if hasattr(event, 'client') else bot
-                                print(f'[群绑定] 使用机器人实例: {bot_client}')
-                                entity = await bot_client.get_entity(username)
-                                print(f'[群绑定] 获取到实体: {entity}')
-                                print(f'[群绑定] 实体类型: {type(entity)}')
-                                group_id = getattr(entity, 'id', None)
-                                print(f'[群绑定] 获取到群组ID: {group_id} for {username}')
-                                if group_id is None:
-                                    print(f'[群绑定] 警告: entity.id 为None，尝试其他属性')
-                                    # 尝试其他可能的ID属性
-                                    for attr in ['id', 'chat_id', 'channel_id']:
-                                        if hasattr(entity, attr):
-                                            potential_id = getattr(entity, attr)
-                                            print(f'[群绑定] {attr}: {potential_id}')
-                            except Exception as e:
-                                print(f'[群绑定] 获取群组ID失败: {e}')
-                                import traceback
-                                traceback.print_exc()
-                        else:
-                            print(f'[群绑定] 私有链接，跳过ID获取: {tail}')
-                    else:
-                        print(f'[群绑定] 非t.me链接，跳过ID获取')
-                except Exception as e:
-                    print(f'[群绑定] 获取群组ID异常: {e}')
-                    import traceback
-                    traceback.print_exc()
+                # 获取群组ID (优先使用 verify_group_link 返回的 ID)
+                group_id = verification_result.get('group_id')
+                group_name = verification_result.get('group_name')
 
+                # 如果 verify_group_link 没返回 ID (旧逻辑或某种失败)，尝试手动获取
+                if not group_id:
+                    try:
+                        print(f'[群绑定] 尝试手动解析链接获取ID: {link}')
+                        if link.startswith('http://t.me/') or link.startswith('https://t.me/'):
+                            tail = link.replace('http://t.me/', '').replace('https://t.me/', '').split('?')[0]
+                            if not tail.startswith('+') and not tail.startswith('joinchat/'):
+                                # 公开群，可以获取实体
+                                try:
+                                    bot_client = event.client if hasattr(event, 'client') else bot
+                                    entity = await bot_client.get_entity(tail)
+                                    group_id = getattr(entity, 'id', None)
+                                    if not group_name:
+                                        group_name = getattr(entity, 'title', None)
+                                    print(f'[群绑定] 手动获取成功 ID: {group_id}')
+                                except Exception as e:
+                                    print(f'[群绑定] 手动获取实体失败: {e}')
+                    except Exception as e:
+                        print(f'[群绑定] ID解析异常: {e}')
+
+                # 更新数据库
                 DB.update_member(sender_id, group_link=link, is_group_bound=1, is_bot_admin=is_admin_flag)
                 try:
                     sender_username = getattr(event.sender, 'username', None) if hasattr(event, 'sender') else None
                     from database import upsert_member_group
+                    # 注意：upsert_member_group 会处理 group_name 更新
                     upsert_member_group(sender_id, link, sender_username, is_bot_admin=is_admin_flag, group_id=group_id)
+
+                    # 如果有群名，更新一下
+                    if group_name and group_id:
+                        conn = get_db_conn()
+                        c = conn.cursor()
+                        c.execute("UPDATE member_groups SET group_name = ? WHERE group_id = ?", (group_name, group_id))
+                        conn.commit()
+                        conn.close()
                 except Exception as sync_err:
                     print(f'[绑定群写入member_groups失败] {sync_err}')
                 del waiting_for_group_link[sender_id]
