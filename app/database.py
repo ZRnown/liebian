@@ -1022,7 +1022,7 @@ def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_adm
     except Exception as e:
         print(f'[member_groups upsert] error: {e}')
 
-def sync_member_groups_from_members():
+async def sync_member_groups_from_members():
     """启动时同步已存在的会员群链接到 member_groups，避免后台列表为空"""
     try:
         conn = get_db_conn()
@@ -1030,12 +1030,34 @@ def sync_member_groups_from_members():
         c.execute("SELECT telegram_id, username, group_link FROM members WHERE group_link IS NOT NULL AND group_link != ''")
         rows = c.fetchall()
         conn.close()
+
+        synced_count = 0
         for r in rows:
             tg_id, uname, glink = r
             try:
-                upsert_member_group(tg_id, glink, uname or None, is_bot_admin=1)
+                # 尝试从现有链接解析group_id
+                group_id = None
+
+                # 如果链接看起来像是我们之前存储的格式，尝试提取group_id
+                if glink and ('Private Group (ID: ' in glink or glink.startswith('https://t.me/')):
+                    if 'Private Group (ID: ' in glink:
+                        # 从私有群格式提取ID
+                        try:
+                            id_str = glink.split('Private Group (ID: ')[1].split(')')[0]
+                            group_id = int(id_str)
+                            print(f'[sync_member_groups] 从私有群链接提取到group_id: {group_id} for user {tg_id}')
+                        except:
+                            pass
+                    elif glink.startswith('https://t.me/'):
+                        # 对于公开群，暂时保持None，后续可以通过其他方式获取
+                        print(f'[sync_member_groups] 公开群链接 {glink} for user {tg_id}，暂时无法获取group_id')
+
+                upsert_member_group(tg_id, glink, uname or None, is_bot_admin=1, group_id=group_id)
+                synced_count += 1
             except Exception as inner_err:
                 print(f'[sync_member_groups] 单条失败 {tg_id}: {inner_err}')
+
+        print(f'[sync_member_groups] 同步完成，共处理 {len(rows)} 条记录，成功 {synced_count} 条')
     except Exception as e:
         print(f'[sync_member_groups] 失败: {e}')
 

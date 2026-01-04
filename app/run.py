@@ -19,7 +19,9 @@ def main():
     # 同步已有会员群链接到 member_groups
     print("🔄 同步会员群组数据...")
     try:
-        sync_member_groups_from_members()
+        # 同步会员群组数据到member_groups表
+        import asyncio
+        asyncio.run(sync_member_groups_from_members())
         print("✅ 会员群组数据同步完成")
     except Exception as e:
         print(f"⚠️ 会员群组数据同步失败: {e}")

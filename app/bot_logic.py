@@ -3232,9 +3232,12 @@ async def message_handler(event):
         # 只允许 http(s)://t.me/ 开头的链接
         if link.startswith('http://t.me/') or link.startswith('https://t.me/'):
             # 验证群链接（使用多机器人逻辑）
+            print(f'[群绑定] 开始处理链接: {link}')
             bot_client = event.client if hasattr(event, 'client') else bot
+            print(f'[群绑定] 使用机器人客户端: {bot_client}')
             verification_result = await verify_group_link(bot_client, link, clients)
             print(f'[群绑定] verify_group_link结果: {verification_result}')
+            print(f'[群绑定] group_id: {verification_result.get("group_id")}, success: {verification_result.get("success")}')
 
             if verification_result['success']:
                 # 获取 verify_group_link 返回的 ID (现在核心函数保证成功即返回ID)
@@ -3242,26 +3245,42 @@ async def message_handler(event):
                 group_name = verification_result.get('group_name')
                 is_admin_flag = 1 if verification_result.get('admin_checked') else 0
 
-                # 更新数据库
-                DB.update_member(sender_id, group_link=link, is_group_bound=1, is_bot_admin=is_admin_flag)
+                print(f'[群绑定] 准备存储: user={sender_id}, group_id={group_id}, link={link}')
 
+                # 更新数据库 - 分步骤进行，确保每一步都成功
                 try:
+                    # 1. 更新members表
+                    print('[群绑定] 更新members表...')
+                    DB.update_member(sender_id, group_link=link, is_group_bound=1, is_bot_admin=is_admin_flag)
+                    print('[群绑定] ✅ members表更新成功')
+
+                    # 2. 更新member_groups表
+                    print('[群绑定] 更新member_groups表...')
                     sender_username = getattr(event.sender, 'username', None) if hasattr(event, 'sender') else None
                     from database import upsert_member_group
-
-                    # 这里的 upsert 会自动处理 group_id
                     upsert_member_group(sender_id, link, sender_username, is_bot_admin=is_admin_flag, group_id=group_id)
+                    print('[群绑定] ✅ member_groups表更新成功')
 
-                    # 如果返回了群名，也顺便更新一下 member_groups 表
+                    # 3. 如果有群名，更新群名
                     if group_name and group_id:
+                        print(f'[群绑定] 更新群名: {group_name}')
                         conn = get_db_conn()
                         c = conn.cursor()
                         c.execute("UPDATE member_groups SET group_name = ? WHERE group_id = ?", (group_name, group_id))
                         conn.commit()
                         conn.close()
+                        print('[群绑定] ✅ 群名更新成功')
+
+                    print(f'[群绑定] 🎉 绑定完成! user={sender_id}, group_id={group_id}')
 
                 except Exception as sync_err:
-                    print(f'[绑定群写入member_groups失败] {sync_err}')
+                    print(f'[绑定群写入数据库失败] {sync_err}')
+                    import traceback
+                    traceback.print_exc()
+                    # 如果数据库操作失败，不显示成功消息
+                    await event.respond(f'❌ 绑定失败: {str(sync_err)}')
+                    return
+
                 del waiting_for_group_link[sender_id]
                 
                 # 构造提示文案
