@@ -403,9 +403,8 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
         conn = get_db_conn()
         c = conn.cursor()
 
-        # 查找所有绑定此群组的用户
-        group_link_pattern = f'%{chat_id}%'
-        c.execute('SELECT telegram_id, username, group_link FROM members WHERE group_link LIKE ?', (group_link_pattern,))
+        # 查找所有绑定此群组的用户 (从member_groups表查询)
+        c.execute('SELECT telegram_id, group_name, group_link FROM member_groups WHERE group_id = ?', (chat_id,))
         bound_users = c.fetchall()
         conn.close()
 
@@ -414,16 +413,25 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
             return
 
         # 重置这些用户的群组绑定状态
-        for user_id, username, group_link in bound_users:
+        for user_id, group_name, group_link in bound_users:
             try:
-                # 更新数据库：清除群组绑定和管理员状态
+                # 获取用户真实姓名
                 conn = get_db_conn()
                 c = conn.cursor()
+                c.execute('SELECT username FROM members WHERE telegram_id = ?', (user_id,))
+                user_row = c.fetchone()
+                username = user_row[0] if user_row else f'用户{user_id}'
+
+                # 更新数据库：清除群组绑定和管理员状态
                 c.execute('''
                     UPDATE members
                     SET is_group_bound = 0, is_bot_admin = 0
                     WHERE telegram_id = ?
                 ''', (user_id,))
+
+                # 同时删除member_groups表中的记录
+                c.execute('DELETE FROM member_groups WHERE telegram_id = ? AND group_id = ?', (user_id, chat_id))
+
                 conn.commit()
                 conn.close()
 
@@ -433,6 +441,7 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
 
 您的群组绑定已失效，原因：{reason}
 
+原群组：{group_name}
 原群链接：{group_link}
 
 请重新设置群组绑定以继续获得分红收益。
