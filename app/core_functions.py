@@ -194,24 +194,42 @@ async def check_any_bot_in_group(clients, group_link):
     for client in clients:
         try:
             bot_id = (await client.get_me()).id
-            group_entity = await client.get_entity(group_link)
 
-            # 获取机器人在群组中的身份
-            participant = await client(GetParticipantRequest(group_entity, bot_id))
+            # 首先尝试获取群组实体
+            try:
+                group_entity = await client.get_entity(group_link)
+            except Exception as entity_err:
+                # 如果连实体都获取不到，说明：
+                # 1. 群组不存在
+                # 2. 群组是私有的且机器人不在里面
+                # 3. 机器人被ban了
+                continue
 
-            # 检查是否在群组中（包括所有类型的参与者）
-            if isinstance(participant.participant, (ChannelParticipantAdmin, ChannelParticipantCreator,
-                                                  ChannelParticipant, ChatParticipant,
-                                                  ChatParticipantAdmin, ChatParticipantCreator)):
-                # 检查是否为管理员或创建者
+            # 实体获取成功，说明机器人至少知道这个群组
+            # 现在尝试获取机器人在群组中的身份
+            try:
+                participant = await client(GetParticipantRequest(group_entity, bot_id))
+
+                # 检查是否在群组中（包括所有类型的参与者）
                 if isinstance(participant.participant, (ChannelParticipantAdmin, ChannelParticipantCreator,
+                                                      ChannelParticipant, ChatParticipant,
                                                       ChatParticipantAdmin, ChatParticipantCreator)):
-                    return True, bot_id  # 返回True和管理员bot_id
-                else:
-                    return True, None  # 在群组中但不是管理员
+                    # 检查是否为管理员或创建者
+                    if isinstance(participant.participant, (ChannelParticipantAdmin, ChannelParticipantCreator,
+                                                          ChatParticipantAdmin, ChatParticipantCreator)):
+                        return True, bot_id  # 返回True和管理员bot_id
+                    else:
+                        return True, None  # 在群组中但不是管理员
+
+            except Exception as participant_err:
+                # GetParticipantRequest 失败
+                # 这可能意味着机器人不在群组中，或者API权限不足
+                # 由于我们已经能获取实体，我们保守地认为机器人可能在群组中但权限不足
+                # 返回 True, None 表示在群组中但不是管理员
+                return True, None
 
         except Exception as e:
-            # 这个机器人不在群组中，继续检查下一个
+            # 其他异常，继续检查下一个机器人
             continue
 
     return False, None  # 没有机器人加入群组
