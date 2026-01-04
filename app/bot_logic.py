@@ -2669,7 +2669,7 @@ async def raw_update_handler(event):
         # 显示所有Raw更新（调试用，生产环境可以注释掉）
         if hasattr(event, 'update') and hasattr(event.update, '__class__'):
             update_type = type(event.update).__name__
-            print(f'[Raw事件] 收到更新: {update_type}')  # 启用调试，查看所有Raw更新
+            print(f'[Raw事件] 📡 收到更新: {update_type}')  # 启用调试，查看所有Raw更新
 
             # 更宽泛地检测权限相关更新
             if 'Participant' in update_type or 'Admin' in update_type:
@@ -3851,17 +3851,18 @@ async def check_member_status_task():
                                 is_bot_admin = 1
                                 print(f"[状态检测] ✅ 机器人是管理员: {group_display_name} (Bot ID: {admin_bot_id})")
                             else:
-                                print(f"[状态检测] ❌ 机器人不是管理员: {group_display_name}")
+                                print(f"[状态检测] ⚠️ 机器人加入群组但不是管理员: {group_display_name}")
+                                is_bot_admin = 0  # 明确设置为非管理员
                         else:
                             print(f"[状态检测] ❌ 没有任何机器人加入该群组或群组不存在: {group_display_name}")
                             is_group_bound = 0  # 没有机器人加入，群组绑定失效
 
                     except Exception as e:
-                        print(f"[状态检测] 多机器人检测失败 {group_display_name}: {e}")
+                        print(f"[状态检测] 多机器人检测异常 {group_display_name}: {e}")
                         # 多机器人检测都失败了，可能是网络问题或所有机器人都不在群组中
-                        # 在这种情况下，我们保守地保持原有状态不变
+                        # 在这种情况下，我们保守地保持原有状态不变，避免误判
                         is_bot_admin = original_is_bot_admin
-                        print(f"[状态检测] 检测失败，保持原有管理员状态: {original_is_bot_admin}")
+                        print(f"[状态检测] 检测异常，保持原有管理员状态: {original_is_bot_admin}")
 
                         # 【核心修复】如果已经完成加群任务，永久跳过加群检测（永久锁死）
                         if current_is_joined_upline == 1:
