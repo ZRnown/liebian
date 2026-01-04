@@ -1348,10 +1348,14 @@ async def set_group_callback(event):
     waiting_for_group_link[resolved_id] = True
     await event.respond(
         '🔗 **设置群链接**\n\n'
-        '方式一：\n'
-        '请直接发送您的群链接给机器人 (格式: https://t.me/xxx)\n\n'
-        '方式二 (推荐)：\n'
-        '将机器人拉入您的群组，并设为管理员，然后在**群里**发送命令 `/bind`\n\n'
+        '**方法 A (推荐)：**\n'
+        '1. 将机器人拉入您的群组\n'
+        '2. 将机器人设为管理员\n'
+        '3. 在**群组内**发送命令 `/bind`\n'
+        '✅ 这种方式最准确，能自动识别私有群ID\n\n'
+        '**方法 B (发送链接)：**\n'
+        '请直接发送群链接给我 (格式: https://t.me/+xxx 或 @username)\n'
+        '⚠️ 注意：如果是私有链接，请**先将机器人拉进群**再发送，否则无法识别！\n\n'
         '发送 /cancel 取消操作'
     )
     await event.answer()
@@ -3233,48 +3237,29 @@ async def message_handler(event):
             print(f'[群绑定] verify_group_link结果: {verification_result}')
 
             if verification_result['success']:
-                # 根据是否成功检测管理员来设置 is_bot_admin
-                is_admin_flag = 1 if verification_result.get('admin_checked') else 0
-
-                # 获取群组ID (优先使用 verify_group_link 返回的 ID)
+                # 获取 verify_group_link 返回的 ID (现在核心函数保证成功即返回ID)
                 group_id = verification_result.get('group_id')
                 group_name = verification_result.get('group_name')
-
-                # 如果 verify_group_link 没返回 ID (旧逻辑或某种失败)，尝试手动获取
-                if not group_id:
-                    try:
-                        print(f'[群绑定] 尝试手动解析链接获取ID: {link}')
-                        if link.startswith('http://t.me/') or link.startswith('https://t.me/'):
-                            tail = link.replace('http://t.me/', '').replace('https://t.me/', '').split('?')[0]
-                            if not tail.startswith('+') and not tail.startswith('joinchat/'):
-                                # 公开群，可以获取实体
-                                try:
-                                    bot_client = event.client if hasattr(event, 'client') else bot
-                                    entity = await bot_client.get_entity(tail)
-                                    group_id = getattr(entity, 'id', None)
-                                    if not group_name:
-                                        group_name = getattr(entity, 'title', None)
-                                    print(f'[群绑定] 手动获取成功 ID: {group_id}')
-                                except Exception as e:
-                                    print(f'[群绑定] 手动获取实体失败: {e}')
-                    except Exception as e:
-                        print(f'[群绑定] ID解析异常: {e}')
+                is_admin_flag = 1 if verification_result.get('admin_checked') else 0
 
                 # 更新数据库
                 DB.update_member(sender_id, group_link=link, is_group_bound=1, is_bot_admin=is_admin_flag)
+
                 try:
                     sender_username = getattr(event.sender, 'username', None) if hasattr(event, 'sender') else None
                     from database import upsert_member_group
-                    # 注意：upsert_member_group 会处理 group_name 更新
+
+                    # 这里的 upsert 会自动处理 group_id
                     upsert_member_group(sender_id, link, sender_username, is_bot_admin=is_admin_flag, group_id=group_id)
 
-                    # 如果有群名，更新一下
+                    # 如果返回了群名，也顺便更新一下 member_groups 表
                     if group_name and group_id:
                         conn = get_db_conn()
                         c = conn.cursor()
                         c.execute("UPDATE member_groups SET group_name = ? WHERE group_id = ?", (group_name, group_id))
                         conn.commit()
                         conn.close()
+
                 except Exception as sync_err:
                     print(f'[绑定群写入member_groups失败] {sync_err}')
                 del waiting_for_group_link[sender_id]

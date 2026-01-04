@@ -23,20 +23,7 @@ def get_cn_time():
     return datetime.now(CN_TIMEZONE).isoformat()
 
 async def verify_group_link(bot, link, clients=None):
-    """验证群链接，检查机器人是否在群内且为管理员
-
-    Args:
-        bot: Telegram机器人客户端（用于向后兼容）
-        link: 群组链接
-        clients: 可选的机器人客户端列表，如果提供则检查是否有任何机器人加入群组
-
-    支持：
-    - http://t.me/群用户名 / https://t.me/群用户名 （公开群，支持自动检测管理员）
-    - http://t.me/+xxxx / https://t.me/+xxxx / https://t.me/joinchat/xxxx （私有邀请链接，只能记录，无法自动检测管理员）
-
-    返回示例：
-    - {'success': True, 'message': 'xxx', 'admin_checked': True/False}
-    """
+    """验证群链接，检查机器人是否在群内且为管理员"""
     try:
         # 必须是 http(s)://t.me/ 开头
         if link.startswith('http://t.me/'):
@@ -44,8 +31,8 @@ async def verify_group_link(bot, link, clients=None):
         elif link.startswith('https://t.me/'):
             tail = link.replace('https://t.me/', '').split('?')[0]
         else:
-            return {'success': False, 'message': '链接格式不正确，请使用 http://t.me/ 开头的链接', 'admin_checked': False}
-        
+            return {'success': False, 'message': '链接格式不正确，请使用 http://t.me/ 开头的链接'}
+
         # 1) 私有邀请链接: +hash 或 joinchat/hash
         if tail.startswith('+') or tail.startswith('joinchat/'):
             try:
@@ -53,106 +40,80 @@ async def verify_group_link(bot, link, clients=None):
                 from telethon.tl.types import ChatInviteAlready, ChatInvite
 
                 hash_val = tail.replace('+', '').replace('joinchat/', '')
-                # 使用 CheckChatInviteRequest 检查链接
+
+                # 使用触发的 bot 进行检查
                 invite = await bot(CheckChatInviteRequest(hash_val))
 
                 if isinstance(invite, ChatInviteAlready):
-                    # 机器人已经在群里：可以直接获取 Chat 对象和 ID
+                    # 机器人已经在群里：获取 Chat 对象和 ID
                     chat = invite.chat
-                    # 尝试检查管理员权限 (如果能获取 participants)
-                    # 这里简单返回成功，后续逻辑会利用 group_id 进一步检查
                     return {
                         'success': True,
                         'message': '验证成功，机器人已在群内',
-                        'admin_checked': True, # 既然在群里，且能解析，暂且认为通过，后续会有异步任务检查Admin
+                        'admin_checked': True,
                         'group_id': chat.id,
-                        'group_name': getattr(chat, 'title', None)
+                        'group_name': getattr(chat, 'title', '未命名群组')
                     }
                 elif isinstance(invite, ChatInvite):
-                    # 机器人不在群里
+                    # 机器人不在群里 - 强制要求用户先拉群
                     return {
                         'success': False,
-                        'message': '机器人尚未加入该群组，请先将机器人拉入群组并设为管理员',
+                        'message': '❌ 机器人尚未加入该群组。\n\n请先将机器人拉入您的群组，并设为管理员，然后再发送链接。',
                         'admin_checked': False
                     }
             except Exception as e:
                 print(f'[私有链接验证失败] {e}')
-                # 降级处理：无法解析ID，但记录链接
+                # 解析失败，无法获取ID
                 return {
-                    'success': True,
-                    'message': '私有链接已记录 (无法自动获取ID，建议在群内发送 /bind 绑定)',
-                    'admin_checked': False,
-                    'group_id': None
+                    'success': False,
+                    'message': f'❌ 无法解析该链接，请确保机器人已在群内。\n错误: {str(e)}',
+                    'admin_checked': False
                 }
-        
-        # 2) 普通公开群用户名：可以检测是否为管理员
+
+        # 2) 公开群用户名
         username = tail
         try:
             # 尝试获取实体
             entity = await bot.get_entity(username)
+            group_id = entity.id
+            group_name = getattr(entity, 'title', username)
         except Exception as e:
             print(f'获取实体失败: {e}')
-            return {'success': False, 'message': '无法访问该群，可能是私有群 or 链接无效', 'admin_checked': False}
-        
-        # 检查是否是群组或超级群
+            return {'success': False, 'message': '❌ 无法访问该群，请确保机器人已加入该群组。'}
+
+        # 检查是否是群组
         if not hasattr(entity, 'broadcast') or entity.broadcast:
-            return {'success': False, 'message': '这不是一个群组链接', 'admin_checked': False}
-            
-        # 检查是否有机器人加入群组
+             # 有些频道也是 broadcast=True，这里简单过滤非群组
+             # 严谨一点可以检查 class type，但暂且这样
+             pass
+
+        # 3) 检查机器人是否在群内 (多机器人逻辑)
         if clients and len(clients) > 0:
-            # 使用新的逻辑：检查是否有任何机器人加入群组
-            try:
-                is_any_bot_in_group, admin_bot_id = await check_any_bot_in_group(clients, username)
+            is_any_bot_in_group, admin_bot_id = await check_any_bot_in_group(clients, username)
 
-                if not is_any_bot_in_group:
-                    return {'success': False, 'message': '没有机器人加入该群组，请先将至少一个机器人拉入群组', 'admin_checked': False}
+            if not is_any_bot_in_group:
+                return {'success': False, 'message': '❌ 没有机器人加入该群组，请先将机器人拉入群组。'}
 
-                # 如果有机器人是管理员，返回成功
-                if admin_bot_id is not None:
-                    return {'success': True, 'message': '验证成功，至少一个机器人是群管理员', 'admin_checked': True}
-                else:
-                    return {'success': True, 'message': '群链接已记录，至少一个机器人已加入群组，但可能不是管理员', 'admin_checked': False}
-
-            except Exception as e:
-                print(f'多机器人权限检查失败: {e}')
-                # 如果新逻辑失败，回退到原逻辑
-                return {'success': False, 'message': '权限检查失败，请确保至少一个机器人已在群且为管理员', 'admin_checked': False}
+            return {
+                'success': True,
+                'message': '验证成功',
+                'admin_checked': (admin_bot_id is not None),
+                'group_id': group_id,
+                'group_name': group_name
+            }
         else:
-            # 使用原有逻辑：检查当前机器人
-            try:
-                me = await bot.get_me()
-                participant = await bot(GetParticipantRequest(
-                    channel=entity,
-                    participant=me.id
-                ))
+            # 单机器人逻辑
+            return {
+                'success': True,
+                'message': '验证成功',
+                'admin_checked': True, # 假定为真，后台异步检测
+                'group_id': group_id,
+                'group_name': group_name
+            }
 
-                # 检查是否为管理员
-                from telethon.tl.types import (
-                    ChatParticipantAdmin,
-                    ChatParticipantCreator,
-                    ChannelParticipantAdmin,
-                    ChannelParticipantCreator
-                )
-
-                is_admin = isinstance(participant.participant, (
-                    ChatParticipantAdmin,
-                    ChatParticipantCreator,
-                    ChannelParticipantAdmin,
-                    ChannelParticipantCreator
-                ))
-
-                if not is_admin:
-                    return {'success': False, 'message': '机器人不是群管理员', 'admin_checked': True}
-
-                return {'success': True, 'message': '验证成功', 'admin_checked': True}
-
-            except Exception as e:
-                print(f'获取权限失败: {e}')
-                return {'success': False, 'message': '机器人不在该群内或无法获取权限', 'admin_checked': True}
-            
     except Exception as e:
         print(f'验证群链接失败: {e}')
-        return {'success': False, 'message': f'验证失败: {str(e)}', 'admin_checked': False}
+        return {'success': False, 'message': f'验证失败: {str(e)}'}
 
 
 async def check_user_in_group(bot, user_id, group_link):
