@@ -22,7 +22,7 @@ from database import DB, get_cn_time, get_system_config, get_db_conn
 from core_functions import (
     get_upline_chain, check_user_conditions, update_level_path,
     distribute_vip_rewards, check_user_in_group, check_bot_is_admin,
-    verify_group_link
+    verify_group_link, check_any_bot_in_group
 )
 from bot_commands_addon import (
     handle_bind_group, handle_join_upline, handle_group_link_message,
@@ -368,7 +368,6 @@ async def check_user_group_binding_status(user_id, clients):
         print(f'[群组检测] 检查用户 {user_id} 的群组绑定: {group_link}')
 
         # 使用多机器人逻辑检查是否有机器人仍在群组中且为管理员
-        from core_functions import check_any_bot_in_group
         is_any_bot_in_group, admin_bot_id = await check_any_bot_in_group(clients, group_link)
 
         if not is_any_bot_in_group:
@@ -697,7 +696,6 @@ async def verify_and_handle_upline_group(bot, upline_id, group_link, clients):
     """
     try:
         # 使用 check_any_bot_in_group 检查 (多机器人支持)
-        from core_functions import check_any_bot_in_group
         is_in_group, admin_bot_id = await check_any_bot_in_group(clients, group_link)
 
         if is_in_group and admin_bot_id:
