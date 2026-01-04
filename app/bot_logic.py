@@ -3838,24 +3838,22 @@ async def check_member_status_task():
                                 print(f"[状态检测] ❌ 机器人不是管理员: {group_username}")
                         except Exception as admin_err:
                             print(f"[状态检测] 检查群管失败 {group_username}: {admin_err}")
-                            # 如果检查失败，可能是网络问题或权限问题
-                            # 尝试检查机器人是否至少在这个群组中
-                            try:
-                                # 简单检查：尝试获取群组信息，如果成功说明机器人能访问这个群组
-                                test_chat = await bot.get_entity(group_username)
-                                print(f"[状态检测] 机器人能访问群组 {group_username}，设置is_group_bound=1")
-                                # 如果能获取群组信息，说明链接有效，机器人至少在这个群组中
-                                is_group_bound = 1
-                            except Exception as group_err:
-                                print(f"[状态检测] 机器人无法访问群组 {group_username}: {group_err}")
-                                is_group_bound = 0  # 无法访问，链接可能无效
+                            # 权限检查失败，可能是：
+                            # 1. 机器人不在群组中
+                            # 2. 群组是私有的，机器人无法访问
+                            # 3. 网络或API临时错误
 
-                            # 对于管理员状态的处理
+                            # 对于这种情况，我们无法确定管理员状态
+                            # 如果是已完成任务的用户，保持原有状态
+                            # 如果是新用户，设置为非管理员
                             if current_is_joined_upline == 1:
                                 is_bot_admin = original_is_bot_admin  # 保持原有状态
                                 print(f"[状态检测] 保持原有管理员状态: {original_is_bot_admin}")
                             else:
                                 is_bot_admin = 0  # 新会员默认非管理员
+                                print(f"[状态检测] 新用户默认非管理员状态")
+
+                            # 群组绑定状态保持不变（已在前面设置为1）
 
                         # 【核心修复】如果已经完成加群任务，永久跳过加群检测（永久锁死）
                         if current_is_joined_upline == 1:
