@@ -1,4 +1,5 @@
---- File: ./app/bot_logic.py ---
+./app/bot_logic.py
+-e \n--- FILE: ./app/bot_logic.py ---
 """
 机器人逻辑层 - 统一管理所有Telegram机器人交互
 【核心修复】所有VIP开通路径都调用 distribute_vip_rewards，删除冗余的手写分红逻辑
@@ -298,8 +299,8 @@ def get_main_account_id(telegram_id, username=None):
         conn.close()
         
         if row:
-            print(f"✅ [账号劫持成功] 备用号 {target_id_str} 正在登录 -> 切换为主账号 {row[0]}")
-            return row[0]
+            print(f"✅ [账号映射] {target_id_str} -> 主账号 {row[0]}")
+            return int(row[0]) # 确保返回整数
         
         return telegram_id
     except Exception as e:
@@ -310,14 +311,14 @@ def format_backup_account_display(backup_account):
     """格式化备用号显示"""
     if not backup_account:
         return "未设置"
-    
+
     backup_account_str = str(backup_account).strip()
-    
+
     if backup_account_str.startswith('@'):
         return backup_account_str
     if not backup_account_str.isdigit():
         return f"@{backup_account_str}"
-    
+
     try:
         backup_id = int(backup_account_str)
         backup_member = DB.get_member(backup_id)
@@ -327,6 +328,32 @@ def format_backup_account_display(backup_account):
             return backup_account_str
     except (ValueError, Exception):
         return backup_account_str
+
+def resolve_sender_id(event):
+    """解析发送者ID，支持备用号映射"""
+    original_id = event.sender_id
+    main_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
+
+    # 如果映射成功，返回主号ID；否则返回原始ID
+    return main_id if main_id != original_id else original_id
+
+def get_resolved_sender_info(event):
+    """获取解析后的发送者信息，返回 (original_id, resolved_id)"""
+    original_id = event.sender_id
+    resolved_id = resolve_sender_id(event)
+    return original_id, resolved_id
+
+def with_account_resolution(func):
+    """装饰器：自动处理账号解析"""
+    async def wrapper(event, *args, **kwargs):
+        # 为事件对象添加解析后的ID属性
+        original_id, resolved_id = get_resolved_sender_info(event)
+        event._original_sender_id = original_id
+        event._resolved_sender_id = resolved_id
+        # 保持向后兼容
+        event.sender_id = resolved_id
+        return await func(event, *args, **kwargs)
+    return wrapper
 
 async def check_user_group_binding_status(user_id, clients):
     """检查用户的群组绑定是否仍然有效"""
@@ -378,9 +405,8 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
         conn = get_db_conn()
         c = conn.cursor()
 
-        # 查找所有绑定此群组的用户
-        group_link_pattern = f'%{chat_id}%'
-        c.execute('SELECT telegram_id, username, group_link FROM members WHERE group_link LIKE ?', (group_link_pattern,))
+        # 查找所有绑定此群组的用户 (从member_groups表查询)
+        c.execute('SELECT telegram_id, group_name, group_link FROM member_groups WHERE group_id = ?', (chat_id,))
         bound_users = c.fetchall()
         conn.close()
 
@@ -389,16 +415,25 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
             return
 
         # 重置这些用户的群组绑定状态
-        for user_id, username, group_link in bound_users:
+        for user_id, group_name, group_link in bound_users:
             try:
-                # 更新数据库：清除群组绑定和管理员状态
+                # 获取用户真实姓名
                 conn = get_db_conn()
                 c = conn.cursor()
+                c.execute('SELECT username FROM members WHERE telegram_id = ?', (user_id,))
+                user_row = c.fetchone()
+                username = user_row[0] if user_row else f'用户{user_id}'
+
+                # 更新数据库：清除群组绑定和管理员状态
                 c.execute('''
                     UPDATE members
                     SET is_group_bound = 0, is_bot_admin = 0
                     WHERE telegram_id = ?
                 ''', (user_id,))
+
+                # 同时删除member_groups表中的记录
+                c.execute('DELETE FROM member_groups WHERE telegram_id = ? AND group_id = ?', (user_id, chat_id))
+
                 conn.commit()
                 conn.close()
 
@@ -408,6 +443,7 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
 
 您的群组绑定已失效，原因：{reason}
 
+原群组：{group_name}
 原群链接：{group_link}
 
 请重新设置群组绑定以继续获得分红收益。
@@ -416,14 +452,17 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                 '''.strip()
 
                 # 向所有活跃的机器人发送通知
-                from app.config import clients
+                if not clients:
+                    print(f'[通知] ⚠️ 警告：没有活跃的机器人客户端，无法发送通知给用户 {user_id}')
+                    continue
+
                 for client in clients:
                     try:
                         await client.send_message(user_id, notification_msg)
-                        print(f'[通知] 已通知用户 {user_id} ({username}) 群组绑定失效')
+                        print(f'[通知] ✅ 已通知用户 {user_id} ({username}) 群组绑定失效')
                         break  # 成功发送一条就够了
                     except Exception as e:
-                        print(f'[通知] 向用户 {user_id} 发送通知失败: {e}')
+                        print(f'[通知] ❌ 向用户 {user_id} 发送通知失败: {e}')
                         continue
 
             except Exception as e:
@@ -451,7 +490,33 @@ def link_account(main_id, backup_id, backup_username):
         if backup_id:
             existing_member = DB.get_member(backup_id)
             if existing_member and str(backup_id) != str(main_id):
-                return False, "❌ 该账号已注册，不能设置为备用号"
+                # 如果备用号已经注册，使用fallback_accounts表建立关联
+                print(f"[备用号已注册] {backup_id} 已注册，将使用fallback_accounts建立关联")
+                conn = get_db_conn()
+                c = conn.cursor()
+                try:
+                    # 检查是否已经存在关联
+                    c.execute('SELECT main_account_id FROM fallback_accounts WHERE telegram_id = ?', (backup_id,))
+                    existing_fallback = c.fetchone()
+
+                    if existing_fallback and str(existing_fallback[0]) != str(main_id):
+                        conn.close()
+                        return False, "❌ 该账号已经是其他人的备用号了，无法重复绑定"
+
+                    # 插入或更新fallback_accounts
+                    c.execute('''
+                        INSERT OR REPLACE INTO fallback_accounts (telegram_id, main_account_id, username)
+                        VALUES (?, ?, ?)
+                    ''', (backup_id, main_id, clean_username or None))
+                    conn.commit()
+                    conn.close()
+                    return True, f"✅ 备用账号关联成功！\n绑定值: {value_to_store}\n\n备用号已注册，将使用备用关联模式。\n\n请使用备用号访问个人中心测试。"
+                except Exception as e:
+                    try:
+                        conn.close()
+                    except:
+                        pass
+                    return False, f"备用关联设置失败: {e}"
     except Exception as e:
         print(f"[检查备用号是否已注册失败] {e}")
 
@@ -460,15 +525,15 @@ def link_account(main_id, backup_id, backup_username):
     try:
         c.execute('SELECT telegram_id FROM members WHERE backup_account = ?', (str(backup_id),))
         existing_by_id = c.fetchone()
-        
+
         c.execute(
             'SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?',
             (clean_username, f"@{clean_username}")
         )
         existing_by_name = c.fetchone()
-        
+
         existing = existing_by_id or existing_by_name
-        
+
         if existing and str(existing[0]) != str(main_id):
             conn.close()
             return False, "❌ 该账号已经是其他人的备用号了，无法重复绑定"
@@ -718,13 +783,9 @@ async def start_handler(event):
 @multi_bot_on(events.CallbackQuery(data=b'open_vip_balance'))
 async def open_vip_balance_callback(event):
     """【已修复】使用余额开通VIP - 统一调用 distribute_vip_rewards"""
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    
-    telegram_id = event.sender_id
+    original_sender_id, resolved_id = get_resolved_sender_info(event)
+
+    telegram_id = resolved_id
     member = DB.get_member(telegram_id)
     
     if not member:
@@ -776,13 +837,9 @@ async def open_vip_balance_callback(event):
 async def confirm_vip_callback(event):
     """【已修复】确认开通VIP - 统一调用 distribute_vip_rewards"""
     config = get_system_config()
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    
-    member = DB.get_member(event.sender_id)
+    original_sender_id, resolved_id = get_resolved_sender_info(event)
+
+    member = DB.get_member(resolved_id)
     if not member:
         await event.answer('请先发送 /start 注册')
         return
@@ -1124,61 +1181,60 @@ async def fission_handler(event):
 
 @multi_bot_on(events.NewMessage(pattern=BTN_PROFILE))
 async def profile_handler(event):
-    """个人中心"""
-    try:
-        original_id = event.sender_id
-        event.sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
-    except:
-        pass
+    """个人中心 (修复版)"""
+    original_id = event.sender_id
+    print(f"[个人中心] 原始请求者ID: {original_id}")
 
-    member = DB.get_member(event.sender_id)
+    # 【核心修复】解析正确的账号ID（支持备用号映射）
+    resolved_id = resolve_sender_id(event)
+    print(f"[个人中心] 解析结果: {original_id} -> {resolved_id}")
+
+    # 直接使用resolved_id查询
+    print(f"[个人中心] 查询数据库: telegram_id = {resolved_id}")
+    member = DB.get_member(resolved_id)
+    print(f"[个人中心] 数据库查询结果: {member is not None}")
+
     if not member:
-        # 如果是备用号登录，尝试为其创建主账号记录
-        if original_id != event.sender_id:
-            # 这是一个备用号，创建主账号记录
-            username = getattr(event.sender, 'username', None) or f'user_{event.sender_id}'
-            try:
-                DB.create_member(event.sender_id, username, None)  # 创建主账号记录
-                member = DB.get_member(event.sender_id)
-                print(f"✅ 为备用号用户创建了主账号记录: {event.sender_id}")
-            except Exception as e:
-                print(f"❌ 创建主账号记录失败: {e}")
-                await event.respond('请先发送 /start 注册')
-                return
-        else:
-            await event.respond('请先发送 /start 注册')
-            return
-    
+        # 只有当确实查不到记录时，才提示注册
+        print(f"[个人中心] 未找到会员信息: {resolved_id}")
+        await event.respond('❌ 未找到账号信息，请先发送 /start 注册')
+        return
+
+    print(f"[个人中心] 找到会员: {member.get('username')}")
+
+    # 记住解析后的ID，用于后续逻辑
+    main_id = resolved_id
+
+    # 4. 构建界面 (保持原样)
     buttons = [
         [Button.inline('🔗 设置群链接', b'set_group'), Button.inline('✏️ 设置备用号', b'set_backup')],
         [Button.inline('💳 提现', b'withdraw'), Button.inline('💰 充值', b'do_recharge'), Button.inline('💎 开通VIP', b'open_vip')],
         [Button.inline('📊 收益记录', b'earnings_history')],
     ]
-    
+
     backup_display = format_backup_account_display(member.get("backup_account"))
-    
+
     # 获取推荐人信息
     referrer_info = ""
     if member.get("referrer_id"):
         referrer = DB.get_member(member["referrer_id"])
         if referrer:
-            referrer_username = referrer.get("username", "")
-            referrer_info = f'👥 推荐人: @{referrer_username} ({member["referrer_id"]})' if referrer_username else f'👥 推荐人ID: {member["referrer_id"]}'
-        else:
-            referrer_info = f'👥 推荐人ID: {member["referrer_id"]}'
-    
-    text = f'👤 个人中心 (已同步主账号)\n\n'
-    text += f'🆔 主账号ID: `{member["telegram_id"]}`\n'
-    text += f'👤 主账号名: @{member["username"]}\n'
-    if referrer_info:
-        text += f'{referrer_info}\n'
+            r_name = referrer.get("username", "")
+            referrer_info = f'👥 推荐人: @{r_name}' if r_name else f'👥 推荐人ID: {member["referrer_id"]}'
+
+    # 显示信息
+    text = f'👤 个人中心\n\n'
+    text += f'🆔 账号ID: `{member["telegram_id"]}`\n'  # 显示主ID
+    if original_id != main_id:
+        text += f'📱 当前登录: 备用号 ({original_id})\n'
+    text += f'👤 用户名: @{member["username"]}\n'
+    if referrer_info: text += f'{referrer_info}\n'
     text += f'💎 VIP状态: {"✅ 已开通" if member["is_vip"] else "❌ 未开通"}\n'
     text += f'💰 余额: {member["balance"]} U\n'
     text += f'📉 错过余额: {member["missed_balance"]} U\n'
     text += f'🔗 群链接: {member["group_link"] or "未设置"}\n'
     text += f'📱 绑定备用号: {backup_display}\n'
-    text += f'\n📅 注册时间: {member["register_time"][:10] if member["register_time"] else "未知"}'
-    
+
     await event.respond(text, buttons=buttons)
 
 # ==================== 个人中心按钮回调处理 ====================
@@ -1187,24 +1243,25 @@ async def profile_handler(event):
 async def set_group_callback(event):
     """设置群链接回调"""
     # 账号关联处理（备用号->主账号）
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    member = DB.get_member(event.sender_id)
+    original_sender_id = event.sender_id
+    main_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
+
+    member = DB.get_member(main_id)
     if not member:
         await event.answer('请先发送 /start 注册')
         return
+
+    # 记住解析后的ID用于后续逻辑
+    resolved_id = main_id
 
     # VIP check
     if not member.get('is_vip'):
         await send_vip_required_prompt(event)
         return
-    
+
     # 切换到群链接输入时，清理备用号等待状态
-    waiting_for_backup.pop(event.sender_id, None)
-    waiting_for_group_link[event.sender_id] = True
+    waiting_for_backup.pop(resolved_id, None)
+    waiting_for_group_link[resolved_id] = True
     await event.respond(
         '🔗 设置群链接\n\n'
         '请发送您的群链接 (格式: http://t.me/群用户名 或 https://t.me/群用户名)\n\n'
@@ -1216,12 +1273,9 @@ async def set_group_callback(event):
 async def set_backup_callback(event):
     """设置备用号回调"""
     # 账号关联处理（备用号->主账号）
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    member = DB.get_member(event.sender_id)
+    original_sender_id, resolved_id = get_resolved_sender_info(event)
+
+    member = DB.get_member(resolved_id)
     if not member:
         await event.answer('请先发送 /start 注册')
         return
@@ -1230,10 +1284,10 @@ async def set_backup_callback(event):
     if not member.get('is_vip'):
         await send_vip_required_prompt(event)
         return
-    
+
     # 切换到备用号输入时，清理群链接等待状态
-    waiting_for_group_link.pop(event.sender_id, None)
-    waiting_for_backup[event.sender_id] = True
+    waiting_for_group_link.pop(resolved_id, None)
+    waiting_for_backup[resolved_id] = True
     await event.respond(
         '✏️ 设置备用号\n\n'
         '请发送您的备用飞机号 (不带@的用户名或ID)\n\n'
@@ -1245,13 +1299,10 @@ async def set_backup_callback(event):
 async def earnings_history_callback(event):
     """查看个人收益记录"""
     # 账号关联处理（备用号->主账号）
-    try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
-    except:
-        pass
-    member = DB.get_member(event.sender_id)
-    
+    original_sender_id, resolved_id = get_resolved_sender_info(event)
+
+    member = DB.get_member(resolved_id)
+
     if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
         return
@@ -2648,19 +2699,59 @@ async def group_welcome_handler(event):
                 print(f'[机器人检测] 用户离开/被踢出: {kicked_user_id}')
 
                 # 检查是否是我们的机器人被踢出
-                from app.config import clients
+                if not clients:
+                    print(f'[机器人检测] ⚠️ 警告：clients列表为空，无法检测机器人状态')
+                    print(f'[机器人检测] 当前活跃机器人数量: {len(clients)}')
+                    return
+
                 bot_ids = []
                 for client in clients:
                     try:
                         bot_ids.append((await client.get_me()).id)
-                    except:
+                    except Exception as e:
+                        print(f'[机器人检测] 获取机器人ID失败: {e}')
                         continue
 
+                print(f'[机器人检测] 当前活跃机器人ID: {bot_ids}')
+
                 if kicked_user_id in bot_ids:
-                    print(f'[机器人检测] 我们的机器人被踢出群组: {kicked_user_id}')
+                    print(f'[机器人检测] ✅ 检测到我们的机器人被踢出群组: {kicked_user_id}')
                     # 通知所有绑定此群组的用户
                     await notify_group_binding_invalid(event.chat_id, kicked_user_id, "机器人被踢出群组")
                     return
+                else:
+                    print(f'[机器人检测] 普通用户离开/被踢出: {kicked_user_id}')
+
+        # ===== 新增：机器人管理员权限撤销检测 =====
+        elif hasattr(event, 'user_admin') and not event.user_admin:
+            # 检测机器人管理员权限被撤销
+            if hasattr(event, 'user_id'):
+                demoted_user_id = event.user_id
+                print(f'[权限检测] 用户权限变化: {demoted_user_id}, admin={getattr(event, "user_admin", None)}')
+
+                # 检查是否是我们的机器人权限被撤销
+                if not clients:
+                    print(f'[权限检测] ⚠️ 警告：clients列表为空，无法检测机器人状态')
+                    print(f'[权限检测] 当前活跃机器人数量: {len(clients)}')
+                    return
+
+                bot_ids = []
+                for client in clients:
+                    try:
+                        bot_ids.append((await client.get_me()).id)
+                    except Exception as e:
+                        print(f'[权限检测] 获取机器人ID失败: {e}')
+                        continue
+
+                print(f'[权限检测] 当前活跃机器人ID: {bot_ids}')
+
+                if demoted_user_id in bot_ids:
+                    print(f'[权限检测] ✅ 检测到我们的机器人管理员权限被撤销: {demoted_user_id}')
+                    # 通知所有绑定此群组的用户
+                    await notify_group_binding_invalid(event.chat_id, demoted_user_id, "机器人管理员权限被撤销")
+                    return
+                else:
+                    print(f'[权限检测] 普通用户权限被撤销: {demoted_user_id}')
 
         # ===== 群组解散检测 =====
         elif hasattr(event, 'chat_deleted') and event.chat_deleted:
@@ -3050,17 +3141,59 @@ async def message_handler(event):
         # 只允许 http(s)://t.me/ 开头的链接
         if link.startswith('http://t.me/') or link.startswith('https://t.me/'):
             # 验证群链接（使用多机器人逻辑）
-            verification_result = await verify_group_link(bot, link, clients)
-            
+            bot_client = event.client if hasattr(event, 'client') else bot
+            verification_result = await verify_group_link(bot_client, link, clients)
+            print(f'[群绑定] verify_group_link结果: {verification_result}')
+
             if verification_result['success']:
                 # 根据是否成功检测管理员来设置 is_bot_admin
                 is_admin_flag = 1 if verification_result.get('admin_checked') else 0
-                
+
+                # 获取群组的chat_id（用于member_groups表）
+                group_id = None
+                try:
+                    print(f'[群绑定] 开始解析链接: {link}')
+                    if link.startswith('http://t.me/') or link.startswith('https://t.me/'):
+                        tail = link.replace('http://t.me/', '').replace('https://t.me/', '').split('?')[0]
+                        print(f'[群绑定] 提取的tail: {tail}')
+                        if not tail.startswith('+') and not tail.startswith('joinchat/'):
+                            # 公开群，可以获取实体
+                            username = tail
+                            print(f'[群绑定] 尝试获取实体: {username}')
+                            try:
+                                # 使用触发事件的机器人实例
+                                bot_client = event.client if hasattr(event, 'client') else bot
+                                print(f'[群绑定] 使用机器人实例: {bot_client}')
+                                entity = await bot_client.get_entity(username)
+                                print(f'[群绑定] 获取到实体: {entity}')
+                                print(f'[群绑定] 实体类型: {type(entity)}')
+                                group_id = getattr(entity, 'id', None)
+                                print(f'[群绑定] 获取到群组ID: {group_id} for {username}')
+                                if group_id is None:
+                                    print(f'[群绑定] 警告: entity.id 为None，尝试其他属性')
+                                    # 尝试其他可能的ID属性
+                                    for attr in ['id', 'chat_id', 'channel_id']:
+                                        if hasattr(entity, attr):
+                                            potential_id = getattr(entity, attr)
+                                            print(f'[群绑定] {attr}: {potential_id}')
+                            except Exception as e:
+                                print(f'[群绑定] 获取群组ID失败: {e}')
+                                import traceback
+                                traceback.print_exc()
+                        else:
+                            print(f'[群绑定] 私有链接，跳过ID获取: {tail}')
+                    else:
+                        print(f'[群绑定] 非t.me链接，跳过ID获取')
+                except Exception as e:
+                    print(f'[群绑定] 获取群组ID异常: {e}')
+                    import traceback
+                    traceback.print_exc()
+
                 DB.update_member(sender_id, group_link=link, is_group_bound=1, is_bot_admin=is_admin_flag)
                 try:
                     sender_username = getattr(event.sender, 'username', None) if hasattr(event, 'sender') else None
                     from database import upsert_member_group
-                    upsert_member_group(sender_id, link, sender_username, is_bot_admin=is_admin_flag)
+                    upsert_member_group(sender_id, link, sender_username, is_bot_admin=is_admin_flag, group_id=group_id)
                 except Exception as sync_err:
                     print(f'[绑定群写入member_groups失败] {sync_err}')
                 del waiting_for_group_link[sender_id]
@@ -3674,8 +3807,8 @@ __all__ = [
     'process_notify_queue'
 ]
 
--e \n
---- File: ./app/run.py ---
+./app/run.py
+-e \n--- FILE: ./app/run.py ---
 """
 启动入口 - 统一启动Bot和Web后台
 """
@@ -3753,8 +3886,8 @@ def main():
 if __name__ == '__main__':
     main()
 
--e \n
---- File: ./app/web_app.py ---
+./app/web_app.py
+-e \n--- FILE: ./app/web_app.py ---
 """
 Web后台层 - 统一管理所有Flask路由
 所有路由都在此文件中直接定义，不再依赖外部路由文件
@@ -4374,93 +4507,117 @@ def api_group_send_broadcasts(group_id):
 @app.route('/api/member/<int:telegram_id>/graph')
 @login_required
 def api_member_graph(telegram_id):
-    """获取会员关系图谱"""
-    conn = get_db_conn()
-    c = conn.cursor()
+    """获取会员关系图谱 (修复版：确保返回完整结构)"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
 
-    # 获取当前会员
-    c.execute("""SELECT telegram_id, username, balance, is_vip, referrer_id,
-        is_group_bound, is_bot_admin, is_joined_upline, direct_count, team_count, total_earned
-        FROM members WHERE telegram_id = ?""", (telegram_id,))
-    row = c.fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'error': '会员不存在'}), 404
+        # 1. 获取当前会员
+        c.execute("""SELECT telegram_id, username, balance, is_vip, referrer_id,
+            is_group_bound, is_bot_admin, is_joined_upline, direct_count, team_count, total_earned
+            FROM members WHERE telegram_id = ?""", (telegram_id,))
+        row = c.fetchone()
 
-    center = {
-        'telegram_id': row[0], 'username': row[1], 'balance': row[2],
-        'is_vip': row[3], 'referrer_id': row[4], 'is_group_bound': row[5],
-        'is_bot_admin': row[6], 'is_joined_upline': row[7],
-        'direct_count': row[8] or 0, 'team_count': row[9] or 0, 'total_earned': row[10] or 0
-    }
+        # 即使找不到会员，也不要返回 404 导致前端崩溃，而是返回一个空的占位对象
+        if not row:
+            center = {
+                'telegram_id': telegram_id, 'username': '未知/不存在', 'balance': 0,
+                'is_vip': 0, 'referrer_id': None, 'is_group_bound': 0,
+                'is_bot_admin': 0, 'is_joined_upline': 0,
+                'direct_count': 0, 'team_count': 0, 'total_earned': 0
+            }
+        else:
+            center = {
+                'telegram_id': row[0], 'username': row[1] or '未设置', 'balance': row[2] or 0,
+                'is_vip': row[3], 'referrer_id': row[4], 'is_group_bound': row[5],
+                'is_bot_admin': row[6], 'is_joined_upline': row[7],
+                'direct_count': row[8] or 0, 'team_count': row[9] or 0, 'total_earned': row[10] or 0
+            }
 
-    # 获取上级链（向上10层）
-    uplines = []
-    current_ref = row[4]  # referrer_id
-    level = 1
-    while current_ref and level <= 10:
-        c.execute("""SELECT telegram_id, username, is_vip, referrer_id,
-            is_group_bound, is_bot_admin, is_joined_upline
-            FROM members WHERE telegram_id = ?""", (current_ref,))
-        ref_row = c.fetchone()
-        if not ref_row:
-            break
+        # 2. 获取上级链（向上10层）
+        uplines = []
+        current_ref = center['referrer_id']
+        level = 1
 
-        # 计算直推人数（直接下级）
-        c.execute('SELECT COUNT(*) FROM members WHERE referrer_id = ?', (ref_row[0],))
-        direct_count = c.fetchone()[0]
+        # 防止死循环
+        seen_ids = {telegram_id}
 
-        # 计算团队人数（所有下级，包括间接下级）
-        c.execute("""
-            SELECT COUNT(*) FROM members
-            WHERE level_path LIKE ? AND telegram_id != ?
-        """, (f'%/{ref_row[0]}/%', ref_row[0]))
-        team_count = c.fetchone()[0]
+        while current_ref and level <= 10:
+            if current_ref in seen_ids: break
+            seen_ids.add(current_ref)
 
-        uplines.append({
-            'telegram_id': ref_row[0], 'username': ref_row[1], 'is_vip': ref_row[2],
-            'level': level, 'is_group_bound': ref_row[4], 'is_bot_admin': ref_row[5],
-            'is_joined_upline': ref_row[6], 'direct_count': direct_count, 'team_count': team_count
-        })
-        current_ref = ref_row[3]  # 继续向上查找
-        level += 1
+            c.execute("""SELECT telegram_id, username, is_vip, referrer_id,
+                is_group_bound, is_bot_admin, is_joined_upline
+                FROM members WHERE telegram_id = ?""", (current_ref,))
+            ref_row = c.fetchone()
 
-    # 获取下级（向下10层）
-    downlines = []
-    def get_downline_with_counts(parent_id, current_level=1, max_level=10):
-        if current_level > max_level:
-            return
+            if not ref_row:
+                # 可能是捡漏账号或者数据不一致，添加一个占位符
+                uplines.append({
+                    'telegram_id': current_ref, 'username': '未知/系统号', 'is_vip': 1,
+                    'level': level, 'is_group_bound': 1, 'is_bot_admin': 1, 'is_joined_upline': 1,
+                    'direct_count': 0, 'team_count': 0
+                })
+                break
 
-        # 获取直接下级
-        c.execute("""SELECT telegram_id, username, is_vip, referrer_id,
-            is_group_bound, is_bot_admin, is_joined_upline
-            FROM members WHERE referrer_id = ? ORDER BY telegram_id""", (parent_id,))
+            # 实时计算该用户的直推和团队数量
+            downline_counts = DB.get_downline_count(ref_row[0], 10)
+            direct_count = downline_counts[0]['total'] if downline_counts and len(downline_counts) > 0 else 0
+            team_count = sum(item.get('total', 0) for item in downline_counts) if downline_counts else 0
 
-        for row in c.fetchall():
-            # 计算直推人数（这个下级的直接下级）
-            c.execute('SELECT COUNT(*) FROM members WHERE referrer_id = ?', (row[0],))
-            direct_count = c.fetchone()[0]
-
-            # 计算团队人数（这个下级的所有下级）
-            c.execute("""
-                SELECT COUNT(*) FROM members
-                WHERE level_path LIKE ? AND telegram_id != ?
-            """, (f'%/{row[0]}/%', row[0]))
-            team_count = c.fetchone()[0]
-
-            downlines.append({
-                'telegram_id': row[0], 'username': row[1], 'is_vip': row[2],
-                'level': current_level, 'is_group_bound': row[4], 'is_bot_admin': row[5],
-                'is_joined_upline': row[6], 'direct_count': direct_count, 'team_count': team_count
+            uplines.append({
+                'telegram_id': ref_row[0], 'username': ref_row[1] or '未设置', 'is_vip': ref_row[2],
+                'level': level, 'is_group_bound': ref_row[4], 'is_bot_admin': ref_row[5],
+                'is_joined_upline': ref_row[6], 'direct_count': direct_count, 'team_count': team_count
             })
+            current_ref = ref_row[3]
+            level += 1
 
-            # 递归获取下一层
-            get_downline_with_counts(row[0], current_level + 1, max_level)
+        # 3. 获取下级（向下10层）
+        downlines = []
+        def get_downline_recursive(parent_id, current_level=1, max_level=10):
+            if current_level > max_level: return
 
-    get_downline_with_counts(telegram_id)
+            c.execute("""SELECT telegram_id, username, is_vip, referrer_id,
+                is_group_bound, is_bot_admin, is_joined_upline
+                FROM members WHERE referrer_id = ? LIMIT 50""", (parent_id,))  # 限制数量防止过大
 
-    conn.close()
-    return jsonify({'center': center, 'uplines': uplines, 'downlines': downlines})
+            rows = c.fetchall()
+            for row in rows:
+                # 实时计算该用户的直推和团队数量
+                downline_counts = DB.get_downline_count(row[0], 10)  # 获取10层数据
+                direct_count = downline_counts[0]['total'] if downline_counts and len(downline_counts) > 0 else 0
+                team_count = sum(item.get('total', 0) for item in downline_counts) if downline_counts else 0
+
+                downlines.append({
+                    'telegram_id': row[0], 'username': row[1] or '未设置', 'is_vip': row[2],
+                    'level': current_level, 'is_group_bound': row[4], 'is_bot_admin': row[5],
+                    'is_joined_upline': row[6], 'direct_count': direct_count, 'team_count': team_count
+                })
+                # 递归
+                get_downline_recursive(row[0], current_level + 1, max_level)
+
+        get_downline_recursive(telegram_id)
+
+        conn.close()
+        return jsonify({
+            'success': True,
+            'center': center,
+            'uplines': uplines,
+            'downlines': downlines
+        })
+    except Exception as e:
+        print(f"[Graph Error] {e}")
+        import traceback
+        traceback.print_exc()
+        # 返回一个空结构防止前端报错
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'center': {'telegram_id': telegram_id, 'username': 'Error'},
+            'uplines': [],
+            'downlines': []
+        })
 
 @app.route('/api/statistics')
 @login_required
@@ -6357,8 +6514,8 @@ def run_web():
 
 __all__ = ['app', 'run_web']
 
--e \n
---- File: ./app/config.py ---
+./app/config.py
+-e \n--- FILE: ./app/config.py ---
 """
 配置文件
 统一管理项目路径和配置
@@ -6441,8 +6598,8 @@ PROXY_TYPE = os.getenv('PROXY_TYPE') or _env_config.get('PROXY_TYPE', 'socks5')
 PROXY_HOST = os.getenv('PROXY_HOST') or _env_config.get('PROXY_HOST', '127.0.0.1')
 PROXY_PORT = int(os.getenv('PROXY_PORT') or _env_config.get('PROXY_PORT', '7897'))
 
--e \n
---- File: ./app/core_functions.py ---
+./app/core_functions.py
+-e \n--- FILE: ./app/core_functions.py ---
 """
 核心功能模块
 包含群组检测、层级计算、分红分配等核心逻辑
@@ -7170,8 +7327,8 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
             conn.close()
 
     return reward_stats
--e \n
---- File: ./app/database.py ---
+./app/database.py
+-e \n--- FILE: ./app/database.py ---
 """
 数据库层 - 统一管理所有数据库操作
 """
@@ -8148,7 +8305,7 @@ def upgrade_broadcast_table():
     conn.commit()
     conn.close()
 
-def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_admin=1):
+def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_admin=1, group_id=None):
     """
     写入或更新 member_groups 表，便于后台列表展示。
     默认 is_bot_admin=1，因为验证通过后才会调用。
@@ -8162,21 +8319,37 @@ def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_adm
         row = c.fetchone()
         now = get_cn_time()
         if row:
+            # 更新现有记录
+            update_fields = ['group_link = ?']
+            update_values = [group_link]
+
+            if owner_username is not None:
+                update_fields.append('owner_username = ?')
+                update_values.append(owner_username)
+
+            if group_id is not None:
+                update_fields.append('group_id = ?')
+                update_values.append(group_id)
+
+            update_values.append(row[0])  # WHERE id = ?
+
             c.execute(
-                '''UPDATE member_groups 
-                   SET group_link = ?, owner_username = COALESCE(?, owner_username)
+                f'''UPDATE member_groups
+                   SET {', '.join(update_fields)}
                  WHERE id = ?''',
-                (group_link, owner_username, row[0])
+                update_values
             )
         else:
+            # 插入新记录
             c.execute(
-                '''INSERT INTO member_groups 
-                   (telegram_id, group_name, group_link, is_bot_admin, create_time, owner_username, group_type, schedule_broadcast)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                (telegram_id, '', group_link, is_bot_admin, now, owner_username or '', 'group', 1)
+                '''INSERT INTO member_groups
+                   (telegram_id, group_id, group_name, group_link, is_bot_admin, create_time, owner_username, group_type, schedule_broadcast)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (telegram_id, group_id, '', group_link, is_bot_admin, now, owner_username or '', 'group', 1)
             )
         conn.commit()
         conn.close()
+        print(f'[member_groups upsert] 成功写入用户 {telegram_id} 的群组绑定，group_id={group_id}')
     except Exception as e:
         print(f'[member_groups upsert] error: {e}')
 
@@ -8202,8 +8375,8 @@ upgrade_members_table()
 upgrade_member_groups_table()
 upgrade_broadcast_table()
 
--e \n
---- File: ./app/payment.py ---
+./app/payment.py
+-e \n--- FILE: ./app/payment.py ---
 """
 支付相关功能模块
 包含USDT充值、支付订单创建、支付状态检查等功能
@@ -8520,8 +8693,8 @@ __all__ = [
     'PAYMENT_CONFIG'
 ]
 
--e \n
---- File: ./app/bot_commands_addon.py ---
+./app/bot_commands_addon.py
+-e \n--- FILE: ./app/bot_commands_addon.py ---
 """
 机器人命令扩展模块
 添加群组绑定、检测等新功能命令
@@ -8753,8 +8926,8 @@ COMMAND_HELP = """
 💡 完成所有条件后，您的下级开通VIP时
    您将获得 1U 分红！
 """
--e \n
---- File: ./templates/withdrawals.html ---
+./templates/withdrawals.html
+-e \n--- FILE: ./templates/withdrawals.html ---
 {% extends "base.html" %}
 
 {% block title %}提现管理{% endblock %}
@@ -8990,8 +9163,8 @@ COMMAND_HELP = """
 })();
 </script>
 {% endblock %}
--e \n
---- File: ./templates/fallback_accounts.html ---
+./templates/fallback_accounts.html
+-e \n--- FILE: ./templates/fallback_accounts.html ---
 {% extends "base.html" %}
 
 {% block content %}
@@ -9248,8 +9421,8 @@ COMMAND_HELP = """
     });
 </script>
 {% endblock %}
--e \n
---- File: ./templates/bot_settings.html ---
+./templates/bot_settings.html
+-e \n--- FILE: ./templates/bot_settings.html ---
 {% extends "base.html" %}
 
 {% block title %}机器人设置{% endblock %}
@@ -9744,8 +9917,8 @@ function showToast(title, message, type = 'success') {
 </script>
 
 {% endblock %}
--e \n
---- File: ./templates/index.html ---
+./templates/index.html
+-e \n--- FILE: ./templates/index.html ---
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -10160,7 +10333,15 @@ function showToast(title, message, type = 'success') {
         async function viewMember(telegramId) {
             try {
                 const response = await fetch(`/api/member/${telegramId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
                 const member = await response.json();
+
+                // 检查返回的数据是否有效
+                if (!member || typeof member !== 'object' || !member.telegram_id) {
+                    throw new Error('获取会员信息失败：数据格式错误');
+                }
                 
                 const createRow = (label, value) => `
                     <div class="flex justify-between py-3 border-b border-slate-100 last:border-0">
@@ -10209,7 +10390,15 @@ function showToast(title, message, type = 'success') {
         async function editMember(telegramId) {
             try {
                 const response = await fetch(`/api/member/${telegramId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
                 currentMember = await response.json();
+
+                // 检查返回的数据是否有效
+                if (!currentMember || typeof currentMember !== 'object' || !currentMember.telegram_id) {
+                    throw new Error('获取会员信息失败：数据格式错误');
+                }
                 
                 const html = `
                     <div class="space-y-4">
@@ -10327,8 +10516,8 @@ function showToast(title, message, type = 'success') {
     </script>
 </body>
 </html>
--e \n
---- File: ./templates/team_graph_all.html ---
+./templates/team_graph_all.html
+-e \n--- FILE: ./templates/team_graph_all.html ---
 {% extends "base.html" %}
 
 {% block title %}团队图谱{% endblock %}
@@ -10478,9 +10667,13 @@ async function loadTree() {
 
         allMembers = data.members;
 
-        // 构建映射
+        // 构建映射 (添加数据验证)
         memberMap = {};
-        allMembers.forEach(m => memberMap[m.telegram_id] = m);
+        allMembers.forEach(m => {
+            if (m && m.telegram_id) {
+                memberMap[m.telegram_id] = m;
+            }
+        });
 
         // 找出顶级用户 (没有推荐人，或推荐人不在现有列表中)
         const topMembers = allMembers.filter(m => {
@@ -10511,7 +10704,10 @@ function renderNode(member, depth) {
     const tgId = member.telegram_id || 'ID未知';
     const isVip = member.is_vip;
 
-    const children = allMembers.filter(m => m.referrer_id === member.telegram_id);
+    // 安全过滤子节点 (确保m和member都有有效的telegram_id)
+    const children = allMembers.filter(m =>
+        m && m.referrer_id && member.telegram_id && m.referrer_id === member.telegram_id
+    );
     const hasChildren = children.length > 0;
     const isTopLevel = depth === 0;
     
@@ -10594,8 +10790,11 @@ function searchMember() {
     
     // 搜索匹配
     allMembers.forEach(m => {
-        if (m.username.toLowerCase().includes(query) || 
-            m.telegram_id.toString().includes(query)) {
+        if (!m) return; // 跳过无效成员
+        const username = m.username || '';
+        const telegramId = m.telegram_id || '';
+        if (username.toLowerCase().includes(query) ||
+            telegramId.toString().includes(query)) {
             // 高亮并展开到该节点
             const item = document.querySelector(`[data-id="${m.telegram_id}"]`);
             if (item) {
@@ -10629,8 +10828,8 @@ document.getElementById('searchInput').addEventListener('keypress', function(e) 
 document.addEventListener('DOMContentLoaded', loadTree);
 </script>
 {% endblock %}
--e \n
---- File: ./templates/customer_service.html ---
+./templates/customer_service.html
+-e \n--- FILE: ./templates/customer_service.html ---
 {% extends "base.html" %}
 
 {% block title %}客服管理{% endblock %}
@@ -10797,8 +10996,8 @@ let currentServiceId = null;
         document.addEventListener('DOMContentLoaded', loadServices);
 </script>
 {% endblock %}
--e \n
---- File: ./templates/base.html ---
+./templates/base.html
+-e \n--- FILE: ./templates/base.html ---
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -11022,8 +11221,8 @@ let currentServiceId = null;
 </body>
 </html>
 
--e \n
---- File: ./templates/recharges.html ---
+./templates/recharges.html
+-e \n--- FILE: ./templates/recharges.html ---
 {% extends "base.html" %}
 
 {% block title %}充值管理{% endblock %}
@@ -11402,8 +11601,8 @@ function showRechargeTip(msg, type='info') {
 }
 </script>
 {% endblock %}
--e \n
---- File: ./templates/login.html ---
+./templates/login.html
+-e \n--- FILE: ./templates/login.html ---
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -11567,8 +11766,8 @@ function showRechargeTip(msg, type='info') {
 </body>
 </html>
 
--e \n
---- File: ./templates/dashboard.html ---
+./templates/dashboard.html
+-e \n--- FILE: ./templates/dashboard.html ---
 {% extends "base.html" %}
 
 {% block title %}数据统计 - 裂变机器人后台{% endblock %}
@@ -11858,8 +12057,8 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 {% endblock %}
--e \n
---- File: ./templates/member_groups.html ---
+./templates/member_groups.html
+-e \n--- FILE: ./templates/member_groups.html ---
 {% extends "base.html" %}
 
 {% block title %}会员群管理{% endblock %}
@@ -12452,8 +12651,8 @@ function closeModal(id) { document.getElementById(id).classList.remove('show'); 
 document.addEventListener('DOMContentLoaded', loadGroups);
 </script>
 {% endblock %}
--e \n
---- File: ./templates/statistics.html ---
+./templates/statistics.html
+-e \n--- FILE: ./templates/statistics.html ---
 {% extends "base.html" %}
 
 {% block title %}统计报表{% endblock %}
@@ -12718,8 +12917,8 @@ document.addEventListener('DOMContentLoaded', loadGroups);
         });
 </script>
 {% endblock %}
--e \n
---- File: ./templates/resources.html ---
+./templates/resources.html
+-e \n--- FILE: ./templates/resources.html ---
 {% extends "base.html" %}
 
 {% block title %}行业资源{% endblock %}
@@ -13104,8 +13303,8 @@ function closeResourceModal() {
 document.addEventListener('DOMContentLoaded', loadCategories);
 </script>
 {% endblock %}
--e \n
---- File: ./templates/members.html ---
+./templates/members.html
+-e \n--- FILE: ./templates/members.html ---
 {% extends "base.html" %}
 
 {% block title %}会员管理{% endblock %}
@@ -13412,7 +13611,7 @@ async function loadStatistics() {
         const response = await fetch('/api/statistics');
         const data = await response.json();
         console.log('Graph API Response:', data);
-        console.log('downline_by_level:', data.downline_by_level);
+        console.log('downlines:', data.downlines);
         document.getElementById('totalMembers').textContent = data.total_members.toLocaleString();
         document.getElementById('vipMembers').textContent = data.vip_members.toLocaleString();
         document.getElementById('totalBalance').textContent = data.total_balance.toFixed(2);
@@ -13432,7 +13631,7 @@ async function loadMembers(page = currentPage) {
         const response = await fetch(`/api/members?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&filter=${filterType}`);
         const data = await response.json();
         console.log('Graph API Response:', data);
-        console.log('downline_by_level:', data.downline_by_level);
+        console.log('downlines:', data.downlines);
         displayMembers(data.members);
         displayPagination(data);
         document.getElementById('totalCount').textContent = data.total;
@@ -13804,25 +14003,49 @@ function toggleLevel(level) {
 
 async function showGraph(telegramId) {
     try {
+        console.log('开始加载图谱数据, telegramId:', telegramId);
+
         const response = await fetch(`/api/member/${telegramId}/graph`);
+        console.log('API响应状态:', response.status);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
         const data = await response.json();
-        console.log('Graph API Response:', data);
-        console.log('downline_by_level:', data.downline_by_level);
+        console.log('API返回的完整数据:', data);
+
+        // 检查返回的数据是否有效
+        if (!data || typeof data !== 'object') {
+            throw new Error('图谱数据格式错误');
+        }
+
+        // 安全检查所有关键属性
+        if (data.center === undefined) {
+            console.warn('警告: data.center 未定义');
+        }
+        if (data.uplines === undefined) {
+            console.warn('警告: data.uplines 未定义');
+        }
+        if (data.downlines === undefined) {
+            console.warn('警告: data.downlines 未定义');
+        }
         
         let html = '<div class="space-y-6">';
         
         // 上级链
         html += '<div class="bg-blue-50 rounded-lg p-4">';
         html += '<h4 class="font-bold text-blue-800 mb-3 flex items-center gap-2"><i class="ti ti-arrow-up"></i> 上级链</h4>';
-        if (data.upline && data.upline.length > 0) {
+        const uplines = data.uplines || data.upline || [];
+        if (uplines && uplines.length > 0) {
             html += '<div class="space-y-2">';
-            data.upline.forEach((u, i) => {
+            uplines.forEach((u, i) => {
+                if (!u) return; // 跳过无效数据
                 const levelName = i === 0 ? '上一层' : (i === 1 ? '上二层' : `上${i+1}层`);
                 const statusClass = u.is_valid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
                 const statusText = u.is_valid ? '正常' : '异常';
                 html += `<div class="flex items-center gap-3 bg-white rounded-lg p-3 border">
                     <span class="px-2 py-1 text-xs rounded bg-blue-100 text-blue-700 font-bold">${levelName}</span>
-                    <span class="font-mono">${u.telegram_id}</span>
+                    <span class="font-mono">${u.telegram_id || '未知'}</span>
                     <span class="text-indigo-600 font-medium">@${u.username || 'N/A'}</span>
                     <span class="px-2 py-0.5 text-xs rounded ${u.is_vip ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}">${u.is_vip ? 'VIP' : '普通'}</span>
                     <span class="text-slate-500">直推:${u.direct_count || 0}</span>
@@ -13839,22 +14062,35 @@ async function showGraph(telegramId) {
         // 当前用户
         html += '<div class="bg-indigo-100 rounded-lg p-4">';
         html += '<h4 class="font-bold text-indigo-800 mb-3 flex items-center gap-2"><i class="ti ti-user"></i> 当前会员</h4>';
-        html += `<div class="bg-white rounded-lg p-3 border-2 border-indigo-400">
-            <div class="flex items-center gap-3">
-                <span class="font-mono text-lg">${data.current.telegram_id}</span>
-                <span class="text-indigo-600 font-bold text-lg">@${data.current.username || 'N/A'}</span>
-                <span class="px-2 py-0.5 text-xs rounded ${data.current.is_vip ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}">${data.current.is_vip ? 'VIP' : '普通'}</span>
-                <span class="text-emerald-600 font-bold">${data.current.balance}U</span>
-            </div>
-        </div>`;
+        const current = data.current || data.center;
+        if (current) {
+            html += `<div class="bg-white rounded-lg p-3 border-2 border-indigo-400">
+                <div class="flex items-center gap-3">
+                    <span class="font-mono text-lg">${current.telegram_id || '未知'}</span>
+                    <span class="text-indigo-600 font-bold text-lg">@${current.username || 'N/A'}</span>
+                    <span class="px-2 py-0.5 text-xs rounded ${current.is_vip ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}">${current.is_vip ? 'VIP' : '普通'}</span>
+                    <span class="text-emerald-600 font-bold">${current.balance || 0}U</span>
+                </div>
+            </div>`;
+        } else {
+            html += '<div class="bg-white rounded-lg p-3 border-2 border-red-400 text-red-600">无法获取当前用户信息</div>';
+        }
         html += '</div>';
         
         // 下级成员（兼容新旧API）
         html += '<div class="bg-green-50 rounded-lg p-4">';
         html += '<h4 class="font-bold text-green-800 mb-3 flex items-center gap-2"><i class="ti ti-arrow-down"></i> 下级成员</h4>';
         
-        // 兼容旧API格式 (data.downline) 和新API格式 (data.downline_by_level)
-        let downlineData = data.downline_by_level || (data.downline ? {1: data.downline} : {});
+        // 使用新的API格式 (data.downlines)
+        let downlines = data.downlines || data.downline || [];
+
+        // 转换为层级分组格式
+        let downlineData = {};
+        downlines.forEach(d => {
+            const level = d.level || 1;
+            if (!downlineData[level]) downlineData[level] = [];
+            downlineData[level].push(d);
+        });
         
         if (Object.keys(downlineData).length > 0) {
             const levels = Object.keys(downlineData).sort((a,b) => parseInt(a) - parseInt(b));
@@ -13869,11 +14105,12 @@ async function showGraph(telegramId) {
                         </div>
                         <div id="level-${level}-content" class="grid grid-cols-2 gap-2">`;
                     members.forEach(d => {
+                        if (!d) return; // 跳过无效数据
                         const statusClass = (d.is_group_bound && d.is_bot_admin && d.is_joined_upline) ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700';
                         const statusText = (d.is_group_bound && d.is_bot_admin && d.is_joined_upline) ? '正常' : '未完成';
                         html += `<div class="bg-white rounded-lg p-2 border text-xs">
                             <div class="flex items-center gap-1 flex-wrap">
-                                <span class="font-mono">${d.telegram_id}</span>
+                                <span class="font-mono">${d.telegram_id || '未知'}</span>
                                 <span class="text-indigo-600 font-medium">@${d.username || 'N/A'}</span>
                             </div>
                             <div class="flex items-center gap-1 mt-1">
@@ -13925,8 +14162,8 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 {% endblock %}
--e \n
---- File: ./templates/team_graph.html ---
+./templates/team_graph.html
+-e \n--- FILE: ./templates/team_graph.html ---
 {% extends "base.html" %}
 
 {% block title %}团队图谱{% endblock %}
@@ -13975,28 +14212,60 @@ document.addEventListener('DOMContentLoaded', function() {
         
 </main>
 
-<script>
-        const telegramId = {{ telegram_id }};
-        
+    <script>
+        // 获取telegram_id，如果未定义则使用默认值
+        let telegramId;
+        try {
+            telegramId = {{ telegram_id | tojson }};
+            if (telegramId === null || telegramId === undefined) {
+                telegramId = 0;
+            }
+        } catch (e) {
+            console.error('获取telegram_id失败:', e);
+            telegramId = 0;
+        }
+
+        console.log('初始化telegramId:', telegramId);
+
         async function loadGraph() {
             try {
-                const res = await fetch(`/api/member/${telegramId}/graph`);
-                const data = await res.json();
+                // 显示加载状态
+                document.getElementById('centerContent').innerHTML = '<p class="text-slate-400">正在加载数据...</p>';
+                document.getElementById('uplinesContent').innerHTML = '<p class="text-slate-400">正在加载...</p>';
+                document.getElementById('downlinesContent').innerHTML = '<p class="text-slate-400">正在加载...</p>';
 
-                if (data.error) {
-                    alert('加载失败: ' + data.error);
-                    return;
+                const apiUrl = `/api/member/${telegramId}/graph`;
+                console.log('请求API:', apiUrl);
+
+                const res = await fetch(apiUrl);
+                console.log('API响应状态:', res.status);
+
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                 }
 
-                // 修复：确保 data.center 存在
-                const center = data.center || {};
+                const data = await res.json();
+                console.log('API返回数据:', data);
+
+                // 检查数据结构
+                if (!data || typeof data !== 'object') {
+                    throw new Error('API返回数据格式错误');
+                }
+
+                // 获取中心用户信息
+                const center = data.center;
+                if (!center || typeof center !== 'object') {
+                    throw new Error('用户中心数据不存在');
+                }
+
+                console.log('中心用户:', center);
 
                 // 显示中心用户
-                document.getElementById('centerContent').innerHTML = `
+                const centerHtml = `
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <p class="text-lg font-bold text-slate-900">@${center.username || '未知'}</p>
-                            <p class="text-sm text-slate-600">ID: ${center.telegram_id || telegramId}</p>
+                            <p class="text-sm text-slate-600">ID: ${center.telegram_id || '未知'}</p>
                         </div>
                         <div class="text-right">
                             <p class="text-sm text-slate-600">余额: <span class="font-bold text-indigo-600">${center.balance || 0} U</span></p>
@@ -14009,69 +14278,107 @@ document.addEventListener('DOMContentLoaded', function() {
                         </span>
                     </div>
                 `;
+                document.getElementById('centerContent').innerHTML = centerHtml;
 
-                // 显示上级 (兼容 uplines 或 upline 字段)
-                const uplines = data.uplines || data.upline || [];
-                if (uplines.length > 0) {
-                    document.getElementById('uplinesContent').innerHTML = uplines.map(u => `
-                        <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200 hover:bg-indigo-50 hover:border-indigo-300 transition">
-                            <span class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center font-bold text-indigo-700">L${u.level || '?'}</span>
-                            <div class="flex-1">
-                                <p class="font-semibold text-slate-900">@${u.username || '未知'}</p>
-                                <p class="text-xs text-slate-500">ID: ${u.telegram_id}</p>
+                // 显示上级
+                const uplines = data.uplines || [];
+                console.log('上级数量:', uplines.length);
+
+                if (uplines && uplines.length > 0) {
+                    const uplinesHtml = uplines.map(u => {
+                        if (!u || typeof u !== 'object') return '';
+                        return `
+                            <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200 hover:bg-indigo-50 hover:border-indigo-300 transition">
+                                <span class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center font-bold text-indigo-700">L${u.level || '?'}</span>
+                                <div class="flex-1">
+                                    <p class="font-semibold text-slate-900">@${u.username || '未知'}</p>
+                                    <p class="text-xs text-slate-500">ID: ${u.telegram_id || '未知'}</p>
+                                </div>
+                                <div class="flex gap-2">
+                                    <span class="text-lg" title="${u.is_vip ? 'VIP' : '非VIP'}">${u.is_vip ? '💎' : '❌'}</span>
+                                </div>
                             </div>
-                            <div class="flex gap-2">
-                                <span class="text-lg" title="${u.is_vip ? 'VIP' : '非VIP'}">${u.is_vip ? '💎' : '❌'}</span>
-                            </div>
-                        </div>
-                    `).join('');
+                        `;
+                    }).join('');
+                    document.getElementById('uplinesContent').innerHTML = uplinesHtml;
                 } else {
                     document.getElementById('uplinesContent').innerHTML = '<p class="text-slate-400">暂无上级</p>';
                 }
-                
-                // 显示下级 (兼容 downlines 或 downline 字段)
-                const downlines = data.downlines || data.downline || [];
-                if (downlines.length > 0) {
+
+                // 显示下级
+                const downlines = data.downlines || [];
+                console.log('下级数量:', downlines.length);
+
+                if (downlines && downlines.length > 0) {
                     // 按层级分组
                     const levels = {};
                     downlines.forEach(d => {
+                        if (!d || typeof d !== 'object') return;
                         const lvl = d.level || 1;
                         if (!levels[lvl]) levels[lvl] = [];
                         levels[lvl].push(d);
                     });
 
-                    document.getElementById('downlinesContent').innerHTML = Object.keys(levels).sort((a,b) => a-b).map(level => `
-                        <div class="mb-4">
-                            <h3 class="text-sm font-bold text-slate-700 mb-2">第${level}层 (${levels[level].length}人)</h3>
-                            <div class="space-y-2">
-                                ${levels[level].map(d => `
-                                    <div class="flex items-center gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200 text-sm">
-                                        <div class="flex-1">
-                                            <p class="font-semibold text-slate-900">@${d.username || '未知'}</p>
-                                        </div>
-                                        <div class="flex gap-1">
-                                            <span title="${d.is_vip ? 'VIP' : '非VIP'}">${d.is_vip ? '💎' : '❌'}</span>
-                                        </div>
+                    const downlinesHtml = Object.keys(levels).sort((a,b) => a-b).map(level => {
+                        const members = levels[level];
+                        if (!members || members.length === 0) return '';
+
+                        const membersHtml = members.map(d => {
+                            if (!d || typeof d !== 'object') return '';
+                            return `
+                                <div class="flex items-center gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200 text-sm">
+                                    <div class="flex-1">
+                                        <p class="font-semibold text-slate-900">@${d.username || '未知'}</p>
                                     </div>
-                                `).join('')}
+                                    <div class="flex gap-1">
+                                        <span title="${d.is_vip ? 'VIP' : '非VIP'}">${d.is_vip ? '💎' : '❌'}</span>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+
+                        return `
+                            <div class="mb-4">
+                                <h3 class="text-sm font-bold text-slate-700 mb-2">第${level}层 (${members.length}人)</h3>
+                                <div class="space-y-2">
+                                    ${membersHtml}
+                                </div>
                             </div>
-                        </div>
-                    `).join('');
+                        `;
+                    }).join('');
+
+                    document.getElementById('downlinesContent').innerHTML = downlinesHtml;
                 } else {
                     document.getElementById('downlinesContent').innerHTML = '<p class="text-slate-400">暂无下级</p>';
                 }
-                
+
+                console.log('图谱加载完成');
+
             } catch (error) {
-                console.error('加载失败:', error);
-                alert('加载失败: ' + error.message);
+                console.error('图谱加载失败:', error);
+
+                // 显示错误信息
+                const errorHtml = `<div class="text-red-500 p-4 bg-red-50 rounded-lg border border-red-200">
+                    <h3 class="font-bold mb-2">数据加载失败</h3>
+                    <p class="text-sm">${error.message}</p>
+                    <p class="text-xs mt-2 text-gray-500">请刷新页面重试或联系管理员</p>
+                </div>`;
+
+                document.getElementById('centerContent').innerHTML = errorHtml;
+                document.getElementById('uplinesContent').innerHTML = '';
+                document.getElementById('downlinesContent').innerHTML = '';
             }
         }
-        
-loadGraph();
-</script>
+
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('页面加载完成，开始加载图谱数据');
+            loadGraph();
+        });
+    </script>
 {% endblock %}
--e \n
---- File: ./templates/earnings.html ---
+./templates/earnings.html
+-e \n--- FILE: ./templates/earnings.html ---
 {% extends "base.html" %}
 
 {% block title %}收益记录{% endblock %}
@@ -14224,8 +14531,8 @@ loadGraph();
 </script>
 {% endblock %}
 
--e \n
---- File: ./templates/settings.html ---
+./templates/settings.html
+-e \n--- FILE: ./templates/settings.html ---
 {% extends "base.html" %}
 
 {% block title %}系统配置中心{% endblock %}
@@ -14869,8 +15176,8 @@ loadGraph();
         });
 </script>
 {% endblock %}
--e \n
---- File: ./templates/level_settings.html ---
+./templates/level_settings.html
+-e \n--- FILE: ./templates/level_settings.html ---
 {% extends "base.html" %}
 
 {% block title %}系统设置{% endblock %}
@@ -15430,8 +15737,8 @@ async function savePaymentConfig() {
 document.addEventListener('DOMContentLoaded', () => loadLevelSettings());
 </script>
 {% endblock %}
--e \n
---- File: ./templates/broadcast.html ---
+./templates/broadcast.html
+-e \n--- FILE: ./templates/broadcast.html ---
 {% extends "base.html" %}
 
 {% block title %}群发管理{% endblock %}
@@ -16004,8 +16311,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 {% endblock %}
--e \n
---- File: ./main.py ---
+./main.py
+-e \n--- FILE: ./main.py ---
 """
 启动入口 - 统一启动Bot和Web后台
 """
@@ -16071,4 +16378,3 @@ def main():
 if __name__ == '__main__':
     main()
 
--e \n
