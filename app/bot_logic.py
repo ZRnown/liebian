@@ -425,10 +425,10 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                 user_row = c.fetchone()
                 username = user_row[0] if user_row else f'用户{user_id}'
 
-                # 更新数据库：清除群组绑定和管理员状态
+                # 更新数据库：清除群组绑定和管理员状态，并重置加群任务状态
                 c.execute('''
                     UPDATE members
-                    SET is_group_bound = 0, is_bot_admin = 0
+                    SET is_group_bound = 0, is_bot_admin = 0, is_joined_upline = 0
                     WHERE telegram_id = ?
                 ''', (user_id,))
 
