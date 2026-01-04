@@ -3838,7 +3838,24 @@ async def check_member_status_task():
                                 print(f"[状态检测] ❌ 机器人不是管理员: {group_username}")
                         except Exception as admin_err:
                             print(f"[状态检测] 检查群管失败 {group_username}: {admin_err}")
-                            # 如果检查失败，可能是网络问题或权限问题，保持原有状态
+                            # 如果检查失败，可能是网络问题或权限问题
+                            # 尝试检查机器人是否至少在这个群组中
+                            try:
+                                # 简单检查：尝试获取群组信息，如果成功说明机器人能访问这个群组
+                                test_chat = await bot.get_entity(group_username)
+                                print(f"[状态检测] 机器人能访问群组 {group_username}，设置is_group_bound=1")
+                                # 如果能获取群组信息，说明链接有效，机器人至少在这个群组中
+                                is_group_bound = 1
+                            except Exception as group_err:
+                                print(f"[状态检测] 机器人无法访问群组 {group_username}: {group_err}")
+                                is_group_bound = 0  # 无法访问，链接可能无效
+
+                            # 对于管理员状态的处理
+                            if current_is_joined_upline == 1:
+                                is_bot_admin = original_is_bot_admin  # 保持原有状态
+                                print(f"[状态检测] 保持原有管理员状态: {original_is_bot_admin}")
+                            else:
+                                is_bot_admin = 0  # 新会员默认非管理员
 
                         # 【核心修复】如果已经完成加群任务，永久跳过加群检测（永久锁死）
                         if current_is_joined_upline == 1:
@@ -3847,8 +3864,12 @@ async def check_member_status_task():
                         else:
                             # 检查3：用户是否加入了所有10层上级的群（如果存在）
                             # 使用 get_upline_chain 获取完整的10层上级链
-                            from core_functions import get_upline_chain
-                        upline_chain = get_upline_chain(telegram_id, level_count)
+                            try:
+                                from core_functions import get_upline_chain
+                                upline_chain = get_upline_chain(telegram_id, level_count)
+                            except Exception as import_err:
+                                print(f"[状态检测] 导入get_upline_chain失败: {import_err}")
+                                upline_chain = []  # 设置为空列表继续执行
                         
                         # 收集所有有群链接的上级群（排除捡漏账号）
                         upline_groups_to_check = []
