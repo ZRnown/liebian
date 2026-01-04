@@ -417,28 +417,30 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
         # 重置这些用户的群组绑定状态
         for user_id, group_name, group_link in bound_users:
             try:
-                # 获取用户真实姓名
-                conn = get_db_conn()
-                c = conn.cursor()
-                c.execute('SELECT username FROM members WHERE telegram_id = ?', (user_id,))
-                user_row = c.fetchone()
-                username = user_row[0] if user_row else f'用户{user_id}'
+                # 为每个用户单独处理数据库操作，避免并发问题
+                user_conn = get_db_conn()
+                user_cursor = user_conn.cursor()
 
-                # 更新数据库：清除群组绑定和管理员状态，并重置加群任务状态
-                c.execute('''
-                    UPDATE members
-                    SET is_group_bound = 0, is_bot_admin = 0, is_joined_upline = 0
-                    WHERE telegram_id = ?
-                ''', (user_id,))
+                try:
+                    # 获取用户真实姓名
+                    user_cursor.execute('SELECT username FROM members WHERE telegram_id = ?', (user_id,))
+                    user_row = user_cursor.fetchone()
+                    username = user_row[0] if user_row else f'用户{user_id}'
 
-                # 同时删除member_groups表中的记录
-                c.execute('DELETE FROM member_groups WHERE telegram_id = ? AND group_id = ?', (user_id, chat_id))
+                    # 更新数据库：清除群组绑定和管理员状态，并重置加群任务状态
+                    user_cursor.execute('''
+                        UPDATE members
+                        SET is_group_bound = 0, is_bot_admin = 0, is_joined_upline = 0
+                        WHERE telegram_id = ?
+                    ''', (user_id,))
 
-                conn.commit()
-                conn.close()
+                    # 同时删除member_groups表中的记录
+                    user_cursor.execute('DELETE FROM member_groups WHERE telegram_id = ? AND group_id = ?', (user_id, chat_id))
 
-                # 通知用户
-                notification_msg = f'''
+                    user_conn.commit()
+
+                    # 通知用户
+                    notification_msg = f'''
 ⚠️ **群组绑定状态异常**
 
 您的群组绑定已失效，原因：{reason}
@@ -447,31 +449,42 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
 原群链接：{group_link}
 
 请重新设置群组绑定以继续获得分红收益。
-                '''.strip()
+                    '''.strip()
 
-                # 使用指定的机器人发送通知，如果没有指定则使用全局bot
-                if notify_bot:
-                    try:
-                        bot_info = await notify_bot.get_me()
-                        bot_name = bot_info.username or str(bot_info.id)
-                        await notify_bot.send_message(user_id, notification_msg)
-                        print(f'[通知] ✅ 使用指定机器人({bot_name}) 已通知用户 {user_id} ({username}) 群组绑定失效')
-                    except Exception as e:
-                        print(f'[通知] ❌ 使用指定机器人向用户 {user_id} 发送通知失败: {e}')
-                else:
-                    # 回退到使用所有活跃的机器人发送通知
-                    if not clients:
-                        print(f'[通知] ⚠️ 警告：没有活跃的机器人客户端，无法发送通知给用户 {user_id}')
-                        continue
-
-                    for client in clients:
+                    # 使用指定的机器人发送通知，如果没有指定则使用全局bot
+                    notification_sent = False
+                    if notify_bot:
                         try:
-                            await client.send_message(user_id, notification_msg)
-                            print(f'[通知] ✅ 已通知用户 {user_id} ({username}) 群组绑定失效')
-                            break  # 成功发送一条就够了
+                            bot_info = await notify_bot.get_me()
+                            bot_name = bot_info.username or str(bot_info.id)
+                            await notify_bot.send_message(user_id, notification_msg)
+                            print(f'[通知] ✅ 使用指定机器人({bot_name}) 已通知用户 {user_id} ({username}) 群组绑定失效')
+                            notification_sent = True
                         except Exception as e:
-                            print(f'[通知] ❌ 向用户 {user_id} 发送通知失败: {e}')
-                            continue
+                            print(f'[通知] ❌ 使用指定机器人向用户 {user_id} 发送通知失败: {e}')
+
+                    if not notification_sent:
+                        # 回退到使用所有活跃的机器人发送通知
+                        for client in clients:
+                            try:
+                                await client.send_message(user_id, notification_msg)
+                                print(f'[通知] ✅ 使用机器人已通知用户 {user_id} ({username}) 群组绑定失效')
+                                notification_sent = True
+                                break
+                            except Exception as e:
+                                print(f'[通知] ❌ 使用机器人向用户 {user_id} 发送通知失败: {e}')
+                                continue
+
+                    if not notification_sent:
+                        print(f'[通知] ❌ 所有机器人向用户 {user_id} ({username}) 发送通知都失败了')
+
+                finally:
+                    # 确保数据库连接总是被关闭
+                    user_conn.close()
+
+            except Exception as user_err:
+                print(f'[通知] 处理用户 {user_id} 失败: {user_err}')
+                continue
 
             except Exception as e:
                 print(f'[通知] 处理用户 {user_id} 失败: {e}')
