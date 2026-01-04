@@ -2646,6 +2646,72 @@ async def admin_handler(event):
 
 # ==================== 群组欢迎和自动注册 ====================
 
+@multi_bot_on(events.Raw)
+async def raw_update_handler(event):
+    """监听原始Telegram更新，检测管理员权限变化"""
+    try:
+        # 检查是否是ChatParticipant更新（权限变化）
+        if hasattr(event, 'update') and hasattr(event.update, '__class__'):
+            update_type = type(event.update).__name__
+
+            # 检测管理员权限相关的更新
+            if update_type in ['UpdateChatParticipant', 'UpdateChatParticipantAdmin']:
+                print(f'[Raw权限检测] 检测到参与者更新: {update_type}')
+
+                # 提取相关信息
+                if hasattr(event.update, 'chat_id') and hasattr(event.update, 'user_id'):
+                    chat_id = event.update.chat_id
+                    user_id = event.update.user_id
+
+                    # 转换为正数chat_id（如果需要）
+                    if chat_id < 0:
+                        chat_id = -chat_id
+
+                    print(f'[Raw权限检测] 群组 {chat_id}, 用户 {user_id} 权限发生变化')
+
+                    # 检查是否是我们的机器人
+                    if clients:
+                        bot_ids = []
+                        for client in clients:
+                            try:
+                                bot_ids.append((await client.get_me()).id)
+                            except Exception as e:
+                                continue
+
+                        if user_id in bot_ids:
+                            print(f'[Raw权限检测] ✅ 检测到机器人 {user_id} 权限变化')
+
+                            # 等待一下再检查权限，避免立即检查时的延迟
+                            await asyncio.sleep(2)
+
+                            # 验证机器人是否仍具有管理员权限
+                            try:
+                                # 使用任意一个客户端来检查权限
+                                permissions = await clients[0].get_permissions(chat_id, user_id)
+                                if not permissions.is_admin and not permissions.is_creator:
+                                    print(f'[Raw权限检测] ✅ 确认机器人已失去管理员权限: {user_id}')
+
+                                    # 找到对应的机器人实例
+                                    demoted_bot = None
+                                    for client in clients:
+                                        try:
+                                            if (await client.get_me()).id == user_id:
+                                                demoted_bot = client
+                                                break
+                                        except Exception as e:
+                                            continue
+
+                                    # 发送通知
+                                    await notify_group_binding_invalid(chat_id, user_id, "机器人管理员权限被撤销", demoted_bot)
+                                else:
+                                    print(f'[Raw权限检测] 机器人仍具有管理员权限，忽略此次变化')
+                            except Exception as e:
+                                print(f'[Raw权限检测] 权限检查失败: {e}')
+
+    except Exception as e:
+        # Raw事件处理不应该崩溃，静默处理错误
+        pass
+
 @multi_bot_on(events.ChatAction)
 async def group_welcome_handler(event):
     """处理群组相关事件：加入、离开、权限变化等"""
@@ -2830,77 +2896,15 @@ async def group_welcome_handler(event):
                     print(f'[机器人检测] 普通用户离开/被踢出: {kicked_user_id}')
 
         # ===== 新增：机器人管理员权限撤销检测 =====
-        # 检测ChatAction类型的事件
-        elif event.action_message and hasattr(event.action_message.action, '__class__'):
-            action_type = type(event.action_message.action).__name__
-            print(f'[权限检测] 收到ChatAction事件: {action_type}')
+        # 使用更简单的方法：监听所有用户离开/权限变化事件，然后检查是否是机器人
+        # 注意：Telethon的ChatAction可能不包含管理员权限变化，我们需要使用其他方法
 
-            # 检查是否是权限相关的动作
-            if action_type in ['ChatParticipantAdmin', 'ChatParticipantCreator']:
-                # 获取权限变化的用户ID
-                if hasattr(event.action_message.action, 'user_id'):
-                    changed_user_id = event.action_message.action.user_id
-                    print(f'[权限检测] 用户权限变化: {changed_user_id}')
-
-                    # 检查是否是我们的机器人权限被撤销
-                    if not clients:
-                        print(f'[权限检测] ⚠️ 警告：clients列表为空，无法检测机器人状态')
-                        return
-
-                    bot_ids = []
-                    for client in clients:
-                        try:
-                            bot_ids.append((await client.get_me()).id)
-                        except Exception as e:
-                            print(f'[权限检测] 获取机器人ID失败: {e}')
-                            continue
-
-                    print(f'[权限检测] 当前活跃机器人ID: {bot_ids}')
-
-                    if changed_user_id in bot_ids:
-                        # 检查是否是权限被撤销（从管理员变为普通用户）
-                        # 注意：这里我们假设任何权限变化都可能是问题，需要进一步检查
-                        print(f'[权限检测] ✅ 检测到我们的机器人权限发生变化: {changed_user_id}')
-
-                        # 尝试验证机器人是否仍有管理员权限
-                        try:
-                            permissions = await event.client.get_permissions(event.chat_id, changed_user_id)
-                            if not permissions.is_admin and not permissions.is_creator:
-                                print(f'[权限检测] ✅ 确认机器人已失去管理员权限: {changed_user_id}')
-                                # 找到对应的机器人实例
-                                demoted_bot = None
-                                for client in clients:
-                                    try:
-                                        if (await client.get_me()).id == changed_user_id:
-                                            demoted_bot = client
-                                            break
-                                    except Exception as e:
-                                        continue
-
-                                # 使用失去权限的机器人发送通知
-                                await notify_group_binding_invalid(event.chat_id, changed_user_id, "机器人管理员权限被撤销", demoted_bot)
-                                return
-                            else:
-                                print(f'[权限检测] 机器人仍具有管理员权限，忽略此次权限变化')
-                        except Exception as e:
-                            print(f'[权限检测] 无法验证机器人权限: {e}')
-                            # 如果无法验证，假设权限被撤销
-                            demoted_bot = None
-                            for client in clients:
-                                try:
-                                    if (await client.get_me()).id == changed_user_id:
-                                        demoted_bot = client
-                                        break
-                                except Exception as e:
-                                    continue
-
-                            await notify_group_binding_invalid(event.chat_id, changed_user_id, "机器人权限状态异常", demoted_bot)
-                            return
-                else:
-                    print(f'[权限检测] 普通用户权限被撤销: {demoted_user_id}')
+        print(f'[权限检测] ChatAction详情: user_id={getattr(event, "user_id", None)}, '
+              f'user_joined={event.user_joined}, user_left={event.user_left}, '
+              f'action={type(event.action_message.action).__name__ if event.action_message else "None"}')
 
         # ===== 群组解散检测 =====
-        elif hasattr(event, 'chat_deleted') and event.chat_deleted:
+        if hasattr(event, 'chat_deleted') and event.chat_deleted:
             print(f'[群组检测] 群组被解散: {event.chat_id}')
             # 通知所有绑定此群组的用户
             await notify_group_binding_invalid(event.chat_id, None, "群组已被解散")
@@ -3762,6 +3766,16 @@ async def check_member_status_task():
                     is_group_bound = 0
                     is_bot_admin = 0
                     is_joined_upline = 0
+
+                    # 新增：检查机器人管理员权限状态
+                    bot_admin_status_changed = False
+                    original_is_bot_admin = 0
+
+                    # 获取当前数据库中记录的管理员状态
+                    c.execute("SELECT is_bot_admin FROM members WHERE telegram_id = ?", (telegram_id,))
+                    current_admin_status = c.fetchone()
+                    if current_admin_status:
+                        original_is_bot_admin = current_admin_status[0] or 0
                     
                     try:
                         # 获取群组信息
@@ -3842,8 +3856,44 @@ async def check_member_status_task():
                     # 如果检测到已完成，更新为1；如果检测失败但原值是1，保持1不变
                     final_is_joined_upline = max(is_joined_upline, current_is_joined_upline)
                     
+                    # 检查管理员权限是否发生变化
+                    if original_is_bot_admin == 1 and is_bot_admin == 0:
+                        # 管理员权限被撤销
+                        print(f"[权限检测] ⚠️ 检测到会员 {telegram_id} 的机器人管理员权限被撤销")
+                        bot_admin_status_changed = True
+
+                        # 找到对应的机器人实例（使用第一个可用的客户端）
+                        demoted_bot = clients[0] if clients else None
+
+                        # 发送通知（异步，不阻塞状态检查）
+                        try:
+                            # 构建chat_id（从group_username转换为chat_id）
+                            chat_id = None
+                            try:
+                                if group_username.startswith('@'):
+                                    group_entity = await bot.get_entity(group_username[1:])
+                                else:
+                                    group_entity = await bot.get_entity(group_username)
+                                chat_id = getattr(group_entity, 'id', None)
+                                if chat_id and chat_id > 0:
+                                    chat_id = int(f"-100{chat_id}")
+                            except Exception as e:
+                                print(f"[权限检测] 获取chat_id失败: {e}")
+
+                            if chat_id:
+                                asyncio.create_task(
+                                    notify_group_binding_invalid(
+                                        chat_id,
+                                        None,
+                                        f"机器人管理员权限被撤销 (群组: {group_username})",
+                                        demoted_bot
+                                    )
+                                )
+                        except Exception as notify_err:
+                            print(f"[权限检测] 发送权限撤销通知失败: {notify_err}")
+
                     c.execute("""
-                        UPDATE members 
+                        UPDATE members
                         SET is_group_bound = ?, is_bot_admin = ?, is_joined_upline = ?
                         WHERE telegram_id = ?
                     """, (is_group_bound, is_bot_admin, final_is_joined_upline, telegram_id))
