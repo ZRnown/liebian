@@ -3845,14 +3845,16 @@ def run_bot():
                 await asyncio.sleep(10)
                 print("🔄 同步会员群组数据...")
 
-                # 检查机器人连接状态
+                # 检查机器人连接状态 (更严格的检查)
                 connected_clients = []
                 for i, client in enumerate(clients):
                     try:
-                        # 尝试获取机器人信息来检查连接状态
-                        await client.get_me()
+                        # 更严格的连接检查：尝试获取对话列表
+                        dialogs = await client.get_dialogs(limit=1)
+                        # 确保连接是活跃的
+                        me = await client.get_me()
                         connected_clients.append(client)
-                        print(f"✅ 机器人 {i+1} 连接正常")
+                        print(f"✅ 机器人 {i+1} 连接正常 (ID: {me.id})")
                     except Exception as e:
                         print(f"⚠️ 机器人 {i+1} 连接异常: {e}")
 
@@ -3860,17 +3862,17 @@ def run_bot():
                     print("❌ 没有可用的机器人连接，跳过同步")
                     return
 
-                # 临时替换clients为已连接的客户端
-                original_clients = clients
-                clients = connected_clients
+                print(f"📊 共有 {len(connected_clients)} 个机器人可用于同步")
 
                 try:
                     from database import sync_member_groups_from_members
-                    await sync_member_groups_from_members()
+                    # 传递已连接的客户端列表给同步函数
+                    await sync_member_groups_from_members(connected_clients)
                     print("✅ 会员群组数据同步完成")
-                finally:
-                    # 恢复原始clients列表
-                    clients = original_clients
+                except Exception as e:
+                    print(f"⚠️ 会员群组数据同步失败: {e}")
+                    import traceback
+                    traceback.print_exc()
 
             except Exception as e:
                 print(f"⚠️ 会员群组数据同步失败: {e}")

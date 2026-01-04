@@ -1022,14 +1022,12 @@ def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_adm
     except Exception as e:
         print(f'[member_groups upsert] error: {e}')
 
-async def sync_member_groups_from_members():
+async def sync_member_groups_from_members(connected_clients=None):
     """启动时同步已存在的会员群链接到 member_groups，避免后台列表为空"""
     try:
-        # 导入机器人客户端，用于获取群组ID
-        from app.bot_logic import clients
-
-        if not clients:
-            print('[sync_member_groups] 警告：没有可用的机器人客户端，跳过group_id获取')
+        # 使用传入的已连接客户端
+        if not connected_clients:
+            print('[sync_member_groups] 警告：没有传入已连接的机器人客户端，跳过group_id获取')
             # 如果没有机器人客户端，仍然创建记录但group_id为None
             conn = get_db_conn()
             c = conn.cursor()
@@ -1049,8 +1047,16 @@ async def sync_member_groups_from_members():
             return
 
         # 使用第一个可用的机器人客户端
-        bot = clients[0]
+        bot = connected_clients[0]
         print(f'[sync_member_groups] 使用机器人客户端获取group_id: {bot}')
+
+        # 在开始同步前再次检查连接
+        try:
+            me = await bot.get_me()
+            print(f'[sync_member_groups] 确认机器人连接: {me.username or me.id}')
+        except Exception as e:
+            print(f'[sync_member_groups] ❌ 机器人连接检查失败: {e}')
+            return
 
         conn = get_db_conn()
         c = conn.cursor()
@@ -1087,6 +1093,12 @@ async def sync_member_groups_from_members():
                             for attempt in range(max_retries):
                                 try:
                                     print(f'[sync_member_groups] 尝试获取群组ID: {tail} for user {tg_id} (尝试 {attempt+1}/{max_retries})')
+
+                                    # 首先测试基本连接
+                                    test_me = await bot.get_me()
+                                    if not test_me:
+                                        raise Exception("机器人信息获取失败")
+
                                     entity = await bot.get_entity(tail)
                                     group_id = getattr(entity, 'id', None)
                                     group_name = getattr(entity, 'title', tail)
