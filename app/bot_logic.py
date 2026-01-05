@@ -46,7 +46,8 @@ def compute_vip_price_from_config(config):
                     parsed = json.loads(level_amounts)
                 else:
                     parsed = level_amounts
-            except: parsed = None
+            except:
+                parsed = None
 
             if isinstance(parsed, list):
                 vals = []
@@ -312,14 +313,14 @@ def format_backup_account_display(backup_account):
     """格式化备用号显示"""
     if not backup_account:
         return "未设置"
-
+    
     backup_account_str = str(backup_account).strip()
-
+    
     if backup_account_str.startswith('@'):
         return backup_account_str
     if not backup_account_str.isdigit():
         return f"@{backup_account_str}"
-
+    
     try:
         backup_id = int(backup_account_str)
         backup_member = DB.get_member(backup_id)
@@ -565,15 +566,15 @@ def link_account(main_id, backup_id, backup_username):
     try:
         c.execute('SELECT telegram_id FROM members WHERE backup_account = ?', (str(backup_id),))
         existing_by_id = c.fetchone()
-
+        
         c.execute(
             'SELECT telegram_id FROM members WHERE backup_account = ? OR backup_account = ?',
             (clean_username, f"@{clean_username}")
         )
         existing_by_name = c.fetchone()
-
+        
         existing = existing_by_id or existing_by_name
-
+        
         if existing and str(existing[0]) != str(main_id):
             conn.close()
             return False, "❌ 该账号已经是其他人的备用号了，无法重复绑定"
@@ -703,7 +704,7 @@ async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=Tru
     
     # 3. 更新层级路径
     update_level_path(telegram_id)
-
+    
     # 4. 【核心】调用统一分红函数（替代所有手写循环）
     # 使用主bot发送分红通知
     if bot:
@@ -833,8 +834,8 @@ async def bind_command_handler(event):
             final_link = member['group_link'] # 保留原有链接
 
         if not final_link:
-             # 如果完全没有链接，生成一个伪链接或提示
-             final_link = "Private Group (ID: " + str(chat_id) + ")"
+            # 如果完全没有链接，生成一个伪链接或提示
+            final_link = "Private Group (ID: " + str(chat_id) + ")"
 
         # 更新
         conn = get_db_conn()
@@ -1042,7 +1043,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
         member = DB.get_member(telegram_id)
         if not member:
             return False
-
+            
         # Web端已经增加了余额，这里直接获取最新余额
         current_balance = member.get('balance', 0)
         vip_price = compute_vip_price_from_config(config)
@@ -1343,7 +1344,7 @@ async def profile_handler(event):
         print(f"[个人中心] 未找到会员信息: {resolved_id}")
         await event.respond('❌ 未找到账号信息，请先发送 /start 注册')
         return
-
+    
     print(f"[个人中心] 找到会员: {member.get('username')}")
 
     # 记住解析后的ID，用于后续逻辑
@@ -1355,9 +1356,9 @@ async def profile_handler(event):
         [Button.inline('💳 提现', b'withdraw'), Button.inline('💰 充值', b'do_recharge'), Button.inline('💎 开通VIP', b'open_vip')],
         [Button.inline('📊 收益记录', b'earnings_history')],
     ]
-
+    
     backup_display = format_backup_account_display(member.get("backup_account"))
-
+    
     # 获取推荐人信息
     referrer_info = ""
     if member.get("referrer_id"):
@@ -1378,7 +1379,7 @@ async def profile_handler(event):
     text += f'📉 错过余额: {member["missed_balance"]} U\n'
     text += f'🔗 群链接: {member["group_link"] or "未设置"}\n'
     text += f'📱 绑定备用号: {backup_display}\n'
-
+    
     await event.respond(text, buttons=buttons)
 
 # ==================== 个人中心按钮回调处理 ====================
@@ -1387,7 +1388,7 @@ async def profile_handler(event):
 async def set_group_callback(event):
     """设置群链接回调"""
     # 账号关联处理（备用号->主账号）
-    original_sender_id = event.sender_id
+        original_sender_id = event.sender_id
     main_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
 
     member = DB.get_member(main_id)
@@ -1402,7 +1403,7 @@ async def set_group_callback(event):
     if not member.get('is_vip'):
         await send_vip_required_prompt(event)
         return
-
+    
     # 切换到群链接输入时，清理备用号等待状态
     waiting_for_backup.pop(resolved_id, None)
     waiting_for_group_link[resolved_id] = True
@@ -1435,7 +1436,7 @@ async def set_backup_callback(event):
     if not member.get('is_vip'):
         await send_vip_required_prompt(event)
         return
-
+    
     # 切换到备用号输入时，清理群链接等待状态
     waiting_for_group_link.pop(resolved_id, None)
     waiting_for_backup[resolved_id] = True
@@ -1453,7 +1454,7 @@ async def earnings_history_callback(event):
     original_sender_id, resolved_id = get_resolved_sender_info(event)
 
     member = DB.get_member(resolved_id)
-
+    
     if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
         return
@@ -1812,14 +1813,14 @@ async def verify_groups_callback(event):
                 is_valid = await verify_and_handle_upline_group(bot, upline_id, group_link, clients)
 
             if is_valid:
-                groups_to_check[pos] = {
-                    'display_index': pos + 1,
+            groups_to_check[pos] = {
+                'display_index': pos + 1,
                     'link': group_link,
-                    'level': level,
-                    'type': 'upline',
-                    'group_name': f"第{level}层上级",
+                'level': level,
+                'type': 'upline',
+                'group_name': f"第{level}层上级",
                     'upline_id': upline_id
-                }
+            }
             # 如果检测不通过，该位置留空，后续用捡漏补全
 
         except Exception as e:
@@ -2285,7 +2286,7 @@ async def promote_handler(event):
     text += f'• 您将获得 {config["level_reward"]} U 奖励\n'
     text += f'• 最多可获得 {config["level_count"]} 层下级奖励\n\n'
     text += f'💡 分享此链接给好友即可开始赚钱!'
-
+    
     # 【修改3】改为调用Telegram原生分享功能
     share_text = f"🔥 推荐一个非常棒的群裂变工具！\n\n💰 自动管理群组，自动分红，多层级收益！\n\n👇 点击下方链接加入：\n{invite_link}"
     share_url = f"https://t.me/share/url?url={quote(invite_link)}&text={quote(share_text)}"
@@ -2627,13 +2628,13 @@ async def my_promote_handler(event):
     text += f'• 错过收益: {member["missed_balance"]} U\n\n'
     text += f'🔗 您的推广链接:\n{invite_link}\n\n'
     text += f'💡 分享链接邀请好友，好友开通VIP您即可获得 {config["level_reward"]} U 奖励!'
-
+    
     # 【修改3】改为调用Telegram原生分享功能
     share_text = f"🔥 推荐一个非常棒的群裂变工具！\n\n💰 自动管理群组，自动分红，多层级收益！\n\n👇 点击下方链接加入：\n{invite_link}"
     share_url = f"https://t.me/share/url?url={quote(invite_link)}&text={quote(share_text)}"
 
     buttons = [[Button.url('📤 立即推广 (选择好友/群)', share_url)]]
-
+    
     await event.respond(text, buttons=buttons, parse_mode='md')
 
 @multi_bot_on(events.NewMessage(pattern=BTN_BACK))
@@ -2704,10 +2705,14 @@ async def admin_handler(event):
 async def raw_update_handler(event):
     """监听原始Telegram更新，检测管理员权限变化"""
     try:
-        # 首先记录所有Raw更新，便于调试
+        # 首先记录所有Raw更新，便于调试（生产环境可注释掉）
         if hasattr(event, 'update') and hasattr(event.update, '__class__'):
             update_type = type(event.update).__name__
             print(f'[Raw事件] 📡 收到更新: {update_type}')
+
+            # 打印更详细的调试信息
+            update = event.update
+            print(f'[Raw事件] 详细内容: {update}')
 
         # 仅处理权限变更相关的 Update 类型
         if not hasattr(event, 'update'):
@@ -2719,13 +2724,15 @@ async def raw_update_handler(event):
         # 我们只关心机器人本身权限变动
         target_user_id = None
         target_chat_id = None
+        permission_changed = False
 
         # 1. 普通群组管理员变动
         if update_type == 'UpdateChatParticipantAdmin':
             target_user_id = getattr(update, 'user_id', None)
             target_chat_id = getattr(update, 'chat_id', None)
             is_admin = getattr(update, 'is_admin', False)
-            if not is_admin:
+            permission_changed = not is_admin  # 如果不是管理员，说明权限被撤销
+            if permission_changed:
                 print(f'[Raw权限检测] 检测到普通群组 {target_chat_id} 移除管理员 {target_user_id}')
 
         # 2. 超级群组/频道成员变动 (包括权限变动)
@@ -2742,82 +2749,192 @@ async def raw_update_handler(event):
             was_admin = isinstance(prev, (ChannelParticipantAdmin, ChannelParticipantCreator))
             is_now_admin = isinstance(new_p, (ChannelParticipantAdmin, ChannelParticipantCreator))
 
-            if was_admin and not is_now_admin:
+            permission_changed = was_admin and not is_now_admin
+            if permission_changed:
                 print(f'[Raw权限检测] 🚨 检测到超级群组 {target_chat_id} 移除管理员 {target_user_id}')
 
-        # 3. 【新增】更宽泛的权限变更检测
-        # 尝试从所有可能的字段中提取用户信息
-        if not target_user_id:
-            target_user_id = getattr(update, 'user_id', None)
-        if not target_chat_id:
-            target_chat_id = getattr(update, 'chat_id', getattr(update, 'channel_id', None))
+        # 3. 【新增】更宽泛的权限变更检测 - 监听所有可能的权限相关更新
+        if not permission_changed:
+            # 检查是否有任何Participant相关的更新
+            if 'Participant' in update_type:
+                print(f'[Raw权限检测] 🎯 发现Participant相关更新: {update_type}')
 
-        # 从participant相关字段提取
-        if not target_user_id:
-            for attr in ['participant', 'new_participant', 'prev_participant']:
-                if hasattr(update, attr):
-                    participant = getattr(update, attr)
-                    if hasattr(participant, 'user_id'):
-                        target_user_id = participant.user_id
-                        break
+                # 尝试从所有可能的字段中提取用户信息
+                if not target_user_id:
+                    target_user_id = getattr(update, 'user_id', None)
+                if not target_chat_id:
+                    target_chat_id = getattr(update, 'chat_id', getattr(update, 'channel_id', None))
 
-        # 如果还是没有找到用户ID，记录这个更新但不处理
-        if not target_user_id:
-            return
+                # 从participant相关字段提取
+                if not target_user_id:
+                    for attr in ['participant', 'new_participant', 'prev_participant']:
+                        if hasattr(update, attr):
+                            participant = getattr(update, attr)
+                            if hasattr(participant, 'user_id'):
+                                target_user_id = participant.user_id
+                                break
 
-        print(f'[Raw权限检测] 发现用户 {target_user_id} 相关的更新，检查是否是机器人权限变化...')
+                # 如果找到了用户和群组信息，进行权限检查
+                if target_user_id and target_chat_id:
+                    print(f'[Raw权限检测] 发现用户 {target_user_id} 在群组 {target_chat_id} 的更新，开始权限验证...')
 
-        # 检查受影响的用户是否是我们已启动的机器人
-        target_bot = None
-        for client in clients:
-            try:
-                me = await client.get_me()
-                if me.id == target_user_id:
-                    target_bot = client
-                    print(f'[Raw权限检测] ✅ 确认是本机机器人 {target_user_id}')
-                    break
-            except:
-                continue
+                    # 检查是否是我们的机器人
+                    target_bot = None
+                    for client in clients:
+                        try:
+                            me = await client.get_me()
+                            if me.id == target_user_id:
+                                target_bot = client
+                                break
+                        except:
+                            continue
 
-        if target_bot and target_chat_id:
-            # 这里的 target_chat_id 通常是不带 -100 的，需要处理
-            # 尝试构建 -100 前缀 ID 用于数据库查询
-            full_chat_id = int(f"-100{target_chat_id}") if target_chat_id > 0 else target_chat_id
+                    if target_bot:
+                        print(f'[Raw权限检测] ✅ 确认是本机机器人 {target_user_id}，执行权限检查')
 
-            print(f'[Raw权限检测] 正在验证机器人 {target_user_id} 在群组 {full_chat_id} 的权限状态...')
-
-            # 双重验证：调用 get_permissions 确认真的不是管理员了
-            try:
-                # 注意：get_permissions 需要完整的 chat_id (带-100) 或 entity
-                perms = await target_bot.get_permissions(full_chat_id, target_user_id)
-
-                is_admin = perms.is_admin or perms.is_creator
-                print(f'[Raw权限检测] 当前权限状态: admin={is_admin}')
-
-                if not is_admin:
-                    print(f'[Raw权限检测] ✅ 验证确认：机器人已失去管理员权限。触发通知流程。')
-
-                    # 触发全局状态刷新
-                    global permission_check_triggered
-                    permission_check_triggered = True
-
-                    # 立即发送通知
-                    # 传入 raw chat_id，notify_group_binding_invalid 内部会处理格式匹配
-                    await notify_group_binding_invalid(target_chat_id, target_user_id, "机器人被移出管理员列表", target_bot)
+                        # 执行权限检查
+                        await check_and_notify_permission_change(target_bot, target_user_id, target_chat_id, update_type)
+                    else:
+                        print(f'[Raw权限检测] 非本机机器人，跳过处理')
                 else:
-                    print(f'[Raw权限检测] ⚠️ 机器人仍具有管理员权限，无需通知。')
+                    print(f'[Raw权限检测] 未找到完整的用户或群组信息')
 
-            except Exception as check_err:
-                print(f'[Raw权限检测] 验证权限时出错: {check_err}')
-                # 如果验证失败，可能意味着机器人被踢出或群组权限问题
-                # 保守处理：假设权限已被撤销，发送通知
-                print(f'[Raw权限检测] 由于验证失败，假设权限已被撤销，发送通知。')
-                await notify_group_binding_invalid(target_chat_id, target_user_id, "机器人权限验证失败，可能已被撤销", target_bot)
+        # 如果前面已经检测到权限变更，直接处理
+        elif permission_changed and target_user_id and target_chat_id:
+            print(f'[Raw权限检测] 直接处理权限变更: 用户 {target_user_id}, 群组 {target_chat_id}')
+
+            target_bot = None
+            for client in clients:
+                try:
+                    me = await client.get_me()
+                    if me.id == target_user_id:
+                        target_bot = client
+                        break
+                except:
+                    continue
+
+            if target_bot:
+                await check_and_notify_permission_change(target_bot, target_user_id, target_chat_id, update_type)
 
     except Exception as e:
         # 避免日志刷屏，仅在严重错误时打印
         if 'Connection' not in str(e):
             print(f'[Raw事件处理异常] {e}')
+
+# ==================== 权限检查和通知函数 ====================
+
+async def check_permission_changes():
+    """定期检查所有绑定群组的机器人权限状态"""
+    try:
+        print("[权限检查] 开始定期权限状态检查...")
+
+        # 获取所有有群组绑定的用户
+        conn = get_db_conn()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT DISTINCT mg.telegram_id, mg.group_id, mg.group_name, m.username
+            FROM member_groups mg
+            JOIN members m ON mg.telegram_id = m.telegram_id
+            WHERE mg.is_bot_admin = 1
+        """)
+
+        bound_groups = c.fetchall()
+        conn.close()
+
+        print(f"[权限检查] 找到 {len(bound_groups)} 个需要检查的群组绑定")
+
+        for user_id, group_id, group_name, username in bound_groups:
+            try:
+                # 找到对应的机器人
+                target_bot = None
+                for client in clients:
+                    try:
+                        me = await client.get_me()
+                        if me.id == user_id:
+                            target_bot = client
+                            break
+                    except:
+                        continue
+
+                if not target_bot:
+                    print(f"[权限检查] 未找到用户 {user_id} 对应的机器人，跳过")
+                    continue
+
+                # 检查权限状态
+                try:
+                    perms = await target_bot.get_permissions(group_id, user_id)
+                    is_admin = perms.is_admin or perms.is_creator
+
+                    if not is_admin:
+                        print(f"[权限检查] 🚨 发现机器人 {user_id} 在群组 {group_id} 失去管理员权限")
+
+                        # 触发全局状态刷新
+                        global permission_check_triggered
+                        permission_check_triggered = True
+
+                        # 发送通知 - 转换group_id格式用于匹配
+                        raw_chat_id = int(str(group_id).replace('-100', '')) if str(group_id).startswith('-100') else group_id
+                        await notify_group_binding_invalid(raw_chat_id, user_id, "定期检查发现管理员权限被撤销", target_bot)
+
+                        # 更新数据库状态
+                        conn = get_db_conn()
+                        c = conn.cursor()
+                        c.execute('UPDATE member_groups SET is_bot_admin = 0 WHERE telegram_id = ? AND group_id = ?',
+                                (user_id, group_id))
+                        c.execute('UPDATE members SET is_bot_admin = 0 WHERE telegram_id = ?', (user_id,))
+                        conn.commit()
+                        conn.close()
+
+                        print(f"[权限检查] 已更新数据库状态并发送通知")
+                    else:
+                        print(f"[权限检查] ✅ 机器人 {user_id} 在群组 {group_id} 仍具有管理员权限")
+
+                except Exception as perm_err:
+                    print(f"[权限检查] 检查机器人 {user_id} 在群组 {group_id} 权限失败: {perm_err}")
+                    # 如果检查失败，可能意味着机器人被踢出
+                    raw_chat_id = int(str(group_id).replace('-100', '')) if str(group_id).startswith('-100') else group_id
+                    await notify_group_binding_invalid(raw_chat_id, user_id, "定期检查发现机器人无法访问群组，可能已被踢出", target_bot)
+
+            except Exception as e:
+                print(f"[权限检查] 检查用户 {user_id} 权限失败: {e}")
+
+        print("[权限检查] 定期权限检查完成")
+
+    except Exception as e:
+        print(f"[权限检查] 定期检查过程出错: {e}")
+
+async def check_and_notify_permission_change(bot, user_id, chat_id, update_type):
+    """检查机器人权限状态并发送通知"""
+    try:
+        # 构建完整的chat_id
+        full_chat_id = int(f"-100{chat_id}") if chat_id > 0 else chat_id
+
+        print(f'[权限检查] 正在验证机器人 {user_id} 在群组 {full_chat_id} 的权限...')
+
+        # 调用API检查当前权限
+        perms = await bot.get_permissions(full_chat_id, user_id)
+        is_admin = perms.is_admin or perms.is_creator
+
+        print(f'[权限检查] 当前权限状态: admin={is_admin}')
+
+        if not is_admin:
+            print(f'[权限检查] ✅ 确认机器人已失去管理员权限，发送通知')
+
+            # 触发全局状态刷新
+            global permission_check_triggered
+            permission_check_triggered = True
+
+            # 发送通知 - 使用原始chat_id进行匹配
+            await notify_group_binding_invalid(chat_id, user_id, f"机器人管理员权限被撤销 ({update_type})", bot)
+        else:
+            print(f'[权限检查] 机器人仍具有管理员权限')
+
+    except Exception as e:
+        print(f'[权限检查] 权限验证失败: {e}')
+        # 保守处理：如果验证失败，假设权限被撤销
+        print(f'[权限检查] 由于验证失败，保守处理为权限被撤销')
+        await notify_group_binding_invalid(chat_id, user_id, f"机器人权限验证失败，可能已被撤销 ({update_type})", bot)
 
 # ==================== 备用Raw事件监听器 ====================
 
@@ -2866,7 +2983,7 @@ async def group_welcome_handler(event):
     """处理群组相关事件：加入、离开、权限变化等"""
     try:
         print(f'[ChatAction] 收到事件: {type(event.action_message.action).__name__ if event.action_message else "无"}')
-
+        
         # 检查是否是用户加入事件
         if event.user_joined or event.user_added:
             sys_config = get_system_config()
@@ -3044,13 +3161,64 @@ async def group_welcome_handler(event):
                 else:
                     print(f'[机器人检测] 普通用户离开/被踢出: {kicked_user_id}')
 
-        # ===== 新增：机器人管理员权限撤销检测 =====
-        # 使用更简单的方法：监听所有用户离开/权限变化事件，然后检查是否是机器人
-        # 注意：Telethon的ChatAction可能不包含管理员权限变化，我们需要使用其他方法
-
+        # ===== 增强：机器人管理员权限撤销检测 =====
         print(f'[权限检测] ChatAction详情: user_id={getattr(event, "user_id", None)}, '
-              f'user_joined={event.user_joined}, user_left={event.user_left}, '
-              f'action={type(event.action_message.action).__name__ if event.action_message else "None"}')
+            f'user_joined={event.user_joined}, user_left={event.user_left}, '
+            f'action={type(event.action_message.action).__name__ if event.action_message else "None"}')
+
+        # 检测管理员权限变化 - 通过ChatAction事件
+        # 虽然ChatAction不直接包含权限信息，但我们可以检测到相关事件后主动检查
+        user_id = getattr(event, 'user_id', None)
+        if user_id:
+            # 检查是否是我们的机器人
+            is_our_bot = False
+            target_bot = None
+            for client in clients:
+                try:
+                    me = await client.get_me()
+                    if me.id == user_id:
+                        is_our_bot = True
+                        target_bot = client
+                        break
+                except:
+                    continue
+
+            if is_our_bot and target_bot:
+                print(f'[权限检测] 检测到本机机器人 {user_id} 的ChatAction事件，检查权限状态...')
+
+                # 获取群组ID
+                chat_id = getattr(event, 'chat_id', None)
+                if not chat_id and hasattr(event, 'chat'):
+                    chat_id = event.chat.id
+
+                if chat_id:
+                    # 转换chat_id格式
+                    full_chat_id = int(f"-100{chat_id}") if chat_id > 0 else chat_id
+
+                    try:
+                        # 检查当前权限状态
+                        perms = await target_bot.get_permissions(full_chat_id, user_id)
+                        is_admin = perms.is_admin or perms.is_creator
+
+                        print(f'[权限检测] 机器人 {user_id} 在群组 {full_chat_id} 的权限状态: admin={is_admin}')
+
+                        if not is_admin:
+                            print(f'[权限检测] ✅ 检测到机器人失去管理员权限，发送通知')
+
+                            # 触发全局状态刷新
+                            global permission_check_triggered
+                            permission_check_triggered = True
+
+                            # 发送通知
+                            await notify_group_binding_invalid(chat_id, user_id, "检测到机器人管理员权限被撤销", target_bot)
+                        else:
+                            print(f'[权限检测] 机器人仍具有管理员权限')
+
+                    except Exception as perm_err:
+                        print(f'[权限检测] 权限检查失败: {perm_err}')
+                        # 如果权限检查失败，可能意味着机器人被踢出或权限被撤销
+                        print(f'[权限检测] 由于权限检查失败，假设权限被撤销，发送通知')
+                        await notify_group_binding_invalid(chat_id, user_id, "机器人权限检查失败，可能已被撤销", target_bot)
 
         # ===== 群组解散检测 =====
         if hasattr(event, 'chat_deleted') and event.chat_deleted:
@@ -3147,10 +3315,10 @@ async def message_handler(event):
                     columns = [col[1] for col in c.fetchall()]
                     if 'usdt_address' in columns:
                         c.execute("INSERT INTO withdrawals (member_id, amount, usdt_address, status, create_time) VALUES (?, ?, ?, 'pending', ?)",
-                                 (sender_id, amount, usdt_address, now))
+                                (sender_id, amount, usdt_address, now))
                     else:
                         c.execute("INSERT INTO withdrawals (member_id, amount, status, create_time) VALUES (?, ?, 'pending', ?)",
-                                 (sender_id, amount, now))
+                                (sender_id, amount, now))
                     
                     conn.commit()
                     
@@ -3446,13 +3614,13 @@ async def message_handler(event):
             verification_result = await verify_group_link(bot_client, link, clients)
             print(f'[群绑定] verify_group_link结果: {verification_result}')
             print(f'[群绑定] group_id: {verification_result.get("group_id")}, success: {verification_result.get("success")}')
-
+            
             if verification_result['success']:
                 # 获取 verify_group_link 返回的 ID (现在核心函数保证成功即返回ID)
                 group_id = verification_result.get('group_id')
                 group_name = verification_result.get('group_name')
                 is_admin_flag = 1 if verification_result.get('admin_checked') else 0
-
+                
                 print(f'[群绑定] 准备存储: user={sender_id}, group_id={group_id}, link={link}')
 
                 # 更新数据库 - 分步骤进行，确保每一步都成功
@@ -3569,8 +3737,8 @@ async def auto_broadcast_timer():
             # 查询所有启用分配：关联 member_groups、broadcast_assignments、broadcast_messages
             c.execute("""
                 SELECT ba.id, ba.group_id, ba.message_id, ba.last_sent_time,
-                       mg.group_link, mg.group_name,
-                       bm.content, bm.image_url, bm.video_url, bm.buttons, bm.buttons_per_row, bm.broadcast_interval, bm.create_time
+                    mg.group_link, mg.group_name,
+                    bm.content, bm.image_url, bm.video_url, bm.buttons, bm.buttons_per_row, bm.broadcast_interval, bm.create_time
                 FROM broadcast_assignments ba
                 JOIN broadcast_messages bm ON ba.message_id = bm.id
                 JOIN member_groups mg ON ba.group_id = mg.id
@@ -3636,7 +3804,7 @@ async def auto_broadcast_timer():
                             'buttons_per_row': item.get('buttons_per_row') or 2
                         }, ensure_ascii=False)
                         c.execute('INSERT INTO broadcast_queue (group_link, group_name, message, status, create_time) VALUES (?, ?, ?, ?, ?)',
-                                  (item['group_link'], item['group_name'], msg_payload, 'pending', now_iso))
+                                (item['group_link'], item['group_name'], msg_payload, 'pending', now_iso))
                         # update last_sent_time for assignment
                         c.execute('UPDATE broadcast_assignments SET last_sent_time = ? WHERE id = ?', (now_iso, item['assign_id']))
                     except Exception as e:
@@ -3878,6 +4046,9 @@ async def check_member_status_task():
             else:
                 await asyncio.sleep(30)  # 每30秒检查一次
 
+            # 增加权限变更检测
+            await check_permission_changes()
+
             print("[状态检测] 开始检查会员状态...")
             
             conn = get_db_conn()
@@ -3912,16 +4083,16 @@ async def check_member_status_task():
                         group_display_name = f"ID:{stored_group_id}"
                     else:
                         # 从链接提取用户名
-                        if group_link.startswith('https://t.me/'):
-                            group_username = group_link.replace('https://t.me/', '').split('/')[0].split('?')[0]
-                        elif group_link.startswith('@'):
-                            group_username = group_link[1:]
-                        else:
-                            group_username = group_link
-
-                        # 跳过私有群链接
-                        if group_username.startswith('+'):
-                            continue
+                    if group_link.startswith('https://t.me/'):
+                        group_username = group_link.replace('https://t.me/', '').split('/')[0].split('?')[0]
+                    elif group_link.startswith('@'):
+                        group_username = group_link[1:]
+                    else:
+                        group_username = group_link
+                    
+                    # 跳过私有群链接
+                    if group_username.startswith('+'):
+                        continue
 
                         group_identifier = group_username
                         group_display_name = group_username
@@ -3940,7 +4111,7 @@ async def check_member_status_task():
                     is_group_bound = 0
                     is_bot_admin = 0
                     is_joined_upline = 0
-
+                    
                     # 新增：检查机器人管理员权限状态
                     bot_admin_status_changed = False
                     original_is_bot_admin = 0
@@ -3982,15 +4153,15 @@ async def check_member_status_task():
                             upline_chain = []  # 初始化为空，避免后续使用出错
                         else:
                             # 检查3：用户是否加入了所有10层上级的群（如果存在）
-                            # 使用 get_upline_chain 获取完整的10层上级链
+                        # 使用 get_upline_chain 获取完整的10层上级链
                             upline_chain = []
                             try:
-                                from core_functions import get_upline_chain
-                                upline_chain = get_upline_chain(telegram_id, level_count)
+                        from core_functions import get_upline_chain
+                        upline_chain = get_upline_chain(telegram_id, level_count)
                             except Exception as import_err:
                                 print(f"[状态检测] 导入get_upline_chain失败: {import_err}")
                                 # upline_chain 已经初始化为空列表
-
+                        
                         # 收集所有有群链接的上级群（排除捡漏账号）
                         upline_groups_to_check = []
                         for item in upline_chain:
@@ -4042,7 +4213,7 @@ async def check_member_status_task():
                             # 如果没有需要检查的上级群，默认标记为完成（可能是顶层用户）
                             is_joined_upline = 1
                             print(f"[状态检测] 会员 {telegram_id} 没有需要加入的上级群")
-
+                    
                     except Exception as e:
                         print(f"[状态检测] 检查群组失败 {group_username}: {e}")
                     
@@ -4100,9 +4271,9 @@ async def check_member_status_task():
                                 )
                         except Exception as notify_err:
                             print(f"[权限检测] 发送权限撤销通知失败: {notify_err}")
-
+                    
                     c.execute("""
-                        UPDATE members
+                        UPDATE members 
                         SET is_group_bound = ?, is_bot_admin = ?, is_joined_upline = ?
                         WHERE telegram_id = ?
                     """, (is_group_bound, is_bot_admin, final_is_joined_upline, telegram_id))
@@ -4139,11 +4310,11 @@ def run_bot():
         loop.create_task(process_broadcast_queue())
         loop.create_task(process_broadcasts())
 
-        async def _process_recharge_queue_worker():
-            while True:
-                try:
+    async def _process_recharge_queue_worker():
+        while True:
+            try:
                     if process_recharge_queue:
-                        item = process_recharge_queue.pop(0)
+                    item = process_recharge_queue.pop(0)
                         await process_recharge(item.get('member_id'), item.get('amount'), item.get('is_vip_order'))
                 except Exception as e:
                     print(f"[充值队列] 处理失败: {e}")
@@ -4186,8 +4357,8 @@ def run_bot():
                     print("✅ 会员群组数据同步完成")
                 except Exception as e:
                     print(f"⚠️ 会员群组数据同步失败: {e}")
-                    import traceback
-                    traceback.print_exc()
+                        import traceback
+                        traceback.print_exc()
 
             except Exception as e:
                 print(f"⚠️ 会员群组数据同步失败: {e}")
@@ -4195,8 +4366,8 @@ def run_bot():
                 traceback.print_exc()
 
         loop.create_task(sync_after_start())
-
-        print("✅ 所有后台任务已挂载")
+    
+    print("✅ 所有后台任务已挂载")
         print(f"✅ {len(clients)} 个机器人正在监听消息...")
 
         # 所有机器人共享同一个事件循环并发运行
