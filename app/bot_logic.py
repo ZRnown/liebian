@@ -2,6 +2,8 @@
 机器人逻辑层 - 统一管理所有Telegram机器人交互
 【核心修复】所有VIP开通路径都调用 distribute_vip_rewards，删除冗余的手写分红逻辑
 """
+from payment import create_recharge_order, PAYMENT_CONFIG, generate_payment_sign
+from config import SESSION_DIR
 import asyncio
 import sqlite3
 import time
@@ -28,6 +30,7 @@ from bot_commands_addon import (
     handle_bind_group, handle_join_upline, handle_group_link_message,
     handle_check_status, handle_my_team
 )
+
 
 def compute_vip_price_from_config(config):
     """计算VIP价格 (逻辑同步Web端)"""
@@ -75,7 +78,6 @@ def compute_vip_price_from_config(config):
         return 10.0  # 默认价格
 
 
-
 # 按钮文字常量
 BTN_PROFILE = '👤 个人中心'
 BTN_FISSION = '🔗 群裂变加入'
@@ -96,10 +98,10 @@ async def send_vip_required_prompt(event_or_id, reply_method='respond'):
         if isinstance(event_or_id, int):
             telegram_id = event_or_id
             member = DB.get_member(telegram_id)
-            client = bot # 默认使用主bot发送主动消息
+            client = bot  # 默认使用主bot发送主动消息
         else:
             original = event_or_id
-            client = original.client # 使用触发事件的那个机器人实例
+            client = original.client  # 使用触发事件的那个机器人实例
             try:
                 original_sender_id = original.sender_id
                 original.sender_id = get_main_account_id(original_sender_id, getattr(original.sender, 'username', None))
@@ -152,6 +154,7 @@ async def send_vip_required_prompt(event_or_id, reply_method='respond'):
 
 # ==================== 多机器人初始化逻辑 ====================
 
+
 def get_active_bot_tokens():
     """获取所有活跃的机器人token"""
     try:
@@ -167,6 +170,7 @@ def get_active_bot_tokens():
     except Exception as e:
         print(f"[机器人初始化] 获取活跃token失败: {e}")
         return []
+
 
 # 初始化客户端列表
 clients = []
@@ -197,7 +201,6 @@ if USE_PROXY:
         proxy = (socks.SOCKS5, PROXY_HOST, PROXY_PORT)
 
 # 确保 session 目录存在
-from config import SESSION_DIR
 os.makedirs(SESSION_DIR, exist_ok=True)
 
 # 创建所有机器人客户端
@@ -241,12 +244,15 @@ else:
     print(f"[机器人初始化] 🎉 成功启动 {len(clients)} 个机器人客户端")
 
 # 自定义装饰器：注册事件到所有机器人
+
+
 def multi_bot_on(event_builder):
     def decorator(handler):
         for client in clients:
             client.add_event_handler(handler, event_builder)
         return handler
     return decorator
+
 
 print(f"[机器人初始化] ✅ 全部启动完成，共 {len(clients)} 个机器人在线")
 
@@ -263,24 +269,24 @@ withdraw_temp_data = {}
 admin_waiting = {}
 
 # 导入支付模块
-from payment import create_recharge_order, PAYMENT_CONFIG, generate_payment_sign
 
 # ==================== 账号关联逻辑 ====================
+
 
 def get_main_account_id(telegram_id, username=None):
     """获取主账号ID（精准ID匹配版）"""
     try:
         target_id_str = str(telegram_id).strip()
         clean_username = (username or '').strip().lstrip('@')
-        
+
         conn = get_db_conn()
         c = conn.cursor()
-        
+
         # 核心查询：查找是否有人的 backup_account 字段等于当前访问者的 ID
         query = "SELECT telegram_id FROM members WHERE backup_account = ?"
         c.execute(query, (target_id_str,))
         row = c.fetchone()
-        
+
         # 如果ID没查到，再尝试查用户名
         if not row and clean_username:
             c.execute(
@@ -288,7 +294,7 @@ def get_main_account_id(telegram_id, username=None):
                 (clean_username, f"@{clean_username}")
             )
             row = c.fetchone()
-            
+
         # 捡漏账号逻辑
         if not row:
             c.execute(
@@ -300,30 +306,31 @@ def get_main_account_id(telegram_id, username=None):
             if fallback_result and fallback_result[0]:
                 conn.close()
                 return fallback_result[0]
-        
+
         conn.close()
-        
+
         if row:
             print(f"✅ [账号映射] {target_id_str} -> 主账号 {row[0]}")
-            return int(row[0]) # 确保返回整数
-        
+            return int(row[0])  # 确保返回整数
+
         return telegram_id
     except Exception as e:
         print(f"[关联查询出错] {e}")
         return telegram_id
 
+
 def format_backup_account_display(backup_account):
     """格式化备用号显示"""
     if not backup_account:
         return "未设置"
-    
+
     backup_account_str = str(backup_account).strip()
-    
+
     if backup_account_str.startswith('@'):
         return backup_account_str
     if not backup_account_str.isdigit():
         return f"@{backup_account_str}"
-    
+
     try:
         backup_id = int(backup_account_str)
         backup_member = DB.get_member(backup_id)
@@ -334,6 +341,7 @@ def format_backup_account_display(backup_account):
     except (ValueError, Exception):
         return backup_account_str
 
+
 def resolve_sender_id(event):
     """解析发送者ID，支持备用号映射"""
     original_id = event.sender_id
@@ -342,11 +350,13 @@ def resolve_sender_id(event):
     # 如果映射成功，返回主号ID；否则返回原始ID
     return main_id if main_id != original_id else original_id
 
+
 def get_resolved_sender_info(event):
     """获取解析后的发送者信息，返回 (original_id, resolved_id)"""
     original_id = event.sender_id
     resolved_id = resolve_sender_id(event)
     return original_id, resolved_id
+
 
 def with_account_resolution(func):
     """装饰器：自动处理账号解析"""
@@ -359,6 +369,7 @@ def with_account_resolution(func):
         event.sender_id = resolved_id
         return await func(event, *args, **kwargs)
     return wrapper
+
 
 async def check_user_group_binding_status(user_id, clients):
     """检查用户的群组绑定是否仍然有效"""
@@ -403,6 +414,7 @@ async def check_user_group_binding_status(user_id, clients):
         print(f'[群组检测] 检查用户 {user_id} 群组绑定失败: {e}')
         return False
 
+
 async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状态异常", notify_bot=None):
     """通知所有绑定指定群组的用户，群组绑定已失效"""
     try:
@@ -418,7 +430,7 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                 target_ids.append(int(f"-100{chat_id}"))
             # 如果是负数且以 -100 开头，尝试去掉前缀 (以防数据库存的是短 ID)
             elif str(chat_id).startswith('-100'):
-                try:
+            try:
                     target_ids.append(int(str(chat_id)[4:]))
                 except:
                     pass
@@ -444,7 +456,7 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                 user_conn = get_db_conn()
                 user_cursor = user_conn.cursor()
 
-                try:
+            try:
                     # 获取用户真实姓名
                     user_cursor.execute('SELECT username FROM members WHERE telegram_id = ?', (user_id,))
                     user_row = user_cursor.fetchone()
@@ -477,7 +489,7 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                     # 使用指定的机器人发送通知，如果没有指定则使用全局bot
                     notification_sent = False
                     if notify_bot:
-                        try:
+                    try:
                             bot_info = await notify_bot.get_me()
                             bot_name = bot_info.username or str(bot_info.id)
                             await notify_bot.send_message(user_id, notification_msg)
@@ -489,7 +501,7 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                     if not notification_sent:
                         # 回退到使用所有活跃的机器人发送通知
                         for client in clients:
-                            try:
+                        try:
                                 await client.send_message(user_id, notification_msg)
                                 print(f'[通知] ✅ 使用机器人已通知用户 {user_id} ({username}) 群组绑定失效')
                                 notification_sent = True
@@ -538,7 +550,7 @@ def link_account(main_id, backup_id, backup_username):
                 print(f"[备用号已注册] {backup_id} 已注册，将使用fallback_accounts建立关联")
                 conn = get_db_conn()
                 c = conn.cursor()
-                try:
+            try:
                     # 检查是否已经存在关联
                     c.execute('SELECT main_account_id FROM fallback_accounts WHERE telegram_id = ?', (backup_id,))
                     existing_fallback = c.fetchone()
@@ -556,7 +568,7 @@ def link_account(main_id, backup_id, backup_username):
                     conn.close()
                     return True, f"✅ 备用账号关联成功！\n绑定值: {value_to_store}\n\n备用号已注册，将使用备用关联模式。\n\n请使用备用号访问个人中心测试。"
                 except Exception as e:
-                    try:
+                try:
                         conn.close()
                     except:
                         pass
@@ -710,7 +722,7 @@ async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=Tru
     
     # 4. 【核心】调用统一分红函数（替代所有手写循环）
     # 使用主bot发送分红通知
-        if bot:
+    if bot:
     stats = await distribute_vip_rewards(bot, telegram_id, vip_price, config)
     else:
         stats = {'real': 0, 'total': 0}  # 如果bot未启动，返回空统计
@@ -771,22 +783,22 @@ async def check_permission_handler(event):
     sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
 
     member = DB.get_member(sender_id)
-        if not member or not member.get('is_vip'):
+    if not member or not member.get('is_vip'):
         await event.respond("❌ 仅限VIP用户使用此功能")
         return
 
-        await event.respond("🔍 正在检查您的群组权限状态...")
+    await event.respond("🔍 正在检查您的群组权限状态...")
 
     # 立即触发权限检查
     global permission_check_triggered
     permission_check_triggered = True
 
-        await event.respond("✅ 已触发权限检查，请等待系统自动检测并通知")
+    await event.respond("✅ 已触发权限检查，请等待系统自动检测并通知")
 
 @multi_bot_on(events.NewMessage(pattern='/bind'))
 async def bind_command_handler(event):
     """群内绑定命令：在群组中发送 /bind 绑定当前群"""
-        if event.is_private:
+    if event.is_private:
         await event.respond("❌ 请在您需要绑定的**群组**内发送此命令")
         return
 
@@ -1062,11 +1074,11 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
             from core_functions import generate_vip_success_message
             msg = generate_vip_success_message(telegram_id, amount, vip_price, new_balance)
             if bot:
-                try: await bot.send_message(telegram_id, msg, parse_mode='markdown')
+            try: await bot.send_message(telegram_id, msg, parse_mode='markdown')
                 except: pass
         else:
             if not is_vip_order and bot:
-                try:
+            try:
                     await bot.send_message(telegram_id, f'✅ 充值到账通知\n\n💰 金额: {amount} U\n💵 当前余额: {current_balance} U')
                 except: pass
     except Exception as e:
@@ -1373,10 +1385,10 @@ async def profile_handler(event):
     # 显示信息
     text = f'👤 个人中心\n\n'
     text += f'🆔 账号ID: `{member["telegram_id"]}`\n'  # 显示主ID
-        if original_id != main_id:
+    if original_id != main_id:
         text += f'📱 当前登录: 备用号 ({original_id})\n'
     text += f'👤 用户名: @{member["username"]}\n'
-        if referrer_info: text += f'{referrer_info}\n'
+    if referrer_info: text += f'{referrer_info}\n'
     text += f'💎 VIP状态: {"✅ 已开通" if member["is_vip"] else "❌ 未开通"}\n'
     text += f'💰 余额: {member["balance"]} U\n'
     text += f'📉 错过余额: {member["missed_balance"]} U\n'
@@ -2107,7 +2119,7 @@ async def view_fission_handler(event):
 
     # 生成按钮（从第10层到第1层倒序显示）
     # 【修改1】生成按钮（从第1层到第10层正序显示）
-        for level in range(1, 11):
+    for level in range(1, 11):
         level_count = level_counts.get(level, 0)
         btn_text = f'第{level}层: {level_count}人'
         buttons.append([Button.inline(btn_text, f'flv_{level}_1'.encode())])
@@ -2784,7 +2796,7 @@ async def raw_update_handler(event):
                     # 检查是否是我们的机器人
                     target_bot = None
                     for client in clients:
-                        try:
+                    try:
                             me = await client.get_me()
                             if me.id == target_user_id:
                                 target_bot = client
@@ -2852,7 +2864,7 @@ async def check_permission_changes():
                 # 找到对应的机器人
                 target_bot = None
                 for client in clients:
-                    try:
+                try:
                         me = await client.get_me()
                         if me.id == user_id:
                             target_bot = client
@@ -3138,7 +3150,7 @@ async def group_welcome_handler(event):
 
                 bot_ids = []
                 for client in clients:
-                    try:
+                try:
                         bot_ids.append((await client.get_me()).id)
                     except Exception as e:
                         print(f'[机器人检测] 获取机器人ID失败: {e}')
@@ -3151,7 +3163,7 @@ async def group_welcome_handler(event):
                     # 找到被踢出的机器人实例
                     kicked_bot = None
                     for client in clients:
-                        try:
+                    try:
                             if (await client.get_me()).id == kicked_user_id:
                                 kicked_bot = client
                                 break
@@ -3198,7 +3210,7 @@ async def group_welcome_handler(event):
                     # 转换chat_id格式
                     full_chat_id = int(f"-100{chat_id}") if chat_id > 0 else chat_id
 
-                    try:
+                try:
                         # 检查当前权限状态
                         perms = await target_bot.get_permissions(full_chat_id, user_id)
                         is_admin = perms.is_admin or perms.is_creator
@@ -4056,7 +4068,7 @@ async def check_member_status_task():
             members = c.fetchall()
             
             for telegram_id, group_link, db_is_bot_admin in members:
-                try:
+            try:
                     original_is_bot_admin = db_is_bot_admin or 0
                     
                     # 尝试从 member_groups 获取更准确的 ID
@@ -4074,7 +4086,7 @@ async def check_member_status_task():
                     is_group_bound = 0
                     current_is_bot_admin = 0
                     
-                    try:
+                try:
                         is_in_group, admin_bot_id = await check_any_bot_in_group(clients, group_identifier)
                         if is_in_group:
                             is_group_bound = 1
@@ -4130,7 +4142,7 @@ async def check_permission_changes():
             if not gid: continue
             target_bot = None
             for client in clients:
-                try:
+            try:
                     me = await client.get_me()
                     if me.id == uid: target_bot = client; break
                 except: continue
@@ -4149,7 +4161,7 @@ async def check_permission_changes():
                     c.execute('UPDATE members SET is_bot_admin = 0 WHERE telegram_id = ?', (uid,))
             conn.commit()
             conn.close()
-            except: pass
+        except: pass
         except Exception as e:
         print(f"[权限检查] 错误: {e}")
 
@@ -4157,7 +4169,7 @@ def run_bot():
     """Bot 启动入口"""
     print("🚀 Telegram Bots (Multi) 启动中...")
 
-        if not clients:
+    if not clients:
         print("❌ 没有活跃的机器人客户端，跳过Bot启动")
         print("💡 请在Web后台的机器人设置中添加并启用机器人")
         return
@@ -4174,12 +4186,12 @@ def run_bot():
     async def _process_recharge_queue_worker():
         while True:
             try:
-                    if process_recharge_queue:
+                if process_recharge_queue:
                     item = process_recharge_queue.pop(0)
-                        await process_recharge(item.get('member_id'), item.get('amount'), item.get('is_vip_order'))
-                except Exception as e:
-                    print(f"[充值队列] 处理失败: {e}")
-                await asyncio.sleep(1)
+                    await process_recharge(item.get('member_id'), item.get('amount'), item.get('is_vip_order'))
+            except Exception as e:
+                print(f"[充值队列] 处理失败: {e}")
+            await asyncio.sleep(1)
 
         loop.create_task(_process_recharge_queue_worker())
 
@@ -4194,7 +4206,7 @@ def run_bot():
                 # 检查机器人连接状态 (机器人API兼容的检查)
                 connected_clients = []
                 for i, client in enumerate(clients):
-                    try:
+                try:
                         # 机器人只能使用允许的API方法：get_me()
                         me = await client.get_me()
                         if me and me.id:
@@ -4212,12 +4224,12 @@ def run_bot():
                 print(f"📊 共有 {len(connected_clients)} 个机器人可用于同步")
 
             try:
-                    from database import sync_member_groups_from_members
-                    # 传递已连接的客户端列表给同步函数
-                    await sync_member_groups_from_members(connected_clients)
-                    print("✅ 会员群组数据同步完成")
-                except Exception as e:
-                    print(f"⚠️ 会员群组数据同步失败: {e}")
+                from database import sync_member_groups_from_members
+                # 传递已连接的客户端列表给同步函数
+                await sync_member_groups_from_members(connected_clients)
+                print("✅ 会员群组数据同步完成")
+            except Exception as e:
+                print(f"⚠️ 会员群组数据同步失败: {e}")
                         import traceback
                         traceback.print_exc()
 
@@ -4229,7 +4241,7 @@ def run_bot():
         loop.create_task(sync_after_start())
     
     print("✅ 所有后台任务已挂载")
-        print(f"✅ {len(clients)} 个机器人正在监听消息...")
+    print(f"✅ {len(clients)} 个机器人正在监听消息...")
 
         # 所有机器人共享同一个事件循环并发运行
         print("🔄 正在连接到Telegram服务器...")
