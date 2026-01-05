@@ -40,11 +40,11 @@ def compute_vip_price_from_config(config):
         level_amounts = config.get('level_amounts')
         if level_amounts:
             import json
-            try:
+                try:
                 if isinstance(level_amounts, str):
                     parsed = json.loads(level_amounts)
-                else:
-                    parsed = level_amounts
+            else:
+                parsed = level_amounts
             except:
                 parsed = None
 
@@ -170,7 +170,7 @@ def get_active_bot_tokens():
 
 # 初始化客户端列表
 clients = []
-active_tokens = get_active_bot_tokens()
+    active_tokens = get_active_bot_tokens()
 
 # 权限检查控制变量
 permission_check_triggered = False
@@ -318,7 +318,7 @@ def format_backup_account_display(backup_account):
         return "未设置"
     
     backup_account_str = str(backup_account).strip()
-
+    
     if backup_account_str.startswith('@'):
         return backup_account_str
     if not backup_account_str.isdigit():
@@ -519,7 +519,7 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
 def link_account(main_id, backup_id, backup_username):
     """关联备用号到主账号"""
     clean_username = (backup_username or '').strip().lstrip('@')
-
+    
     if clean_username:
         value_to_store = f"@{clean_username}"
     elif backup_id:
@@ -527,8 +527,8 @@ def link_account(main_id, backup_id, backup_username):
     else:
         return False, "❌ 无效的备用账号信息"
         
-        if str(main_id) == str(backup_id) or value_to_store == str(main_id):
-            return False, "❌ 不能将自己设置为备用号"
+    if str(main_id) == str(backup_id) or value_to_store == str(main_id):
+        return False, "❌ 不能将自己设置为备用号"
 
     try:
         if backup_id:
@@ -686,7 +686,7 @@ async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=Tru
     member = DB.get_member(telegram_id)
     if not member:
         return False, "用户不存在"
-
+    
     if member.get('is_vip'):
         return False, "用户已是VIP"
     
@@ -710,8 +710,8 @@ async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=Tru
     
     # 4. 【核心】调用统一分红函数（替代所有手写循环）
     # 使用主bot发送分红通知
-    if bot:
-        stats = await distribute_vip_rewards(bot, telegram_id, vip_price, config)
+        if bot:
+    stats = await distribute_vip_rewards(bot, telegram_id, vip_price, config)
     else:
         stats = {'real': 0, 'total': 0}  # 如果bot未启动，返回空统计
     
@@ -771,7 +771,7 @@ async def check_permission_handler(event):
     sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
 
     member = DB.get_member(sender_id)
-    if not member or not member.get('is_vip'):
+        if not member or not member.get('is_vip'):
         await event.respond("❌ 仅限VIP用户使用此功能")
         return
 
@@ -781,12 +781,12 @@ async def check_permission_handler(event):
     global permission_check_triggered
     permission_check_triggered = True
 
-    await event.respond("✅ 已触发权限检查，请等待系统自动检测并通知")
+        await event.respond("✅ 已触发权限检查，请等待系统自动检测并通知")
 
 @multi_bot_on(events.NewMessage(pattern='/bind'))
 async def bind_command_handler(event):
     """群内绑定命令：在群组中发送 /bind 绑定当前群"""
-    if event.is_private:
+        if event.is_private:
         await event.respond("❌ 请在您需要绑定的**群组**内发送此命令")
         return
 
@@ -877,7 +877,7 @@ async def start_handler(event):
     telegram_id = get_main_account_id(original_id, original_username)
     
     username = event.sender.username or f'user_{original_id}'
-
+    
     if original_id != telegram_id:
         print(f"⚠️ [Start命令] 检测到备用号登录: {original_id} -> 切换至主账号 {telegram_id}")
     
@@ -890,7 +890,7 @@ async def start_handler(event):
             pass
     
     member = DB.get_member(telegram_id)
-
+    
     if not member:
         created = DB.create_member(telegram_id, username, referrer_id)
         member = DB.get_member(telegram_id)
@@ -922,10 +922,10 @@ async def start_handler(event):
         f'💰 余额: {member["balance"]} U\n\n'
         f'请选择功能:'
     )
-
+    
     if pinned_ad:
         welcome_text += f'\n\n━━━━━━━━━━━━━━━\n📢 {pinned_ad}'
-
+    
     await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
 
 @multi_bot_on(events.CallbackQuery(data=b'open_vip_balance'))
@@ -936,11 +936,11 @@ async def open_vip_balance_callback(event):
     telegram_id = resolved_id
     member = DB.get_member(telegram_id)
     
-        if not member:
+    if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
         return
     
-        if member.get('is_vip'):
+    if member.get('is_vip'):
         await event.answer("✅ 您已经是VIP会员", alert=True)
         return
     
@@ -948,14 +948,14 @@ async def open_vip_balance_callback(event):
     vip_price = compute_vip_price_from_config(config)
     user_balance = member.get('balance', 0)
     
-        if user_balance < vip_price:
+    if user_balance < vip_price:
         await event.answer(f"❌ 余额不足\n当前余额: {user_balance} U\nVIP价格: {vip_price} U", alert=True)
         return
     
     # 【核心修复】调用统一处理函数
     success, result = await process_vip_upgrade(telegram_id, vip_price, config)
     
-        if not success:
+    if not success:
         await event.answer(f"❌ {result}", alert=True)
         return
     
@@ -988,29 +988,29 @@ async def confirm_vip_callback(event):
     original_sender_id, resolved_id = get_resolved_sender_info(event)
 
     member = DB.get_member(resolved_id)
-        if not member:
+    if not member:
         await event.answer('请先发送 /start 注册')
         return
     
-        if member['is_vip']:
+    if member['is_vip']:
         await event.answer('您已经是VIP了!')
         return
     
     vip_price = compute_vip_price_from_config(config)
-        if member['balance'] < vip_price:
+    if member['balance'] < vip_price:
         await event.answer(f'余额不足! 还需 {vip_price - member["balance"]} U', alert=True)
         return
     
     # 【核心修复】调用统一处理函数
     success, result = await process_vip_upgrade(event.sender_id, vip_price, config)
     
-        if not success:
+    if not success:
         await event.answer(f"❌ {result}", alert=True)
         return
     
     stats = result['stats']
     
-        await event.respond(
+    await event.respond(
         f'🎉 恭喜! VIP开通成功!\n\n'
         f'您现在可以:\n'
         f'✅ 查看裂变数据\n'
@@ -1019,7 +1019,7 @@ async def confirm_vip_callback(event):
         f'✅ 推广赚钱',
         buttons=[[Button.inline('🔙 返回主菜单', b'back_to_profile')]]
     )
-        await event.answer()
+    await event.answer()
 
 # ==================== 充值处理 ====================
 
@@ -1055,7 +1055,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
             print(f'[充值处理] 开始VIP自动开通: telegram_id={telegram_id}')
             new_balance = current_balance - vip_price
             DB.update_member(telegram_id, balance=new_balance, is_vip=1, vip_time=get_cn_time())
-        update_level_path(telegram_id)
+            update_level_path(telegram_id)
             if bot:
                 await distribute_vip_rewards(bot, telegram_id, vip_price, config)
 
@@ -1081,17 +1081,17 @@ async def admin_manual_vip_handler(telegram_id, config):
     统一调用 distribute_vip_rewards，删除所有手写分红逻辑
     """
     member = DB.get_member(telegram_id)
-        if not member:
+    if not member:
         return False, "用户不存在"
     
-        if member.get('is_vip'):
+    if member.get('is_vip'):
         return False, "用户已是VIP"
     
     # 【核心修复】调用统一处理函数（不扣除余额，因为是管理员赠送）
     vip_price = compute_vip_price_from_config(config)
     success, result = await process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=False)
     
-        if not success:
+    if not success:
         return False, result
     
     stats = result['stats']
@@ -1124,14 +1124,14 @@ async def fission_handler(event):
     telegram_id = get_main_account_id(event.sender_id, getattr(event.sender, 'username', None))
     member = DB.get_member(telegram_id)
     
-        if not member:
+    if not member:
         await event.respond("❌ 请先使用 /start 开始")
         return
     
     config = get_system_config()
     
     # 检查VIP
-        if not member.get('is_vip'):
+    if not member.get('is_vip'):
         vip_price = config.get('vip_price', 10)
         user_balance = member.get('balance', 0)
         need_recharge = vip_price - user_balance
@@ -1180,13 +1180,13 @@ async def fission_handler(event):
     except Exception as dbg_e:
         print(f"[fission debug] error reading fallback_accounts: {dbg_e}")
 
-        if not fb_groups:
+    if not fb_groups:
         await event.respond("❌ 系统错误：捡漏群组未配置，请联系管理员")
         return
     
     # 构建层级映射：level -> 上级信息（如果存在且完成任务）
     upline_map = {}
-        for item in chain:
+    for item in chain:
         if item.get('is_fallback'):
             continue
         level = item['level']
@@ -1215,7 +1215,7 @@ async def fission_handler(event):
     groups_to_show = [None] * level_count  # 0-based positions
 
     # 先把上级群放到对应显示位置（增加实时群权检测）
-        for item in chain:
+    for item in chain:
         if item.get('is_fallback'):
             continue
 
@@ -1280,7 +1280,7 @@ async def fission_handler(event):
                 print(f"[群裂变列表] 检查第{level}层上级条件失败: {e}")
 
     # 用捡漏群补全剩余位置（按从前到后映射级别）
-        for display_idx in range(level_count):
+    for display_idx in range(level_count):
         if groups_to_show[display_idx] is None:
             # 要计算该显示位对应的层级（反向）： display_idx = level_count - level
             level_for_slot = level_count - display_idx
@@ -1304,7 +1304,7 @@ async def fission_handler(event):
             }
     
     # 统一显示在"推荐加入的群组"中
-        if groups_to_show:
+    if groups_to_show:
         text += "🔥 **推荐加入的群组：**\n"
         for idx, group_info in enumerate(groups_to_show, 1):
             # 显示编号为从后向前（例如 level_count=10 则首项显示为 10）
@@ -1323,7 +1323,7 @@ async def fission_handler(event):
         return
         
     buttons = [[Button.inline('🔍 验证已加群', f'verify_groups_{telegram_id}'.encode())]]
-        await event.respond(text, buttons=buttons, parse_mode='markdown')
+    await event.respond(text, buttons=buttons, parse_mode='markdown')
 
 # ==================== 注册其他命令处理器 ====================
 
@@ -1342,7 +1342,7 @@ async def profile_handler(event):
     member = DB.get_member(resolved_id)
     print(f"[个人中心] 数据库查询结果: {member is not None}")
 
-        if not member:
+    if not member:
         # 只有当确实查不到记录时，才提示注册
         print(f"[个人中心] 未找到会员信息: {resolved_id}")
         await event.respond('❌ 未找到账号信息，请先发送 /start 注册')
@@ -1364,7 +1364,7 @@ async def profile_handler(event):
     
     # 获取推荐人信息
     referrer_info = ""
-        if member.get("referrer_id"):
+    if member.get("referrer_id"):
         referrer = DB.get_member(member["referrer_id"])
         if referrer:
             r_name = referrer.get("username", "")
@@ -1383,7 +1383,7 @@ async def profile_handler(event):
     text += f'🔗 群链接: {member["group_link"] or "未设置"}\n'
     text += f'📱 绑定备用号: {backup_display}\n'
     
-        await event.respond(text, buttons=buttons)
+    await event.respond(text, buttons=buttons)
 
 # ==================== 个人中心按钮回调处理 ====================
 
@@ -1391,11 +1391,11 @@ async def profile_handler(event):
 async def set_group_callback(event):
     """设置群链接回调"""
     # 账号关联处理（备用号->主账号）
-    original_sender_id = event.sender_id
+        original_sender_id = event.sender_id
     main_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
 
     member = DB.get_member(main_id)
-        if not member:
+    if not member:
         await event.answer('请先发送 /start 注册')
         return
 
@@ -1403,14 +1403,14 @@ async def set_group_callback(event):
     resolved_id = main_id
 
     # VIP check
-        if not member.get('is_vip'):
+    if not member.get('is_vip'):
         await send_vip_required_prompt(event)
         return
     
     # 切换到群链接输入时，清理备用号等待状态
     waiting_for_backup.pop(resolved_id, None)
     waiting_for_group_link[resolved_id] = True
-        await event.respond(
+    await event.respond(
         '🔗 **设置群链接**\n\n'
         '**方法 A (推荐)：**\n'
         '1. 将机器人拉入您的群组\n'
@@ -1422,7 +1422,7 @@ async def set_group_callback(event):
         '⚠️ 注意：如果是私有链接，请**先将机器人拉进群**再发送，否则无法识别！\n\n'
         '发送 /cancel 取消操作'
     )
-        await event.answer()
+    await event.answer()
 
 @multi_bot_on(events.CallbackQuery(pattern=b'set_backup'))
 async def set_backup_callback(event):
@@ -1431,24 +1431,24 @@ async def set_backup_callback(event):
     original_sender_id, resolved_id = get_resolved_sender_info(event)
 
     member = DB.get_member(resolved_id)
-        if not member:
+    if not member:
         await event.answer('请先发送 /start 注册')
         return
 
     # VIP check
-        if not member.get('is_vip'):
+    if not member.get('is_vip'):
         await send_vip_required_prompt(event)
         return
     
     # 切换到备用号输入时，清理群链接等待状态
     waiting_for_group_link.pop(resolved_id, None)
     waiting_for_backup[resolved_id] = True
-        await event.respond(
+    await event.respond(
         '✏️ 设置备用号\n\n'
         '请发送您的备用飞机号 (不带@的用户名或ID)\n\n'
         '发送 /cancel 取消操作'
     )
-        await event.answer()
+    await event.answer()
 
 @multi_bot_on(events.CallbackQuery(pattern=b'earnings_history'))
 async def earnings_history_callback(event):
@@ -1458,12 +1458,12 @@ async def earnings_history_callback(event):
 
     member = DB.get_member(resolved_id)
     
-        if not member:
+    if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
         return
 
     # VIP check
-        if not member.get('is_vip'):
+    if not member.get('is_vip'):
         await send_vip_required_prompt(event)
         return
     
@@ -1480,7 +1480,7 @@ async def earnings_history_callback(event):
     records = c.fetchall()
     conn.close()
     
-        if not records:
+    if not records:
         text = "📊 收益记录\n\n暂无收益记录"
         buttons = [[Button.inline('🔙 返回', b'back_to_profile')]]
     else:
@@ -1512,18 +1512,18 @@ async def earnings_history_callback(event):
         await event.edit(text, buttons=buttons)
     except:
         await event.respond(text, buttons=buttons)
-        await event.answer()
+    await event.answer()
 
 @multi_bot_on(events.CallbackQuery(pattern=b'withdraw'))
 async def withdraw_callback(event):
     """提现回调"""
     config = get_system_config()
     member = DB.get_member(event.sender_id)
-        if not member:
+    if not member:
         await event.answer('请先发送 /start 注册')
         return
 
-        if member['balance'] < config['withdraw_threshold']:
+    if member['balance'] < config['withdraw_threshold']:
         await event.respond(
             '💳 提现\n\n'
             f'❌ 余额未达到提现门槛\n\n'
@@ -1539,7 +1539,7 @@ async def withdraw_callback(event):
             f'提现门槛: {config["withdraw_threshold"]} U\n\n'
             f'请输入提现金额：'
         )
-        await event.answer()
+    await event.answer()
 
 @multi_bot_on(events.CallbackQuery(pattern=b'do_recharge'))
 async def do_recharge_callback(event):
@@ -1553,7 +1553,7 @@ async def do_recharge_callback(event):
     telegram_id = event.sender_id
     member = DB.get_member(telegram_id)
     
-        if not member:
+    if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
         return
     
@@ -1574,7 +1574,7 @@ async def do_recharge_callback(event):
         await event.edit(text)
     except:
         await event.respond(text)
-        await event.answer()
+    await event.answer()
 
 @multi_bot_on(events.CallbackQuery(pattern=b'open_vip'))
 async def open_vip_callback(event):
@@ -1588,11 +1588,11 @@ async def open_vip_callback(event):
     telegram_id = event.sender_id
     member = DB.get_member(telegram_id)
     
-        if not member:
+    if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
         return
     
-        if member.get('is_vip'):
+    if member.get('is_vip'):
         await event.answer("✅ 您已经是VIP会员", alert=True)
         return
     
@@ -1613,7 +1613,7 @@ VIP价格: {vip_price} U
 ✅ 加入上级群组
 ✅ 推广赚钱功能"""
     
-        if user_balance >= vip_price:
+    if user_balance >= vip_price:
         # 余额足够，直接尝试开通（跳过额外确认）
         try:
             success, result = await process_vip_upgrade(telegram_id, vip_price, config)
@@ -1645,7 +1645,7 @@ VIP价格: {vip_price} U
         await event.edit(text, buttons=buttons)
     except:
         await event.respond(text, buttons=buttons)
-        await event.answer()
+    await event.answer()
 
 # 返回个人中心
 @multi_bot_on(events.CallbackQuery(pattern=b'back_to_profile'))
@@ -1658,7 +1658,7 @@ async def back_to_profile_callback(event):
     except:
         pass
     member = DB.get_member(event.sender_id)
-        if not member:
+    if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
         return
     
@@ -1688,7 +1688,7 @@ async def back_to_profile_callback(event):
         await event.edit(text, buttons=buttons)
     except:
         await event.respond(text, buttons=buttons)
-        await event.answer()
+    await event.answer()
 
 @multi_bot_on(events.CallbackQuery(data=b'recharge_for_vip'))
 async def recharge_for_vip_callback(event):
@@ -1702,7 +1702,7 @@ async def recharge_for_vip_callback(event):
     telegram_id = event.sender_id
     member = DB.get_member(telegram_id)
     
-        if not member:
+    if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
         return
     
@@ -1712,7 +1712,7 @@ async def recharge_for_vip_callback(event):
     user_balance = member.get('balance', 0)
     need_recharge = vip_price - user_balance
     
-        if need_recharge <= 0:
+    if need_recharge <= 0:
         await event.answer("✅ 余额充足，可以直接开通VIP", alert=True)
         return
     
@@ -1725,7 +1725,7 @@ async def recharge_for_vip_callback(event):
         import traceback
         traceback.print_exc()
         await event.respond("❌ 创建充值订单失败，请稍后重试")
-        await event.answer()
+    await event.answer()
 
 @multi_bot_on(events.CallbackQuery(pattern=rb'verify_groups_.*'))
 async def verify_groups_callback(event):
@@ -1740,12 +1740,12 @@ async def verify_groups_callback(event):
     telegram_id = event.sender_id
     member = DB.get_member(telegram_id)
     
-        if not member:
+    if not member:
         await event.answer("❌ 用户信息不存在", alert=True)
         return
     
     # 【核心修复】如果该用户已经完成过"加群任务"，则永久锁死，不再重新检测
-        if member.get('is_joined_upline'):
+    if member.get('is_joined_upline'):
         await event.answer("✅ 加群任务已完成（永久锁定）", alert=False)
         try:
             await event.edit("✅ **加群任务已完成**\n\n🎉 您已完成加入所有需要加入的群组！\n\n您现在可以获得下级开通VIP的分红了！")
@@ -1753,7 +1753,7 @@ async def verify_groups_callback(event):
             pass
         return
     
-        await event.answer("🔍 正在检测群组加入情况，请稍候...", alert=False)
+    await event.answer("🔍 正在检测群组加入情况，请稍候...", alert=False)
     
     # 【核心修复】加群任务 = 必须加入1-10层的群组（每层：有上级且完成任务用上级群，否则用捡漏群）
     config = get_system_config()
@@ -1767,13 +1767,13 @@ async def verify_groups_callback(event):
     
     # 获取所有捡漏群组
     fb_groups = get_fallback_resource('group')
-        if not fb_groups:
+    if not fb_groups:
         await event.respond("❌ 系统错误：捡漏群组未配置，请联系管理员")
         return
     
     # 构建层级映射：level -> 上级信息（如果存在且完成任务）
     upline_map = {}
-        for item in chain:
+    for item in chain:
         if item.get('is_fallback'):
             continue
         level = item['level']
@@ -1800,7 +1800,7 @@ async def verify_groups_callback(event):
     groups_to_check = [None] * required_groups_count
 
     # 先把真实上级放到对应显示位置（上1级 -> 最后一个位置，含实时检测）
-        for level, info in upline_map.items():
+    for level, info in upline_map.items():
         try:
             pos = required_groups_count - level
             if pos < 0 or pos >= required_groups_count:
@@ -1830,7 +1830,7 @@ async def verify_groups_callback(event):
             print(f"[验证加群] 构建上级映射失败: {e}")
 
     # 补全空位为捡漏群组
-        for display_pos in range(required_groups_count):
+    for display_pos in range(required_groups_count):
         if groups_to_check[display_pos] is None:
             # 对应的层级（反向映射）
             level_for_slot = required_groups_count - display_pos
@@ -1849,14 +1849,14 @@ async def verify_groups_callback(event):
     
     # 过滤空
     groups_to_check = [g for g in groups_to_check if g is not None]
-        if not groups_to_check:
+    if not groups_to_check:
         await event.respond("❌ 没有可验证的群组")
         return
     
     # 去重群组（按 link 保持顺序），检测用户是否在群组中
     seen_links = set()
     dedup_groups = []
-        for g in groups_to_check:
+    for g in groups_to_check:
         link = g.get('link') or ''
         if link and link not in seen_links:
             dedup_groups.append(g)
@@ -1865,7 +1865,7 @@ async def verify_groups_callback(event):
     not_joined = []
     joined = []
     
-        for group_info in dedup_groups:
+    for group_info in dedup_groups:
         group_link = group_info['link']
         print(f"[verify_groups] 检查群: display_index={group_info.get('display_index')} level={group_info.get('level')} link={group_link}")
         try:
@@ -1942,7 +1942,7 @@ async def verify_groups_callback(event):
     text += f"❌ **未加入**: {not_joined_count} 个\n\n"
     
     # 如果已完成，显示完成提示
-        if is_completed:
+    if is_completed:
         text += "🎉 **恭喜！您已加入所有需要加入的群组！**\n\n"
         text += "✅ 您现在可以获得下级开通VIP的分红了！\n\n"
         if joined:
@@ -2027,11 +2027,11 @@ async def view_fission_handler(event):
     
     config = get_system_config()
     member = DB.get_member(event.sender_id)
-        if not member:
+    if not member:
         await event.respond('请先发送 /start 注册')
         return
 
-        if not member['is_vip']:
+    if not member['is_vip']:
         # 使用和"群裂变加入"一样的VIP提示
         vip_price = config.get('vip_price', 10)
         user_balance = member.get('balance', 0)
@@ -2072,7 +2072,7 @@ async def view_fission_handler(event):
     # 计算每一层的下级人数
     current_level_users = [member['telegram_id']]  # 从自己开始
 
-        for level in range(1, 11):  # 固定计算10层
+    for level in range(1, 11):  # 固定计算10层
         if not current_level_users:
             # 如果上一层没有用户，这一层肯定也是0
             level_counts[level] = 0
@@ -2120,7 +2120,7 @@ async def view_fission_handler(event):
 
     buttons.append([Button.inline('🏠 主菜单', b'fission_main_menu')])
 
-        await event.respond(text, buttons=buttons)
+    await event.respond(text, buttons=buttons)
 
 
 @multi_bot_on(events.CallbackQuery(pattern=rb'flv_(\d+)_(\d+)'))
@@ -2237,9 +2237,9 @@ async def fission_main_menu_callback(event):
 @multi_bot_on(events.CallbackQuery(pattern=b'back_handler'))
 async def back_handler_callback(event):
     """Callback 版本的返回主菜单"""
-        await event.delete()
+    await event.delete()
     # 触发 /start 效果或发送主菜单
-        await start_handler(event)
+    await start_handler(event)
 
 
 @multi_bot_on(events.NewMessage(pattern=BTN_PROMOTE))
@@ -2253,14 +2253,14 @@ async def promote_handler(event):
     
     config = get_system_config()
     member = DB.get_member(event.sender_id)
-        if not member:
+    if not member:
         await event.respond('请先发送 /start 注册')
         return
     
     # 【修复】移除了强制VIP检查，非VIP也可以推广赚钱
     
     # 未完成上级加群任务
-        if not member.get('is_joined_upline', 0):
+    if not member.get('is_joined_upline', 0):
         await event.respond(
             "抱歉，您还没加入上级群，不能使用此功能\n\n"
             "请先按照要求加入 10 级共 10 个上级群，\n"
@@ -2270,7 +2270,7 @@ async def promote_handler(event):
         return
     
     # 未绑定自己群
-        if not member.get('group_link'):
+    if not member.get('group_link'):
         await event.respond(
             "抱歉，您还没有绑定自己的群，不能使用此功能\n\n"
             "请先绑定自己的群，并确保已将机器人拉入群并设置为管理员。",
@@ -2304,13 +2304,13 @@ async def resources_handler(event):
         event.sender_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
     except:
         pass
-        await show_resource_categories(event, page=1, is_new=True)
+    await show_resource_categories(event, page=1, is_new=True)
 
 async def show_resource_categories(event, page=1, is_new=False):
     """显示资源分类（文本列表，分页，每页25条）"""
     categories = DB.get_resource_categories(0)
 
-        if not categories:
+    if not categories:
         msg = '📁 行业资源\n\n暂无资源分类'
         if is_new:
             await event.respond(msg)
@@ -2331,27 +2331,27 @@ async def show_resource_categories(event, page=1, is_new=False):
     # 构建文本列表（编号 + 名称），下方放按钮（每行3个）用于进入分类资源
     text_lines = [f'📁 行业资源\n\n共 {total} 个分类 （第 {page}/{total_pages} 页）\n']
     buttons = []
-        for idx, cat in enumerate(page_categories, start + 1):
+    for idx, cat in enumerate(page_categories, start + 1):
         text_lines.append(f'{idx}. {cat["name"]}')
 
     # 每行3个按钮排列
     current_row = []
-        for cat in page_categories:
+    for cat in page_categories:
         current_row.append(Button.inline(cat["name"], f'cat_{cat["id"]}'.encode()))
         if len(current_row) == 3:
             buttons.append(current_row)
             current_row = []
     # 处理剩余的按钮
-        if current_row:
+    if current_row:
         buttons.append(current_row)
 
     # 分页控制按钮
     nav = []
-        if page > 1:
+    if page > 1:
         nav.append(Button.inline('< 上一页', f'catpg_{page-1}'.encode()))
-        if page < total_pages:
+    if page < total_pages:
         nav.append(Button.inline('下一页 >', f'catpg_{page+1}'.encode()))
-        if nav:
+    if nav:
         buttons.append(nav)
 
     buttons.append([Button.inline('< 返回', b'res_back_main')])
@@ -2521,7 +2521,7 @@ async def support_handler(event):
     # 获取客服列表
     services = DB.get_customer_services()
     
-        if not services:
+    if not services:
         # 如果没有客服，显示后台配置的文本
         config = get_system_config()
         await event.respond(config['support_text'])
@@ -2531,7 +2531,7 @@ async def support_handler(event):
     text = '👩‍💼 在线客服\n\n请选择客服进行咨询:\n\n'
     buttons = []
     
-        for service in services:
+    for service in services:
         text += f'• {service["name"]}\n'
         # 转换链接格式
         link = service['link']
@@ -2542,7 +2542,7 @@ async def support_handler(event):
         
         buttons.append([Button.url(f'💬 联系 {service["name"]}', link)])
     
-        await event.respond(text, buttons=buttons, parse_mode='md')
+    await event.respond(text, buttons=buttons, parse_mode='md')
 
 @multi_bot_on(events.NewMessage(pattern=BTN_VIP))
 async def vip_handler(event):
@@ -2554,11 +2554,11 @@ async def vip_handler(event):
         pass
     
     member = DB.get_member(event.sender_id)
-        if not member:
+    if not member:
         await event.respond('请先发送 /start 注册')
         return
     
-        if member['is_vip']:
+    if member['is_vip']:
         await event.respond(
             '💎 您已经是VIP会员!\n\n'
             f'开通时间: {member["vip_time"][:10] if member["vip_time"] else "未知"}'
@@ -2569,7 +2569,7 @@ async def vip_handler(event):
     config = get_system_config()
     
     # 检查余额是否足够
-        if member['balance'] >= config['vip_price']:
+    if member['balance'] >= config['vip_price']:
         await event.respond(
             f'💎 开通VIP会员\n\n'
             f'VIP价格: {config["vip_price"]} U\n'
@@ -2608,7 +2608,7 @@ async def my_promote_handler(event):
     
     config = get_system_config()
     member = DB.get_member(event.sender_id)
-        if not member:
+    if not member:
         await event.respond('请先发送 /start 注册')
         return
     
@@ -2638,7 +2638,7 @@ async def my_promote_handler(event):
 
     buttons = [[Button.url('📤 立即推广 (选择好友/群)', share_url)]]
     
-        await event.respond(text, buttons=buttons, parse_mode='md')
+    await event.respond(text, buttons=buttons, parse_mode='md')
 
 @multi_bot_on(events.NewMessage(pattern=BTN_BACK))
 async def back_handler(event):
@@ -2650,11 +2650,11 @@ async def back_handler(event):
         pass
     
     member = DB.get_member(event.sender_id)
-        if not member:
+    if not member:
         await event.respond('请先发送 /start 注册')
         return
     
-        await event.respond(
+    await event.respond(
         f'🤖 裂变推广机器人\n\n'
         f'👤 用户: @{member["username"]}\n'
         f'💎 VIP状态: {"✅ 已开通" if member["is_vip"] else "❌ 未开通"}\n'
@@ -2672,7 +2672,7 @@ async def admin_handler(event):
     except:
         pass
     
-        if event.sender_id not in ADMIN_IDS:
+    if event.sender_id not in ADMIN_IDS:
         return
     
     # 获取系统配置
@@ -2684,7 +2684,7 @@ async def admin_handler(event):
     text += f'💰 每层返利: {config["level_reward"]} U\n'
     text += f'💎 VIP价格: {config["vip_price"]} U\n'
     _fb_group = get_fallback_resource("group")
-        if _fb_group:
+    if _fb_group:
         text += f"\n\n💡 推荐群组:\n{_fb_group}"
     text += f'💳 提现门槛: {config["withdraw_threshold"]} U\n'
     text += f'💵 USDT地址: {config["usdt_address"][:10] if config["usdt_address"] else "未设置"}...{config["usdt_address"][-10:] if config["usdt_address"] and len(config["usdt_address"]) > 20 else ""}\n\n'
@@ -2700,7 +2700,7 @@ async def admin_handler(event):
         [Button.inline('🎁 手动充值VIP', b'admin_manual_vip'), Button.inline('📢 用户广播', b'admin_broadcast')]
     ]
     
-        await event.respond(text, buttons=buttons, parse_mode='md')
+    await event.respond(text, buttons=buttons, parse_mode='md')
 
 # ==================== 群组欢迎和自动注册 ====================
 
@@ -3246,14 +3246,14 @@ async def message_handler(event):
         pass
     
     # 忽略命令和按钮文字
-        if not event.message.text:
+    if not event.message.text:
         return
     
     text = event.message.text.strip()
     sender_id = event.sender_id
     
     # 处理提现金额输入
-        if sender_id in waiting_for_withdraw_amount:
+    if sender_id in waiting_for_withdraw_amount:
         del waiting_for_withdraw_amount[sender_id]
         try:
             amount = float(text)
@@ -3280,7 +3280,7 @@ async def message_handler(event):
         return
     
     # 处理提现地址输入
-        if sender_id in waiting_for_withdraw_address:
+    if sender_id in waiting_for_withdraw_address:
         del waiting_for_withdraw_address[sender_id]
         usdt_address = text.strip()
         
@@ -3318,15 +3318,15 @@ async def message_handler(event):
                     columns = [col[1] for col in c.fetchall()]
                     if 'usdt_address' in columns:
                         c.execute("INSERT INTO withdrawals (member_id, amount, usdt_address, status, create_time) VALUES (?, ?, ?, 'pending', ?)",
-                    (sender_id, amount, usdt_address, now))
+                                 (sender_id, amount, usdt_address, now))
                     else:
                         c.execute("INSERT INTO withdrawals (member_id, amount, status, create_time) VALUES (?, ?, 'pending', ?)",
-                        (sender_id, amount, now))
+                                 (sender_id, amount, now))
                     
-                                conn.commit()
+                    conn.commit()
                     
                     # 获取新余额
-                                c.execute("SELECT balance FROM members WHERE telegram_id = ?", (sender_id,))
+                    c.execute("SELECT balance FROM members WHERE telegram_id = ?", (sender_id,))
                     new_balance = c.fetchone()[0]
                     conn.close()
                     break
@@ -3351,7 +3351,7 @@ async def message_handler(event):
         return
     
     # 忽略命令
-        if text.startswith('/'):
+    if text.startswith('/'):
         if text == '/cancel':
             waiting_for_group_link.pop(sender_id, None)
             waiting_for_backup.pop(sender_id, None)
@@ -3361,11 +3361,11 @@ async def message_handler(event):
         return
     
     # 忽略主菜单按钮
-        if text in [BTN_PROFILE, BTN_FISSION, BTN_VIEW_FISSION, BTN_RESOURCES, BTN_PROMOTE, BTN_SUPPORT, BTN_BACK, BTN_ADMIN, BTN_VIP, BTN_MY_PROMOTE]:
+    if text in [BTN_PROFILE, BTN_FISSION, BTN_VIEW_FISSION, BTN_RESOURCES, BTN_PROMOTE, BTN_SUPPORT, BTN_BACK, BTN_ADMIN, BTN_VIP, BTN_MY_PROMOTE]:
         return
     
     # 管理员设置处理
-        if sender_id in admin_waiting:
+    if sender_id in admin_waiting:
         wait_type = admin_waiting[sender_id]
         config = get_system_config()
         
@@ -3560,7 +3560,7 @@ async def message_handler(event):
             return
     
     # 处理充值金额输入
-        if sender_id in waiting_for_recharge_amount and waiting_for_recharge_amount[sender_id]:
+    if sender_id in waiting_for_recharge_amount and waiting_for_recharge_amount[sender_id]:
         try:
             amount = float(text)
             if amount <= 0:
@@ -3577,7 +3577,7 @@ async def message_handler(event):
         return
     
     # 设置备用号
-        if sender_id in waiting_for_backup and waiting_for_backup[sender_id]:
+    if sender_id in waiting_for_backup and waiting_for_backup[sender_id]:
         backup_raw = text.strip().lstrip('@')
         backup_id = None
         backup_username = None
@@ -3606,7 +3606,7 @@ async def message_handler(event):
         return
     
     # 设置群链接
-        if sender_id in waiting_for_group_link and waiting_for_group_link[sender_id]:
+    if sender_id in waiting_for_group_link and waiting_for_group_link[sender_id]:
         link = text
         # 只允许 http(s)://t.me/ 开头的链接
         if link.startswith('http://t.me/') or link.startswith('https://t.me/'):
@@ -3697,7 +3697,7 @@ async def message_handler(event):
 
 async def process_notify_queue():
     """处理通知队列"""
-        while True:
+    while True:
         try:
             await asyncio.sleep(1)
             while notify_queue:
@@ -3720,7 +3720,7 @@ async def auto_broadcast_timer():
 
     check_interval_seconds = 10  # 每10秒扫描一次
     
-        while True:
+    while True:
         try:
             await asyncio.sleep(check_interval_seconds)
             now_ts = time.time()
@@ -3740,13 +3740,13 @@ async def auto_broadcast_timer():
             # 查询所有启用分配：关联 member_groups、broadcast_assignments、broadcast_messages
             c.execute("""
                 SELECT ba.id, ba.group_id, ba.message_id, ba.last_sent_time,
-                mg.group_link, mg.group_name,
-            bm.content, bm.image_url, bm.video_url, bm.buttons, bm.buttons_per_row, bm.broadcast_interval, bm.create_time
+                       mg.group_link, mg.group_name,
+                       bm.content, bm.image_url, bm.video_url, bm.buttons, bm.buttons_per_row, bm.broadcast_interval, bm.create_time
                 FROM broadcast_assignments ba
                 JOIN broadcast_messages bm ON ba.message_id = bm.id
                 JOIN member_groups mg ON ba.group_id = mg.id
-                    WHERE ba.is_active = 1 AND bm.is_active = 1 AND mg.schedule_broadcast = 1
-                    ORDER BY bm.create_time ASC, bm.id ASC
+                WHERE ba.is_active = 1 AND bm.is_active = 1 AND mg.schedule_broadcast = 1
+                ORDER BY bm.create_time ASC, bm.id ASC
             """)
             rows = c.fetchall()
 
@@ -3807,12 +3807,12 @@ async def auto_broadcast_timer():
                             'buttons_per_row': item.get('buttons_per_row') or 2
                         }, ensure_ascii=False)
                         c.execute('INSERT INTO broadcast_queue (group_link, group_name, message, status, create_time) VALUES (?, ?, ?, ?, ?)',
-                            (item['group_link'], item['group_name'], msg_payload, 'pending', now_iso))
+                                  (item['group_link'], item['group_name'], msg_payload, 'pending', now_iso))
                         # update last_sent_time for assignment
                         c.execute('UPDATE broadcast_assignments SET last_sent_time = ? WHERE id = ?', (now_iso, item['assign_id']))
                     except Exception as e:
                         print(f"[定时群发] 入队失败 assign_id={item.get('assign_id')}: {e}")
-                                conn.commit()
+                conn.commit()
                 print(f"[定时群发] 已入队 {len(to_enqueue)} 条消息")
             
             conn.close()
@@ -3822,7 +3822,7 @@ async def auto_broadcast_timer():
 
 async def process_broadcast_queue():
     """处理群发队列（数据库队列）"""
-        while True:
+    while True:
         try:
             await asyncio.sleep(5)  # 每5秒检查一次
             conn = get_db_conn()
@@ -3944,7 +3944,7 @@ async def process_broadcast_queue():
 
 async def process_broadcasts():
     """定期检查并处理待发送的群发任务（内存队列）"""
-        while True:
+    while True:
         try:
             if pending_broadcasts:
                 task = pending_broadcasts.pop(0)
@@ -4037,269 +4037,127 @@ async def process_broadcasts():
             await asyncio.sleep(5)
 
 async def check_member_status_task():
-    """定期检查会员状态（拉群、群管、加群）"""
-        while True:
+    """定期检查会员状态（核心修复：逻辑判断和通知）"""
+
+    while True:
         try:
             global permission_check_triggered
-
-            # 如果有权限变化触发器被设置，立即检查，否则等待30秒
             if permission_check_triggered:
-                print("[状态检测] 🔄 检测到权限变化，立即执行检查...")
-                permission_check_triggered = False  # 重置触发器
+                permission_check_triggered = False
             else:
-                await asyncio.sleep(30)  # 每30秒检查一次
+                await asyncio.sleep(30)
 
-            # 增加权限变更检测
+            # 先执行一次全量权限检查
             await check_permission_changes()
-
-            print("[状态检测] 开始检查会员状态...")
             
             conn = get_db_conn()
             c = conn.cursor()
-            
-            # 获取系统配置
-            config = get_system_config()
-            level_count = int(config.get('level_count', 10))
-            
-            # 获取所有有群链接的会员
-            c.execute("""
-                SELECT telegram_id, group_link 
-                FROM members 
-                WHERE group_link IS NOT NULL AND group_link != ''
-            """)
+            c.execute("SELECT telegram_id, group_link, is_bot_admin FROM members WHERE group_link IS NOT NULL AND group_link != ''")
             members = c.fetchall()
             
-            for telegram_id, group_link in members:
+            for telegram_id, group_link, db_is_bot_admin in members:
                 try:
-                    # 【核心修复】先查询当前状态和group_id
-                    c.execute("SELECT m.is_joined_upline, mg.group_id FROM members m LEFT JOIN member_groups mg ON m.telegram_id = mg.telegram_id WHERE m.telegram_id = ?", (telegram_id,))
-                    current_status = c.fetchone()
-                    current_is_joined_upline = current_status[0] if current_status and current_status[0] is not None else 0
-                    stored_group_id = current_status[1] if current_status and len(current_status) > 1 else None
-
-                    print(f"[状态检测] 检查会员 {telegram_id}, 当前状态: is_joined_upline={current_is_joined_upline}, group_id={stored_group_id}")
-
-                    # 优先使用存储的group_id，其次从链接提取用户名
-                    if stored_group_id:
-                        # 使用group_id进行检查（更可靠）
-                        group_identifier = int(stored_group_id)
-                        group_display_name = f"ID:{stored_group_id}"
-                    else:
-                        # 从链接提取用户名
-                    if group_link.startswith('https://t.me/'):
-                        group_username = group_link.replace('https://t.me/', '').split('/')[0].split('?')[0]
+                    original_is_bot_admin = db_is_bot_admin or 0
+                    
+                    # 尝试从 member_groups 获取更准确的 ID
+                    c.execute("SELECT group_id FROM member_groups WHERE telegram_id = ?", (telegram_id,))
+                    mg_row = c.fetchone()
+                    group_identifier = mg_row[0] if mg_row and mg_row[0] else None
+                    
+                    if not group_identifier:
+                        if 't.me/' in group_link:
+                            group_identifier = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
                     elif group_link.startswith('@'):
-                        group_username = group_link[1:]
-                    else:
-                        group_username = group_link
+                            group_identifier = group_link[1:]
+                        else: continue # 无法检测
                     
-                    # 跳过私有群链接
-                    if group_username.startswith('+'):
-                        continue
-
-                        group_identifier = group_username
-                        group_display_name = group_username
-
-                    # 总是检查机器人管理员权限（即使会员已完成任务）
                     is_group_bound = 0
-                    is_bot_admin = 0
-                    is_joined_upline = 0
-
-                    # 获取当前数据库中记录的管理员状态
-                    c.execute("SELECT is_bot_admin FROM members WHERE telegram_id = ?", (telegram_id,))
-                    current_admin_status = c.fetchone()
-                    original_is_bot_admin = current_admin_status[0] or 0
+                    current_is_bot_admin = 0
                     
-                    # 检查1：是否已拉群（群链接是否有效）
-                    is_group_bound = 0
-                    is_bot_admin = 0
-                    is_joined_upline = 0
-                    
-                    # 新增：检查机器人管理员权限状态
-                    bot_admin_status_changed = False
-                    original_is_bot_admin = 0
-
-                    # 获取当前数据库中记录的管理员状态
-                    c.execute("SELECT is_bot_admin FROM members WHERE telegram_id = ?", (telegram_id,))
-                    current_admin_status = c.fetchone()
-                    if current_admin_status:
-                        original_is_bot_admin = current_admin_status[0] or 0
-                    
-                    # 使用多机器人检测：检查是否有任何机器人加入群组并担任管理员
                     try:
-                        # 调用 check_any_bot_in_group 进行多机器人轮询检测
                         is_in_group, admin_bot_id = await check_any_bot_in_group(clients, group_identifier)
-
                         if is_in_group:
                             is_group_bound = 1
                             if admin_bot_id:
-                                is_bot_admin = 1
-                                print(f"[状态检测] ✅ 机器人是管理员: {group_display_name} (Bot ID: {admin_bot_id})")
-                            else:
-                                print(f"[状态检测] ⚠️ 机器人加入群组但不是管理员: {group_display_name}")
-                                is_bot_admin = 0  # 明确设置为非管理员
-                        else:
-                            print(f"[状态检测] ❌ 没有任何机器人加入该群组或群组不存在: {group_display_name}")
-                            is_group_bound = 0  # 没有机器人加入，群组绑定失效
-
-                    except Exception as e:
-                        print(f"[状态检测] 多机器人检测异常 {group_display_name}: {e}")
-                        # 多机器人检测都失败了，可能是网络问题或所有机器人都不在群组中
-                        # 在这种情况下，我们保守地保持原有状态不变，避免误判
-                        is_bot_admin = original_is_bot_admin
-                        print(f"[状态检测] 检测异常，保持原有管理员状态: {original_is_bot_admin}")
-
-                        # 【核心修复】如果已经完成加群任务，永久跳过加群检测（永久锁死）
-                        if current_is_joined_upline == 1:
-                            print(f"[状态检测] 会员 {telegram_id} 已完成加群任务（永久锁定），跳过加群检测")
-                            is_joined_upline = 1  # 保持原有状态
-                            upline_chain = []  # 初始化为空，避免后续使用出错
-                        else:
-                            # 检查3：用户是否加入了所有10层上级的群（如果存在）
-                        # 使用 get_upline_chain 获取完整的10层上级链
-                            upline_chain = []
-                            try:
-                        from core_functions import get_upline_chain
-                        upline_chain = get_upline_chain(telegram_id, level_count)
-                            except Exception as import_err:
-                                print(f"[状态检测] 导入get_upline_chain失败: {import_err}")
-                                # upline_chain 已经初始化为空列表
+                                current_is_bot_admin = 1
+                    except:
+                        # 检测失败保持原状，避免误报
+                        current_is_bot_admin = original_is_bot_admin
+                    
+                    # 【核心修复】检测到权限丢失
+                    if original_is_bot_admin == 1 and current_is_bot_admin == 0:
+                        print(f"[权限检测] ⚠️ 会员 {telegram_id} 机器人权限丢失")
+                        # 找到一个可用的 bot 发通知
+                        notify_bot = clients[0] if clients else None
                         
-                        # 收集所有有群链接的上级群（排除捡漏账号）
-                        upline_groups_to_check = []
-                        for item in upline_chain:
-                            if item.get('is_fallback'):
-                                continue  # 跳过捡漏账号
-                            
-                            upline_id = item['id']
-                            c.execute("SELECT group_link FROM members WHERE telegram_id = ?", (upline_id,))
-                            upline_row = c.fetchone()
-                            if upline_row and upline_row[0]:
-                                upline_group_link = upline_row[0]
-                                # 提取群用户名
-                                if upline_group_link.startswith('https://t.me/'):
-                                    upline_group_username = upline_group_link.replace('https://t.me/', '').split('/')[0].split('?')[0]
-                                elif upline_group_link.startswith('@'):
-                                    upline_group_username = upline_group_link[1:]
-                                else:
-                                    upline_group_username = upline_group_link
-                                
-                                # 跳过私有群链接
-                                if not upline_group_username.startswith('+'):
-                                    upline_groups_to_check.append({
-                                        'level': item['level'],
-                                        'username': upline_group_username,
-                                        'upline_id': upline_id
-                                    })
+                        # 确定用于通知的 group_id
+                        notify_group_id = group_identifier
+                        if isinstance(notify_group_id, str) and not notify_group_id.isdigit():
+                            # 如果是用户名，尝试获取ID，或者直接传用户名给 notify 函数可能需要修改
+                            # 这里为了兼容，尽量传 ID。如果只有用户名，notify_group_binding_invalid 可能会查不到 member_groups
+                            # 但我们已经在 loop 开头查到了 group_id
+                            pass
                         
-                        # 只有当所有上级群都检查通过时，才标记为完成
-                        if upline_groups_to_check:
-                            all_joined = True
-                            for group_info in upline_groups_to_check:
-                                try:
-                                    upline_chat = await bot.get_entity(group_info['username'])
-                                    participants = await bot.get_participants(upline_chat, limit=1000)
-                                    member_ids = [p.id for p in participants]
-                                    if telegram_id not in member_ids:
-                                        all_joined = False
-                                        print(f"[状态检测] 会员 {telegram_id} 未加入第{group_info['level']}层上级群 ({group_info['username']})")
-                                        break
-                                except Exception as upline_err:
-                                    print(f"[状态检测] 检查第{group_info['level']}层上级群失败 {group_info['username']}: {upline_err}")
-                                    all_joined = False
-                                    break
-                            
-                            if all_joined:
-                                is_joined_upline = 1
-                                print(f"[状态检测] 会员 {telegram_id} 已加入所有 {len(upline_groups_to_check)} 个上级群")
-                        else:
-                            # 如果没有需要检查的上级群，默认标记为完成（可能是顶层用户）
-                            is_joined_upline = 1
-                            print(f"[状态检测] 会员 {telegram_id} 没有需要加入的上级群")
-                    
-                    except Exception as e:
-                        print(f"[状态检测] 检查群组失败 {group_username}: {e}")
-                    
-                    # 更新数据库（is_joined_upline 保持原值如果已经是1）
-                    # 如果检测到已完成，更新为1；如果检测失败但原值是1，保持1不变
-                    final_is_joined_upline = max(is_joined_upline, current_is_joined_upline)
-                    
-                    # 检查管理员权限是否发生变化
-                    if original_is_bot_admin == 1 and is_bot_admin == 0:
-                        # 管理员权限被撤销
-                        print(f"[权限检测] ⚠️ 检测到会员 {telegram_id} 的机器人管理员权限被撤销")
-                        bot_admin_status_changed = True
+                        await notify_group_binding_invalid(notify_group_id, telegram_id, "检测到机器人管理员权限被撤销", notify_bot)
+                        
+                        # 更新 member_groups
+                        c.execute('UPDATE member_groups SET is_bot_admin = 0 WHERE telegram_id = ?', (telegram_id,))
 
-                        # 找到对应的机器人实例（使用第一个可用的客户端）
-                        demoted_bot = clients[0] if clients else None
-
-                        # 发送通知（异步，不阻塞状态检查）
-                        try:
-                            # 构建chat_id
-                            chat_id = None
-                            if stored_group_id:
-                                # 直接使用存储的group_id
-                                chat_id = int(stored_group_id)
-                            else:
-                                # 从group_identifier转换chat_id
-                                try:
-                                    if isinstance(group_identifier, str):
-                                        if group_identifier.startswith('@'):
-                                            group_entity = await bot.get_entity(group_identifier[1:])
-                                        else:
-                                            group_entity = await bot.get_entity(group_identifier)
-                                        chat_id = getattr(group_entity, 'id', None)
-                                        if chat_id and chat_id > 0:
-                                            chat_id = int(f"-100{chat_id}")
-                                    else:
-                                        # group_identifier已经是ID
-                                        chat_id = group_identifier
-                                except Exception as e:
-                                    print(f"[权限检测] 获取chat_id失败: {e}")
-
-                            if chat_id:
-                                # 构建群组显示名称
-                                group_display_name_for_notify = group_display_name if 'group_display_name' in locals() else f"ID:{chat_id}"
-                                # 【核心修复】确保传入的 chat_id 是数据库中能匹配到的格式
-                                # notify_group_binding_invalid 现在支持自动匹配，但为了保险，
-                                # 如果 stored_group_id 存在，直接用它
-                                final_notify_group_id = int(stored_group_id) if stored_group_id else chat_id
-                                asyncio.create_task(
-                                    notify_group_binding_invalid(
-                                        final_notify_group_id,
-                                        None,
-                                        f"机器人管理员权限被撤销 (群组: {group_display_name_for_notify})",
-                                        demoted_bot
-                                    )
-                                )
-                        except Exception as notify_err:
-                            print(f"[权限检测] 发送权限撤销通知失败: {notify_err}")
+                    # 更新 members 表状态
+                    c.execute("UPDATE members SET is_group_bound = ?, is_bot_admin = ? WHERE telegram_id = ?", 
+                             (is_group_bound, current_is_bot_admin, telegram_id))
                     
-                    c.execute("""
-                        UPDATE members 
-                        SET is_group_bound = ?, is_bot_admin = ?, is_joined_upline = ?
-                        WHERE telegram_id = ?
-                    """, (is_group_bound, is_bot_admin, final_is_joined_upline, telegram_id))
-                    
-                    await asyncio.sleep(1)  # 避免频率限制
-                    
-                except Exception as member_err:
-                    print(f"[状态检测] 处理会员 {telegram_id} 失败: {member_err}")
-                    continue
+                    await asyncio.sleep(0.5)
+                except Exception as e:
+                    print(f"[状态检测] 单用户错误 {telegram_id}: {e}")
             
             conn.commit()
             conn.close()
-            print(f"[状态检测] 完成检查 {len(members)} 个会员")
-            
-        except Exception as e:
+                    except Exception as e:
             print(f"[状态检测] 任务错误: {e}")
-            await asyncio.sleep(60)
+            await asyncio.sleep(30)
+
+async def check_permission_changes():
+    """定期检查绑定群组权限"""
+    try:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute("SELECT telegram_id, group_id FROM member_groups WHERE is_bot_admin = 1")
+        rows = c.fetchall()
+        conn.close()
+
+        for uid, gid in rows:
+            if not gid: continue
+            target_bot = None
+            for client in clients:
+                try:
+                    me = await client.get_me()
+                    if me.id == uid: target_bot = client; break
+                except: continue
+            
+            if not target_bot: continue
+            
+            try:
+                full_chat_id = int(f"-100{gid}") if gid > 0 else gid
+                perms = await target_bot.get_permissions(full_chat_id, uid)
+                if not (perms.is_admin or perms.is_creator):
+                    print(f"[权限检查] 机器人 {uid} 在群 {gid} 失去权限")
+                    await notify_group_binding_invalid(gid, uid, "定期检查发现权限丢失", target_bot)
+                    conn = get_db_conn()
+                    c = conn.cursor()
+                    c.execute('UPDATE member_groups SET is_bot_admin = 0 WHERE telegram_id = ? AND group_id = ?', (uid, gid))
+                    c.execute('UPDATE members SET is_bot_admin = 0 WHERE telegram_id = ?', (uid,))
+            conn.commit()
+            conn.close()
+            except: pass
+        except Exception as e:
+        print(f"[权限检查] 错误: {e}")
 
 def run_bot():
     """Bot 启动入口"""
     print("🚀 Telegram Bots (Multi) 启动中...")
 
-    if not clients:
+        if not clients:
         print("❌ 没有活跃的机器人客户端，跳过Bot启动")
         print("💡 请在Web后台的机器人设置中添加并启用机器人")
         return
@@ -4316,9 +4174,9 @@ def run_bot():
     async def _process_recharge_queue_worker():
         while True:
             try:
-                if process_recharge_queue:
+                    if process_recharge_queue:
                     item = process_recharge_queue.pop(0)
-                    await process_recharge(item.get('member_id'), item.get('amount'), item.get('is_vip_order'))
+                        await process_recharge(item.get('member_id'), item.get('amount'), item.get('is_vip_order'))
                 except Exception as e:
                     print(f"[充值队列] 处理失败: {e}")
                 await asyncio.sleep(1)
@@ -4353,15 +4211,15 @@ def run_bot():
 
                 print(f"📊 共有 {len(connected_clients)} 个机器人可用于同步")
 
-                try:
+            try:
                     from database import sync_member_groups_from_members
                     # 传递已连接的客户端列表给同步函数
                     await sync_member_groups_from_members(connected_clients)
                     print("✅ 会员群组数据同步完成")
                 except Exception as e:
                     print(f"⚠️ 会员群组数据同步失败: {e}")
-                    import traceback
-                    traceback.print_exc()
+                        import traceback
+                        traceback.print_exc()
 
             except Exception as e:
                 print(f"⚠️ 会员群组数据同步失败: {e}")
@@ -4371,7 +4229,7 @@ def run_bot():
         loop.create_task(sync_after_start())
     
     print("✅ 所有后台任务已挂载")
-    print(f"✅ {len(clients)} 个机器人正在监听消息...")
+        print(f"✅ {len(clients)} 个机器人正在监听消息...")
 
         # 所有机器人共享同一个事件循环并发运行
         print("🔄 正在连接到Telegram服务器...")
