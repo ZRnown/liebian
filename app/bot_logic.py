@@ -29,7 +29,6 @@ from bot_commands_addon import (
     handle_check_status, handle_my_team
 )
 
-
 def compute_vip_price_from_config(config):
     """计算VIP价格 (逻辑同步Web端)"""
     try:
@@ -68,10 +67,14 @@ def compute_vip_price_from_config(config):
                     v = parsed.get(str(i)) or parsed.get(i) or default_reward
                     total += float(v)
                 return total
-    except: pass
 
-    try: return float(config.get('vip_price', 10))
-    except: return 10.0
+        # 默认返回固定价格
+        return default_reward * level_count
+    except Exception as e:
+        print(f'[VIP价格计算] 错误: {e}')
+        return 10.0  # 默认价格
+
+
 
 # 按钮文字常量
 BTN_PROFILE = '👤 个人中心'
@@ -415,7 +418,7 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                 target_ids.append(int(f"-100{chat_id}"))
             # 如果是负数且以 -100 开头，尝试去掉前缀 (以防数据库存的是短 ID)
             elif str(chat_id).startswith('-100'):
-                try:
+            try:
                     target_ids.append(int(str(chat_id)[4:]))
                 except:
                     pass
@@ -441,7 +444,7 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                 user_conn = get_db_conn()
                 user_cursor = user_conn.cursor()
 
-                try:
+            try:
                     # 获取用户真实姓名
                     user_cursor.execute('SELECT username FROM members WHERE telegram_id = ?', (user_id,))
                     user_row = user_cursor.fetchone()
@@ -535,7 +538,7 @@ def link_account(main_id, backup_id, backup_username):
                 print(f"[备用号已注册] {backup_id} 已注册，将使用fallback_accounts建立关联")
                 conn = get_db_conn()
                 c = conn.cursor()
-                try:
+            try:
                     # 检查是否已经存在关联
                     c.execute('SELECT main_account_id FROM fallback_accounts WHERE telegram_id = ?', (backup_id,))
                     existing_fallback = c.fetchone()
@@ -708,7 +711,7 @@ async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=Tru
     # 4. 【核心】调用统一分红函数（替代所有手写循环）
     # 使用主bot发送分红通知
     if bot:
-        stats = await distribute_vip_rewards(bot, telegram_id, vip_price, config)
+    stats = await distribute_vip_rewards(bot, telegram_id, vip_price, config)
     else:
         stats = {'real': 0, 'total': 0}  # 如果bot未启动，返回空统计
     
@@ -1059,11 +1062,11 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
             from core_functions import generate_vip_success_message
             msg = generate_vip_success_message(telegram_id, amount, vip_price, new_balance)
             if bot:
-                try: await bot.send_message(telegram_id, msg, parse_mode='markdown')
+            try: await bot.send_message(telegram_id, msg, parse_mode='markdown')
                 except: pass
         else:
             if not is_vip_order and bot:
-                try:
+            try:
                     await bot.send_message(telegram_id, f'✅ 充值到账通知\n\n💰 金额: {amount} U\n💵 当前余额: {current_balance} U')
                 except: pass
     except Exception as e:
@@ -1327,7 +1330,7 @@ async def fission_handler(event):
 @multi_bot_on(events.NewMessage(pattern=BTN_PROFILE))
 async def profile_handler(event):
     """个人中心 (修复版)"""
-    original_id = event.sender_id
+        original_id = event.sender_id
     print(f"[个人中心] 原始请求者ID: {original_id}")
 
     # 【核心修复】解析正确的账号ID（支持备用号映射）
@@ -2805,7 +2808,7 @@ async def raw_update_handler(event):
 
             target_bot = None
             for client in clients:
-                try:
+            try:
                     me = await client.get_me()
                     if me.id == target_user_id:
                         target_bot = client
@@ -2862,7 +2865,7 @@ async def check_permission_changes():
                     continue
 
                 # 检查权限状态
-                try:
+            try:
                     perms = await target_bot.get_permissions(group_id, user_id)
                     is_admin = perms.is_admin or perms.is_creator
 
@@ -3174,7 +3177,7 @@ async def group_welcome_handler(event):
             is_our_bot = False
             target_bot = None
             for client in clients:
-                try:
+            try:
                     me = await client.get_me()
                     if me.id == user_id:
                         is_our_bot = True
@@ -3315,10 +3318,10 @@ async def message_handler(event):
                     columns = [col[1] for col in c.fetchall()]
                     if 'usdt_address' in columns:
                         c.execute("INSERT INTO withdrawals (member_id, amount, usdt_address, status, create_time) VALUES (?, ?, ?, 'pending', ?)",
-                                (sender_id, amount, usdt_address, now))
+                                 (sender_id, amount, usdt_address, now))
                     else:
                         c.execute("INSERT INTO withdrawals (member_id, amount, status, create_time) VALUES (?, ?, 'pending', ?)",
-                                (sender_id, amount, now))
+                                 (sender_id, amount, now))
                     
                     conn.commit()
                     
@@ -3624,7 +3627,7 @@ async def message_handler(event):
                 print(f'[群绑定] 准备存储: user={sender_id}, group_id={group_id}, link={link}')
 
                 # 更新数据库 - 分步骤进行，确保每一步都成功
-                try:
+            try:
                     # 1. 更新members表
                     print('[群绑定] 更新members表...')
                     DB.update_member(sender_id, group_link=link, is_group_bound=1, is_bot_admin=is_admin_flag)
@@ -3737,8 +3740,8 @@ async def auto_broadcast_timer():
             # 查询所有启用分配：关联 member_groups、broadcast_assignments、broadcast_messages
             c.execute("""
                 SELECT ba.id, ba.group_id, ba.message_id, ba.last_sent_time,
-                    mg.group_link, mg.group_name,
-                    bm.content, bm.image_url, bm.video_url, bm.buttons, bm.buttons_per_row, bm.broadcast_interval, bm.create_time
+                       mg.group_link, mg.group_name,
+                       bm.content, bm.image_url, bm.video_url, bm.buttons, bm.buttons_per_row, bm.broadcast_interval, bm.create_time
                 FROM broadcast_assignments ba
                 JOIN broadcast_messages bm ON ba.message_id = bm.id
                 JOIN member_groups mg ON ba.group_id = mg.id
@@ -3804,7 +3807,7 @@ async def auto_broadcast_timer():
                             'buttons_per_row': item.get('buttons_per_row') or 2
                         }, ensure_ascii=False)
                         c.execute('INSERT INTO broadcast_queue (group_link, group_name, message, status, create_time) VALUES (?, ?, ?, ?, ?)',
-                                (item['group_link'], item['group_name'], msg_payload, 'pending', now_iso))
+                                  (item['group_link'], item['group_name'], msg_payload, 'pending', now_iso))
                         # update last_sent_time for assignment
                         c.execute('UPDATE broadcast_assignments SET last_sent_time = ? WHERE id = ?', (now_iso, item['assign_id']))
                     except Exception as e:
@@ -4350,7 +4353,7 @@ def run_bot():
 
                 print(f"📊 共有 {len(connected_clients)} 个机器人可用于同步")
 
-                try:
+            try:
                     from database import sync_member_groups_from_members
                     # 传递已连接的客户端列表给同步函数
                     await sync_member_groups_from_members(connected_clients)

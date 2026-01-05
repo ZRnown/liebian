@@ -10,7 +10,13 @@ import asyncio
 sys.path.append(os.path.dirname(__file__))
 
 from app.database import get_db_conn
-from app.config import clients
+
+# 手动初始化clients
+try:
+    from app.bot_logic import clients
+except ImportError:
+    print("❌ 无法导入clients，可能是语法错误导致的")
+    clients = []
 
 async def check_all_permissions():
     """检查所有绑定群组的机器人权限状态"""
