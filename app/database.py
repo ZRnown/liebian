@@ -470,7 +470,7 @@ def get_system_config():
                     import json
                     # 确保value是字符串，如果已经是对象则直接使用
                     if isinstance(value, str):
-                        config['level_amounts'] = json.loads(value)
+                    config['level_amounts'] = json.loads(value)
                     else:
                         # 如果已经是解析后的对象，直接使用
                         config['level_amounts'] = value
@@ -500,7 +500,7 @@ def update_system_config(key, value):
     if key == 'level_amounts' and not isinstance(value, str):
         import json
         value = json.dumps(value)
-
+    
     conn = get_db_conn()
     c = conn.cursor()
     c.execute('''
@@ -1011,7 +1011,7 @@ def upsert_member_group(telegram_id, group_link, owner_username=None, is_bot_adm
         else:
             # 插入新记录
             c.execute(
-                '''INSERT INTO member_groups
+                '''INSERT INTO member_groups 
                    (telegram_id, group_id, group_name, group_link, is_bot_admin, create_time, owner_username, group_type, schedule_broadcast)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                 (telegram_id, group_id, '', group_link, is_bot_admin, now, owner_username or '', 'group', 1)
@@ -1039,13 +1039,13 @@ async def sync_member_groups_from_members(connected_clients=None):
             print('[sync_member_groups] 警告：没有传入已连接的机器人客户端，跳过group_id获取')
             # 如果没有机器人客户端，仍然创建记录但group_id为None
             synced_count = 0
-            for r in rows:
-                tg_id, uname, glink = r
-                try:
+        for r in rows:
+            tg_id, uname, glink = r
+            try:
                     upsert_member_group(tg_id, glink, uname or None, is_bot_admin=1, group_id=None)
                     synced_count += 1
-                except Exception as inner_err:
-                    print(f'[sync_member_groups] 单条失败 {tg_id}: {inner_err}')
+            except Exception as inner_err:
+                print(f'[sync_member_groups] 单条失败 {tg_id}: {inner_err}')
             print(f'[sync_member_groups] 同步完成（无机器人客户端），共处理 {len(rows)} 条记录，成功 {synced_count} 条')
             return
 

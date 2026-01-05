@@ -138,15 +138,15 @@ async function loadTree() {
              const res2 = await fetch('/api/members?per_page=10000');
              data = await res2.json();
         }
-
+        
         if (data.error || !data.members) {
-            document.getElementById('treeContainer').innerHTML =
+            document.getElementById('treeContainer').innerHTML = 
                 '<p class="text-red-500 text-center py-8">加载失败: 数据格式错误</p>';
             return;
         }
-
+        
         allMembers = data.members;
-
+        
         // 构建映射 (添加数据验证)
         memberMap = {};
         allMembers.forEach(m => {
@@ -154,12 +154,12 @@ async function loadTree() {
                 memberMap[m.telegram_id] = m;
             }
         });
-
+        
         // 找出顶级用户 (没有推荐人，或推荐人不在现有列表中)
         const topMembers = allMembers.filter(m => {
             return !m.referrer_id || !memberMap[m.referrer_id];
         });
-
+        
         // 更新统计 (简单计算)
         document.getElementById('stat-total').textContent = allMembers.length;
         document.getElementById('stat-top').textContent = topMembers.length;
@@ -168,10 +168,10 @@ async function loadTree() {
 
         const html = topMembers.map(m => renderNode(m, 0)).join('');
         document.getElementById('treeContainer').innerHTML = html || '<p class="text-slate-400 text-center py-8">暂无数据</p>';
-
+            
     } catch (error) {
         console.error(error);
-        document.getElementById('treeContainer').innerHTML =
+        document.getElementById('treeContainer').innerHTML = 
             '<p class="text-red-500 text-center py-8">加载错误: ' + error.message + '</p>';
     }
 }
