@@ -235,7 +235,7 @@ if not clients:
     print("[机器人初始化] ❌ 严重错误：无法启动任何机器人")
     print("[机器人初始化] 💡 Web管理后台仍可正常使用，请检查机器人Token配置")
     bot = None
-else:
+    else:
     # 定义 bot 为第一个客户端 (主要用于后台任务的主动发送)
     bot = clients[0]
     print(f"[机器人初始化] 🎉 成功启动 {len(clients)} 个机器人客户端")
@@ -3318,10 +3318,10 @@ async def message_handler(event):
                     columns = [col[1] for col in c.fetchall()]
                     if 'usdt_address' in columns:
                         c.execute("INSERT INTO withdrawals (member_id, amount, usdt_address, status, create_time) VALUES (?, ?, ?, 'pending', ?)",
-                                (sender_id, amount, usdt_address, now))
+                                 (sender_id, amount, usdt_address, now))
                     else:
                         c.execute("INSERT INTO withdrawals (member_id, amount, status, create_time) VALUES (?, ?, 'pending', ?)",
-                                (sender_id, amount, now))
+                                 (sender_id, amount, now))
                     
                     conn.commit()
                     
@@ -3740,8 +3740,8 @@ async def auto_broadcast_timer():
             # 查询所有启用分配：关联 member_groups、broadcast_assignments、broadcast_messages
             c.execute("""
                 SELECT ba.id, ba.group_id, ba.message_id, ba.last_sent_time,
-                    mg.group_link, mg.group_name,
-                    bm.content, bm.image_url, bm.video_url, bm.buttons, bm.buttons_per_row, bm.broadcast_interval, bm.create_time
+                       mg.group_link, mg.group_name,
+                       bm.content, bm.image_url, bm.video_url, bm.buttons, bm.buttons_per_row, bm.broadcast_interval, bm.create_time
                 FROM broadcast_assignments ba
                 JOIN broadcast_messages bm ON ba.message_id = bm.id
                 JOIN member_groups mg ON ba.group_id = mg.id
@@ -3807,7 +3807,7 @@ async def auto_broadcast_timer():
                             'buttons_per_row': item.get('buttons_per_row') or 2
                         }, ensure_ascii=False)
                         c.execute('INSERT INTO broadcast_queue (group_link, group_name, message, status, create_time) VALUES (?, ?, ?, ?, ?)',
-                                (item['group_link'], item['group_name'], msg_payload, 'pending', now_iso))
+                                  (item['group_link'], item['group_name'], msg_payload, 'pending', now_iso))
                         # update last_sent_time for assignment
                         c.execute('UPDATE broadcast_assignments SET last_sent_time = ? WHERE id = ?', (now_iso, item['assign_id']))
                     except Exception as e:
