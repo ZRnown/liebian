@@ -314,14 +314,14 @@ def get_main_account_id(telegram_id, username=None):
 
 def format_backup_account_display(backup_account):
     """格式化备用号显示"""
-        if not backup_account:
+    if not backup_account:
         return "未设置"
     
     backup_account_str = str(backup_account).strip()
-    
-        if backup_account_str.startswith('@'):
+
+    if backup_account_str.startswith('@'):
         return backup_account_str
-        if not backup_account_str.isdigit():
+    if not backup_account_str.isdigit():
         return f"@{backup_account_str}"
     
     try:
@@ -519,8 +519,8 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
 def link_account(main_id, backup_id, backup_username):
     """关联备用号到主账号"""
     clean_username = (backup_username or '').strip().lstrip('@')
-    
-        if clean_username:
+
+    if clean_username:
         value_to_store = f"@{clean_username}"
     elif backup_id:
         value_to_store = str(backup_id)
@@ -528,7 +528,7 @@ def link_account(main_id, backup_id, backup_username):
         return False, "❌ 无效的备用账号信息"
         
         if str(main_id) == str(backup_id) or value_to_store == str(main_id):
-        return False, "❌ 不能将自己设置为备用号"
+            return False, "❌ 不能将自己设置为备用号"
 
     try:
         if backup_id:
@@ -664,7 +664,7 @@ def get_main_keyboard(user_id=None):
         [Button.text(BTN_RESOURCES, resize=True), Button.text(BTN_FISSION, resize=True), Button.text(BTN_PROFILE, resize=True)],
         [Button.text(BTN_SUPPORT, resize=True)]
     ]
-        if user_id and user_id in ADMIN_IDS:
+    if user_id and user_id in ADMIN_IDS:
         keyboard[-1].append(Button.text(BTN_ADMIN, resize=True))
     return keyboard
 
@@ -684,15 +684,15 @@ async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=Tru
     """
     # 1. 检查用户状态
     member = DB.get_member(telegram_id)
-        if not member:
+    if not member:
         return False, "用户不存在"
-    
-        if member.get('is_vip'):
+
+    if member.get('is_vip'):
         return False, "用户已是VIP"
     
     # 2. 扣除余额（如果需要）
     print(f'[process_vip_upgrade] 开始处理: telegram_id={telegram_id}, deduct_balance={deduct_balance}, 当前余额={member["balance"]}, vip_price={vip_price}')
-        if deduct_balance:
+    if deduct_balance:
         if member['balance'] < vip_price:
             print(f'[process_vip_upgrade] 余额不足: 需要{vip_price}, 当前{member["balance"]}')
             return False, "余额不足"
@@ -710,7 +710,7 @@ async def process_vip_upgrade(telegram_id, vip_price, config, deduct_balance=Tru
     
     # 4. 【核心】调用统一分红函数（替代所有手写循环）
     # 使用主bot发送分红通知
-        if bot:
+    if bot:
         stats = await distribute_vip_rewards(bot, telegram_id, vip_price, config)
     else:
         stats = {'real': 0, 'total': 0}  # 如果bot未启动，返回空统计
@@ -771,7 +771,7 @@ async def check_permission_handler(event):
     sender_id = get_main_account_id(original_id, getattr(event.sender, 'username', None))
 
     member = DB.get_member(sender_id)
-        if not member or not member.get('is_vip'):
+    if not member or not member.get('is_vip'):
         await event.respond("❌ 仅限VIP用户使用此功能")
         return
 
@@ -781,12 +781,12 @@ async def check_permission_handler(event):
     global permission_check_triggered
     permission_check_triggered = True
 
-        await event.respond("✅ 已触发权限检查，请等待系统自动检测并通知")
+    await event.respond("✅ 已触发权限检查，请等待系统自动检测并通知")
 
 @multi_bot_on(events.NewMessage(pattern='/bind'))
 async def bind_command_handler(event):
     """群内绑定命令：在群组中发送 /bind 绑定当前群"""
-        if event.is_private:
+    if event.is_private:
         await event.respond("❌ 请在您需要绑定的**群组**内发送此命令")
         return
 
@@ -877,21 +877,21 @@ async def start_handler(event):
     telegram_id = get_main_account_id(original_id, original_username)
     
     username = event.sender.username or f'user_{original_id}'
-    
-        if original_id != telegram_id:
+
+    if original_id != telegram_id:
         print(f"⚠️ [Start命令] 检测到备用号登录: {original_id} -> 切换至主账号 {telegram_id}")
     
     # 解析推荐人ID
     referrer_id = None
-        if event.message.text and len(event.message.text.split()) > 1:
+    if event.message.text and len(event.message.text.split()) > 1:
         try:
             referrer_id = int(event.message.text.split()[1])
         except:
             pass
     
     member = DB.get_member(telegram_id)
-    
-        if not member:
+
+    if not member:
         created = DB.create_member(telegram_id, username, referrer_id)
         member = DB.get_member(telegram_id)
         if not created and not member:
@@ -922,11 +922,11 @@ async def start_handler(event):
         f'💰 余额: {member["balance"]} U\n\n'
         f'请选择功能:'
     )
-    
-        if pinned_ad:
+
+    if pinned_ad:
         welcome_text += f'\n\n━━━━━━━━━━━━━━━\n📢 {pinned_ad}'
-    
-        await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
+
+    await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
 
 @multi_bot_on(events.CallbackQuery(data=b'open_vip_balance'))
 async def open_vip_balance_callback(event):
@@ -1055,7 +1055,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
             print(f'[充值处理] 开始VIP自动开通: telegram_id={telegram_id}')
             new_balance = current_balance - vip_price
             DB.update_member(telegram_id, balance=new_balance, is_vip=1, vip_time=get_cn_time())
-            update_level_path(telegram_id)
+        update_level_path(telegram_id)
             if bot:
                 await distribute_vip_rewards(bot, telegram_id, vip_price, config)
 
@@ -1391,7 +1391,7 @@ async def profile_handler(event):
 async def set_group_callback(event):
     """设置群链接回调"""
     # 账号关联处理（备用号->主账号）
-        original_sender_id = event.sender_id
+    original_sender_id = event.sender_id
     main_id = get_main_account_id(original_sender_id, getattr(event.sender, 'username', None))
 
     member = DB.get_member(main_id)
@@ -3318,15 +3318,15 @@ async def message_handler(event):
                     columns = [col[1] for col in c.fetchall()]
                     if 'usdt_address' in columns:
                         c.execute("INSERT INTO withdrawals (member_id, amount, usdt_address, status, create_time) VALUES (?, ?, ?, 'pending', ?)",
-                                (sender_id, amount, usdt_address, now))
+                    (sender_id, amount, usdt_address, now))
                     else:
                         c.execute("INSERT INTO withdrawals (member_id, amount, status, create_time) VALUES (?, ?, 'pending', ?)",
-                                (sender_id, amount, now))
+                        (sender_id, amount, now))
                     
-                    conn.commit()
+                                conn.commit()
                     
                     # 获取新余额
-                    c.execute("SELECT balance FROM members WHERE telegram_id = ?", (sender_id,))
+                                c.execute("SELECT balance FROM members WHERE telegram_id = ?", (sender_id,))
                     new_balance = c.fetchone()[0]
                     conn.close()
                     break
@@ -3740,13 +3740,13 @@ async def auto_broadcast_timer():
             # 查询所有启用分配：关联 member_groups、broadcast_assignments、broadcast_messages
             c.execute("""
                 SELECT ba.id, ba.group_id, ba.message_id, ba.last_sent_time,
-                    mg.group_link, mg.group_name,
-                    bm.content, bm.image_url, bm.video_url, bm.buttons, bm.buttons_per_row, bm.broadcast_interval, bm.create_time
+                mg.group_link, mg.group_name,
+            bm.content, bm.image_url, bm.video_url, bm.buttons, bm.buttons_per_row, bm.broadcast_interval, bm.create_time
                 FROM broadcast_assignments ba
                 JOIN broadcast_messages bm ON ba.message_id = bm.id
                 JOIN member_groups mg ON ba.group_id = mg.id
-                WHERE ba.is_active = 1 AND bm.is_active = 1 AND mg.schedule_broadcast = 1
-                ORDER BY bm.create_time ASC, bm.id ASC
+                    WHERE ba.is_active = 1 AND bm.is_active = 1 AND mg.schedule_broadcast = 1
+                    ORDER BY bm.create_time ASC, bm.id ASC
             """)
             rows = c.fetchall()
 
@@ -3807,12 +3807,12 @@ async def auto_broadcast_timer():
                             'buttons_per_row': item.get('buttons_per_row') or 2
                         }, ensure_ascii=False)
                         c.execute('INSERT INTO broadcast_queue (group_link, group_name, message, status, create_time) VALUES (?, ?, ?, ?, ?)',
-                                (item['group_link'], item['group_name'], msg_payload, 'pending', now_iso))
+                            (item['group_link'], item['group_name'], msg_payload, 'pending', now_iso))
                         # update last_sent_time for assignment
                         c.execute('UPDATE broadcast_assignments SET last_sent_time = ? WHERE id = ?', (now_iso, item['assign_id']))
                     except Exception as e:
                         print(f"[定时群发] 入队失败 assign_id={item.get('assign_id')}: {e}")
-                conn.commit()
+                                conn.commit()
                 print(f"[定时群发] 已入队 {len(to_enqueue)} 条消息")
             
             conn.close()
@@ -4299,7 +4299,7 @@ def run_bot():
     """Bot 启动入口"""
     print("🚀 Telegram Bots (Multi) 启动中...")
 
-        if not clients:
+    if not clients:
         print("❌ 没有活跃的机器人客户端，跳过Bot启动")
         print("💡 请在Web后台的机器人设置中添加并启用机器人")
         return
@@ -4316,9 +4316,9 @@ def run_bot():
     async def _process_recharge_queue_worker():
         while True:
             try:
-                    if process_recharge_queue:
+                if process_recharge_queue:
                     item = process_recharge_queue.pop(0)
-                        await process_recharge(item.get('member_id'), item.get('amount'), item.get('is_vip_order'))
+                    await process_recharge(item.get('member_id'), item.get('amount'), item.get('is_vip_order'))
                 except Exception as e:
                     print(f"[充值队列] 处理失败: {e}")
                 await asyncio.sleep(1)
@@ -4353,15 +4353,15 @@ def run_bot():
 
                 print(f"📊 共有 {len(connected_clients)} 个机器人可用于同步")
 
-            try:
+                try:
                     from database import sync_member_groups_from_members
                     # 传递已连接的客户端列表给同步函数
                     await sync_member_groups_from_members(connected_clients)
                     print("✅ 会员群组数据同步完成")
                 except Exception as e:
                     print(f"⚠️ 会员群组数据同步失败: {e}")
-                        import traceback
-                        traceback.print_exc()
+                    import traceback
+                    traceback.print_exc()
 
             except Exception as e:
                 print(f"⚠️ 会员群组数据同步失败: {e}")
@@ -4371,7 +4371,7 @@ def run_bot():
         loop.create_task(sync_after_start())
     
     print("✅ 所有后台任务已挂载")
-        print(f"✅ {len(clients)} 个机器人正在监听消息...")
+    print(f"✅ {len(clients)} 个机器人正在监听消息...")
 
         # 所有机器人共享同一个事件循环并发运行
         print("🔄 正在连接到Telegram服务器...")
