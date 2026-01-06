@@ -169,11 +169,11 @@ def get_active_bot_tokens():
         return []
 
 # 初始化客户端列表
-    clients = []
-    active_tokens = get_active_bot_tokens()
+clients = []
+active_tokens = get_active_bot_tokens()
 
-    # 权限检查控制变量
-    permission_check_triggered = False
+# 权限检查控制变量
+permission_check_triggered = False
 
 # 如果数据库没配置，尝试读取环境变量配置作为默认
 if not active_tokens:
