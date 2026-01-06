@@ -441,29 +441,55 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
         for user_id, group_name, group_link, db_group_id in bound_users:
             try:
                 # 为每个用户单独处理数据库操作，避免并发问题
-                user_conn = get_db_conn()
-                user_cursor = user_conn.cursor()
+                # 添加重试机制处理数据库锁定
+                max_retries = 5
+                retry_delay = 0.2
+                username = f'用户{user_id}'
 
-                try:
-                    # 获取用户真实姓名
-                    user_cursor.execute('SELECT username FROM members WHERE telegram_id = ?', (user_id,))
-                    user_row = user_cursor.fetchone()
-                    username = user_row[0] if user_row else f'用户{user_id}'
+                for attempt in range(max_retries):
+                    try:
+                        user_conn = get_db_conn()
+                        user_cursor = user_conn.cursor()
 
-                    # 更新数据库：清除群组绑定和管理员状态，并重置加群任务状态
-                    user_cursor.execute('''
-                        UPDATE members
-                        SET is_group_bound = 0, is_bot_admin = 0, is_joined_upline = 0
-                        WHERE telegram_id = ?
-                    ''', (user_id,))
+                        # 获取用户真实姓名
+                        user_cursor.execute('SELECT username FROM members WHERE telegram_id = ?', (user_id,))
+                        user_row = user_cursor.fetchone()
+                        username = user_row[0] if user_row else f'用户{user_id}'
 
-                    # 同时删除member_groups表中的记录
-                    user_cursor.execute('DELETE FROM member_groups WHERE telegram_id = ? AND group_id = ?', (user_id, chat_id))
+                        # 更新数据库：清除群组绑定和管理员状态，并重置加群任务状态
+                        user_cursor.execute('''
+                            UPDATE members
+                            SET is_group_bound = 0, is_bot_admin = 0, is_joined_upline = 0
+                            WHERE telegram_id = ?
+                        ''', (user_id,))
 
-                    user_conn.commit()
+                        # 同时删除member_groups表中的记录
+                        user_cursor.execute('DELETE FROM member_groups WHERE telegram_id = ? AND group_id = ?', (user_id, chat_id))
 
-                    # 通知用户
-                    notification_msg = f'''
+                        user_conn.commit()
+                        user_conn.close()
+                        break  # 成功后跳出重试循环
+
+                    except Exception as db_err:
+                        if user_conn:
+                            try:
+                                user_conn.close()
+                            except:
+                                pass
+
+                        if 'locked' in str(db_err).lower() and attempt < max_retries - 1:
+                            print(f'[通知] 数据库锁定，重试 {attempt + 1}/{max_retries} 用户 {user_id}: {db_err}')
+                            await asyncio.sleep(retry_delay * (attempt + 1))  # 递增延迟
+                            continue
+                        else:
+                            print(f'[通知] 处理用户 {user_id} 数据库操作失败 (尝试 {attempt + 1}/{max_retries}): {db_err}')
+                            raise db_err
+
+                # 如果数据库操作失败，继续处理通知（不阻断通知发送）
+                print(f'[通知] 开始向用户 {user_id} ({username}) 发送通知')
+
+                # 通知用户
+                notification_msg = f'''
 ⚠️ **群组绑定状态异常**
 
 您的群组绑定已失效，原因：{reason}
@@ -472,38 +498,38 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
 原群链接：{group_link}
 
 请重新设置群组绑定以继续获得分红收益。
-                    '''.strip()
+                '''.strip()
 
-                    # 使用指定的机器人发送通知，如果没有指定则使用全局bot
-                    notification_sent = False
-                    if notify_bot:
+                # 使用指定的机器人发送通知，如果没有指定则使用全局bot
+                notification_sent = False
+                if notify_bot:
+                    try:
+                        bot_info = await notify_bot.get_me()
+                        bot_name = bot_info.username or str(bot_info.id)
+                        await notify_bot.send_message(user_id, notification_msg)
+                        print(f'[通知] ✅ 使用指定机器人({bot_name}) 已通知用户 {user_id} ({username}) 群组绑定失效')
+                        notification_sent = True
+                    except Exception as e:
+                        print(f'[通知] ❌ 使用指定机器人向用户 {user_id} 发送通知失败: {e}')
+
+                if not notification_sent:
+                    # 回退到使用所有活跃的机器人发送通知
+                    for client in clients:
                         try:
-                            bot_info = await notify_bot.get_me()
-                            bot_name = bot_info.username or str(bot_info.id)
-                            await notify_bot.send_message(user_id, notification_msg)
-                            print(f'[通知] ✅ 使用指定机器人({bot_name}) 已通知用户 {user_id} ({username}) 群组绑定失效')
+                            await client.send_message(user_id, notification_msg)
+                            print(f'[通知] ✅ 使用机器人已通知用户 {user_id} ({username}) 群组绑定失效')
                             notification_sent = True
+                            break
                         except Exception as e:
-                            print(f'[通知] ❌ 使用指定机器人向用户 {user_id} 发送通知失败: {e}')
+                            print(f'[通知] ❌ 使用机器人向用户 {user_id} 发送通知失败: {e}')
+                            continue
 
-                    if not notification_sent:
-                        # 回退到使用所有活跃的机器人发送通知
-                        for client in clients:
-                            try:
-                                await client.send_message(user_id, notification_msg)
-                                print(f'[通知] ✅ 使用机器人已通知用户 {user_id} ({username}) 群组绑定失效')
-                                notification_sent = True
-                                break
-                            except Exception as e:
-                                print(f'[通知] ❌ 使用机器人向用户 {user_id} 发送通知失败: {e}')
-                                continue
+                if not notification_sent:
+                    print(f'[通知] ❌ 所有机器人向用户 {user_id} ({username}) 发送通知都失败了')
 
-                    if not notification_sent:
-                        print(f'[通知] ❌ 所有机器人向用户 {user_id} ({username}) 发送通知都失败了')
-
-                finally:
-                    # 确保数据库连接总是被关闭
-                    user_conn.close()
+            except Exception as user_err:
+                print(f'[通知] 处理用户 {user_id} 失败: {user_err}')
+                continue
 
             except Exception as user_err:
                 print(f'[通知] 处理用户 {user_id} 失败: {user_err}')
@@ -2950,14 +2976,31 @@ async def check_permission_changes():
                         raw_chat_id = int(str(group_id).replace('-100', '')) if str(group_id).startswith('-100') else group_id
                         await notify_group_binding_invalid(raw_chat_id, user_id, "定期检查发现管理员权限被撤销", target_bot)
 
-                        # 更新数据库状态
-                        conn = get_db_conn()
-                        c = conn.cursor()
-                        c.execute('UPDATE member_groups SET is_bot_admin = 0 WHERE telegram_id = ? AND group_id = ?',
-                                (user_id, group_id))
-                        c.execute('UPDATE members SET is_bot_admin = 0 WHERE telegram_id = ?', (user_id,))
-                        conn.commit()
-                        conn.close()
+                        # 更新数据库状态 - 添加重试机制
+                        max_db_retries = 3
+                        for db_attempt in range(max_db_retries):
+                            try:
+                                conn = get_db_conn()
+                                c = conn.cursor()
+                                c.execute('UPDATE member_groups SET is_bot_admin = 0 WHERE telegram_id = ? AND group_id = ?',
+                                        (user_id, group_id))
+                                c.execute('UPDATE members SET is_bot_admin = 0 WHERE telegram_id = ?', (user_id,))
+                                conn.commit()
+                                conn.close()
+                                break
+                            except Exception as db_err:
+                                if conn:
+                                    try:
+                                        conn.close()
+                                    except:
+                                        pass
+                                if 'locked' in str(db_err).lower() and db_attempt < max_db_retries - 1:
+                                    print(f'[权限检查] 数据库锁定，重试 {db_attempt + 1}/{max_db_retries}: {db_err}')
+                                    await asyncio.sleep(0.5)
+                                    continue
+                                else:
+                                    print(f'[权限检查] 更新数据库失败: {db_err}')
+                                    break
 
                         print(f"[权限检查] 已更新数据库状态并发送通知")
                     else:
