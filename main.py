@@ -28,7 +28,7 @@ def main():
     # 2. 启动 Web 后台 (在独立线程中)
     print("🌐 启动Web管理后台...")
     try:
-        from web_app import run_web
+        from app.web_app import run_web
         web_thread = threading.Thread(target=run_web, daemon=True)
         web_thread.start()
         print("✅ Web管理后台已启动 (端口: 5051)")

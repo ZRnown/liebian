@@ -4386,7 +4386,7 @@ def run_bot():
                 print(f"📊 共有 {len(connected_clients)} 个机器人可用于同步")
 
                 try:
-                    from database import sync_member_groups_from_members
+                    from app.database import sync_member_groups_from_members
                     # 传递已连接的客户端列表给同步函数
                     await sync_member_groups_from_members(connected_clients)
                     print("✅ 会员群组数据同步完成")
