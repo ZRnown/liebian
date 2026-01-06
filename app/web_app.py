@@ -619,14 +619,14 @@ def api_group_send_broadcasts(group_id):
 def api_member_graph(telegram_id):
     """获取会员关系图谱 (修复版：确保返回完整结构)"""
     try:
-        conn = get_db_conn()
-        c = conn.cursor()
-
+    conn = get_db_conn()
+    c = conn.cursor()
+    
         # 1. 获取当前会员
-        c.execute("""SELECT telegram_id, username, balance, is_vip, referrer_id,
-                is_group_bound, is_bot_admin, is_joined_upline, direct_count, team_count, total_earned
-            FROM members WHERE telegram_id = ?""", (telegram_id,))
-        row = c.fetchone()
+    c.execute("""SELECT telegram_id, username, balance, is_vip, referrer_id,
+            is_group_bound, is_bot_admin, is_joined_upline, direct_count, team_count, total_earned
+        FROM members WHERE telegram_id = ?""", (telegram_id,))
+    row = c.fetchone()
 
         # 即使找不到会员，也不要返回 404 导致前端崩溃，而是返回一个空的占位对象
         if not row:
@@ -639,11 +639,11 @@ def api_member_graph(telegram_id):
         else:
             center = {
                 'telegram_id': row[0], 'username': row[1] or '未设置', 'balance': row[2] or 0,
-                'is_vip': row[3], 'referrer_id': row[4], 'is_group_bound': row[5],
-                'is_bot_admin': row[6], 'is_joined_upline': row[7],
+        'is_vip': row[3], 'referrer_id': row[4], 'is_group_bound': row[5],
+        'is_bot_admin': row[6], 'is_joined_upline': row[7],
                 'direct_count': row[8] or 0, 'team_count': row[9] or 0, 'total_earned': row[10] or 0
-            }
-
+    }
+    
         # 2. 获取上级链（向上10层）
         uplines = []
         current_ref = center['referrer_id']
@@ -656,19 +656,19 @@ def api_member_graph(telegram_id):
             if current_ref in seen_ids: break
             seen_ids.add(current_ref)
 
-            c.execute("""SELECT telegram_id, username, is_vip, referrer_id,
-                    is_group_bound, is_bot_admin, is_joined_upline
-                FROM members WHERE telegram_id = ?""", (current_ref,))
-            ref_row = c.fetchone()
+        c.execute("""SELECT telegram_id, username, is_vip, referrer_id,
+                is_group_bound, is_bot_admin, is_joined_upline
+            FROM members WHERE telegram_id = ?""", (current_ref,))
+        ref_row = c.fetchone()
 
-            if not ref_row:
+        if not ref_row:
                 # 可能是捡漏账号或者数据不一致，添加一个占位符
                 uplines.append({
                     'telegram_id': current_ref, 'username': '未知/系统号', 'is_vip': 1,
                     'level': level, 'is_group_bound': 1, 'is_bot_admin': 1, 'is_joined_upline': 1,
                     'direct_count': 0, 'team_count': 0
                 })
-                break
+            break
 
             # 实时计算该用户的直推和团队数量
             downline_counts = DB.get_downline_count(ref_row[0], 10)
@@ -679,8 +679,8 @@ def api_member_graph(telegram_id):
                 'telegram_id': ref_row[0], 'username': ref_row[1] or '未设置', 'is_vip': ref_row[2],
                 'level': level, 'is_group_bound': ref_row[4], 'is_bot_admin': ref_row[5],
                 'is_joined_upline': ref_row[6], 'direct_count': direct_count, 'team_count': team_count
-            })
-            current_ref = ref_row[3]
+        })
+        current_ref = ref_row[3]
             level += 1
     
         # 3. 获取下级（向下10层）
@@ -708,8 +708,8 @@ def api_member_graph(telegram_id):
                 get_downline_recursive(row[0], current_level + 1, max_level)
 
         get_downline_recursive(telegram_id)
-
-        conn.close()
+    
+    conn.close()
         return jsonify({
             'success': True,
             'center': center,
@@ -1785,13 +1785,13 @@ def api_level_settings():
 
         # 1. 获取层数
         try:
-            level_count = int(config.get('level_count', 10))
+        level_count = int(config.get('level_count', 10))
         except:
             level_count = 10
 
         # 2. 获取默认金额
         try:
-            level_reward = float(config.get('level_reward', 1.0))
+        level_reward = float(config.get('level_reward', 1.0))
             if level_reward <= 0: level_reward = 1.0
         except:
             level_reward = 1.0
@@ -1803,15 +1803,15 @@ def api_level_settings():
         if level_amounts_raw and isinstance(level_amounts_raw, list):
             # get_system_config已经解析过了，直接使用
             for x in level_amounts_raw:
-                try:
+            try:
                     v = float(x)
                     if v <= 0.001: v = level_reward # 【关键修复】读取时如果是0，显示为默认值
                     level_amounts.append(v)
                 except:
                     level_amounts.append(level_reward)
                 else:
-                    # 如果数据有问题，创建默认值
-                    level_amounts = [level_reward] * level_count
+            # 如果数据有问题，创建默认值
+            level_amounts = [level_reward] * level_count
 
         # 4. 补齐或截断
         # 补齐
@@ -2607,7 +2607,7 @@ def run_web():
 
     print("🌐 Web管理后台启动中...")
     try:
-        app.run(debug=False, host='0.0.0.0', port=5051, use_reloader=False)
+    app.run(debug=False, host='0.0.0.0', port=5051, use_reloader=False)
     except Exception as e:
         print(f"❌ Web服务器启动失败: {e}")
         import traceback
