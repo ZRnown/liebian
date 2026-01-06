@@ -4326,20 +4326,41 @@ async def check_member_status_task():
                     # 【核心修复】检测到权限丢失
                     if original_is_bot_admin == 1 and current_is_bot_admin == 0:
                         print(f"[权限检测] ⚠️ 会员 {telegram_id} 机器人权限丢失")
-                        # 找到一个可用的 bot 发通知
-                        notify_bot = clients[0] if clients else None
-                        
-                        # 确定用于通知的 group_id
-                        notify_group_id = group_identifier
-                        if isinstance(notify_group_id, str) and not notify_group_id.isdigit():
-                            # 如果是用户名，尝试获取ID，或者直接传用户名给 notify 函数可能需要修改
-                            # 这里为了兼容，尽量传 ID。如果只有用户名，notify_group_binding_invalid 可能会查不到 member_groups
-                            # 但我们已经在 loop 开头查到了 group_id
-                            pass
-                        
-                        await notify_group_binding_invalid(notify_group_id, telegram_id, "检测到机器人管理员权限被撤销", notify_bot)
-                        
-                        # 更新 member_groups
+                        # 发送轻量级通知，不完全清除绑定
+                        try:
+                            notify_msg = f"""
+⚠️ **机器人管理员权限异常**
+
+检测到您群组中的机器人已被撤销管理员权限！
+
+这将导致：
+• 您无法获得下级开通VIP的分红
+• 群组绑定功能可能受限
+
+请尽快将机器人重新设为管理员，以恢复分红资格。
+
+💡 如果您已经重新设置管理员，请等待系统自动检测（约30秒）。
+                            """.strip()
+
+                            # 使用任意可用的机器人发送通知
+                            notification_sent = False
+                            for client in clients:
+                                try:
+                                    await client.send_message(telegram_id, notify_msg)
+                                    print(f"[权限检测] ✅ 已通知用户 {telegram_id} 权限丢失")
+                                    notification_sent = True
+                                    break
+                                except Exception as e:
+                                    print(f"[权限检测] 通知失败 {telegram_id}: {e}")
+                                    continue
+
+                            if not notification_sent:
+                                print(f"[权限检测] ❌ 所有机器人向用户 {telegram_id} 发送通知都失败了")
+
+                        except Exception as e:
+                            print(f"[权限检测] 发送通知异常: {e}")
+
+                        # 只更新 member_groups 表中的管理员状态，不删除记录
                         c.execute('UPDATE member_groups SET is_bot_admin = 0 WHERE telegram_id = ?', (telegram_id,))
 
                     # 更新 members 表状态
