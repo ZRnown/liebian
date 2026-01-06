@@ -2,8 +2,8 @@
 启动入口 - 统一启动Bot和Web后台
 """
 import threading
-from app.database import init_db, sync_member_groups_from_members
-from app.bot_logic import run_bot
+from database import init_db, sync_member_groups_from_members
+from bot_logic import run_bot
 
 def main():
     print("=" * 60)
@@ -27,7 +27,7 @@ def main():
     print("🌐 启动Web管理后台...")
     web_thread = None
     try:
-        from app.web_app import run_web
+        from web_app import run_web
         web_thread = threading.Thread(target=run_web, daemon=True)
         web_thread.start()
         print("✅ Web管理后台已启动 (端口: 5051)")
