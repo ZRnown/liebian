@@ -424,7 +424,7 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                     pass
 
         placeholders = ','.join(['?'] * len(target_ids))
-        query = f'SELLECT telegram_id, group_name, group_link, group_id FROM member_groups WHERE group_id IN ({placeholders})'
+        query = f'SELECT telegram_id, group_name, group_link, group_id FROM member_groups WHERE group_id IN ({placeholders})'
 
         print(f'[通知] 正在查找绑定群组的用户，尝试匹配ID: {target_ids}')
         c.execute(query, target_ids)
