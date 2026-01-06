@@ -10,7 +10,10 @@ from urllib.parse import quote  # 【新增】用于URL编码推广文案
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient, events, Button
 from telethon.sessions import MemorySession
-from telethon.tl.types import ChannelParticipantsAdmins, UpdateChannelParticipant, UpdateChatParticipantAdmin, UpdateChatParticipant, UpdateChannelParticipant, UpdateChatParticipantAdmin, UpdateChatParticipant
+from telethon.tl.types import (
+    ChannelParticipantsAdmins, UpdateChannelParticipant, UpdateChatParticipantAdmin,
+    UpdateChatParticipant, ChannelParticipantAdmin, ChannelParticipantCreator
+)
 from telethon.tl.functions.channels import GetParticipantRequest
 import socks
 
@@ -2730,297 +2733,70 @@ async def admin_handler(event):
 
 # ==================== 群组欢迎和自动注册 ====================
 
-@multi_bot_on(events.Raw(types=(UpdateChannelParticipant, UpdateChatParticipantAdmin, UpdateChatParticipant)))
-async def raw_update_handler(event):
-    """监听原始Telegram更新，检测管理员权限变化【修复版】"""
+@multi_bot_on(events.Raw(types=(UpdateChannelParticipant, UpdateChatParticipantAdmin)))
+async def raw_permission_handler(event):
+    """
+    【核心修复】监听原始更新，专门捕获权限变更。
+    Telegram 在超级群中，管理员变更为普通成员时，会发送 UpdateChannelParticipant。
+    """
     try:
-        # 仅处理权限变更相关的 Update 类型
-        if not hasattr(event, 'update'):
-            return
-
         update = event.update
-        update_type = type(update).__name__
 
-        # 我们只关心机器人本身权限变动
-        target_user_id = None
-        target_chat_id = None
-        permission_changed = False
-        permission_revoked = False  # 【新增】明确标识权限撤销
+        # 1. 处理超级群组/频道成员变更 (这是最常见的情况)
+        if isinstance(update, UpdateChannelParticipant):
+            # 获取变动的用户ID
+            user_id = update.user_id
+            channel_id = update.channel_id
 
-        # 记录调试信息
-        print(f'[Raw权限检测] 分析更新类型: {update_type}')
-        print(f'[Raw权限检测] 完整更新内容: {update}')
-
-        # 1. 普通群组管理员变动
-        if update_type == 'UpdateChatParticipantAdmin':
-            target_user_id = getattr(update, 'user_id', None)
-            target_chat_id = getattr(update, 'chat_id', None)
-            is_admin = getattr(update, 'is_admin', False)
-            permission_revoked = not is_admin  # 如果不是管理员，说明权限被撤销
-            if permission_revoked:
-                print(f'[Raw权限检测] ✅ 检测到普通群组 {target_chat_id} 移除管理员 {target_user_id}')
-
-        # 2. 超级群组/频道成员变动 (包括权限变动)
-        elif update_type == 'UpdateChannelParticipant':
-            target_user_id = getattr(update, 'user_id', None)
-            target_chat_id = getattr(update, 'channel_id', None)
-
-            # prev_participant 是旧状态，new_participant 是新状态
-            prev = getattr(update, 'prev_participant', None)
-            new_p = getattr(update, 'new_participant', None)
-
-            from telethon.tl.types import (
-                ChannelParticipantAdmin, ChannelParticipantCreator, ChannelParticipant,
-                ChannelParticipantBanned, ChannelParticipantLeft
-            )
-
-            # 【修复】检查旧状态是否是管理员
-            was_admin = False
-            if prev:
-                was_admin = isinstance(prev, (ChannelParticipantAdmin, ChannelParticipantCreator))
-
-            # 【修复】检查新状态是否还是管理员
-            is_now_admin = False
-            if new_p:
-                is_now_admin = isinstance(new_p, (ChannelParticipantAdmin, ChannelParticipantCreator))
-
-            # 【修复】检测权限撤销：之前是管理员，现在不是了
-            permission_revoked = was_admin and not is_now_admin
-
-            print(f'[Raw权限检测] 频道参与者更新: user={target_user_id}, chat={target_chat_id}, was_admin={was_admin}, is_now_admin={is_now_admin}, revoked={permission_revoked}')
-            
-            if permission_revoked:
-                print(f'[Raw权限检测] ✅ 检测到超级群组 {target_chat_id} 移除管理员 {target_user_id}')
-
-        # 3. 【新增】处理 ChatParticipant 更新（旧版本兼容）
-        elif update_type == 'UpdateChatParticipant':
-            from telethon.tl.types import ChatParticipantAdmin, ChatParticipantCreator
-
-            prev = getattr(update, 'prev_participant', None)
-            new_p = getattr(update, 'new_participant', None)
-            
-            if prev:
-                target_user_id = getattr(prev, 'user_id', None)
-            
-            if update.chat_id:
-                target_chat_id = update.chat_id
-
-            was_admin = False
-            if prev:
-                was_admin = isinstance(prev, (ChatParticipantAdmin, ChatParticipantCreator))
-
-            is_now_admin = False
-            if new_p:
-                is_now_admin = isinstance(new_p, (ChatParticipantAdmin, ChatParticipantCreator))
-
-            permission_revoked = was_admin and not is_now_admin
-            
-            if permission_revoked and target_user_id and target_chat_id:
-                print(f'[Raw权限检测] ✅ 检测到ChatParticipant权限撤销: {target_chat_id}')
-
-        # 4. 【修复】更宽泛的权限变更检测
-        if not permission_revoked and 'Participant' in update_type:
-            # 尝试从所有属性中提取用户ID和Chat ID
-            if not target_user_id:
-                target_user_id = getattr(update, 'user_id', None)
-            if not target_chat_id:
-                target_chat_id = getattr(update, 'chat_id', None) or getattr(update, 'channel_id', None)
-            
-            # 尝试从 participant 对象中提取
-            if not target_user_id:
-                for attr in ['participant', 'new_participant', 'prev_participant']:
-                    if hasattr(update, attr):
-                        participant = getattr(update, attr)
-                        if hasattr(participant, 'user_id'):
-                            target_user_id = participant.user_id
-                            break
-
-            # 如果找到了用户ID，进一步检查权限
-            if target_user_id and target_chat_id:
-                print(f'[Raw权限检测] 🎯 从 {update_type} 提取到: user={target_user_id}, chat={target_chat_id}')
-
-        # 3. 【新增】检测其他可能的权限变更事件
-        elif update_type in ['UpdateChatParticipant', 'UpdateChannel', 'UpdateChat', 'UpdateChannelParticipantAdmin']:
-            print(f'[Raw权限检测] 检测到可能的权限相关更新: {update_type}')
-            # 尝试提取用户信息
-            target_user_id = getattr(update, 'user_id', None) or getattr(update, 'participant', None)
-            target_chat_id = getattr(update, 'chat_id', None) or getattr(update, 'channel_id', None)
-
-            if hasattr(update, 'participant'):
-                participant = update.participant
-                if hasattr(participant, 'user_id'):
-                    target_user_id = participant.user_id
-
-            print(f'[Raw权限检测] 从{update_type}提取到: user={target_user_id}, chat={target_chat_id}')
-
-        # 4. 【新增】监听所有可能的管理员相关更新
-        elif 'Admin' in update_type or 'Participant' in update_type or 'Chat' in update_type or 'Channel' in update_type:
-            print(f'[Raw权限检测] 发现管理员/参与者/聊天相关更新: {update_type}')
-
-            # 尝试提取所有可能的信息
-            for attr in dir(update):
-                if not attr.startswith('_'):
-                    try:
-                        value = getattr(update, attr)
-                        if 'admin' in attr.lower() or 'user' in attr.lower() or 'chat' in attr.lower() or 'channel' in attr.lower():
-                            print(f'[Raw权限检测] {attr}: {value}')
-                    except:
-                        pass
-
-            # 特别处理可能包含参与者信息的更新
-            if hasattr(update, 'participant') or hasattr(update, 'new_participant') or hasattr(update, 'prev_participant'):
-                print(f'[Raw权限检测] 此更新包含参与者信息，可能是权限变更')
-
-        # 3. 【新增】更宽泛的权限变更检测 - 监听所有可能的权限相关更新
-        if not permission_changed:
-            # 检查是否有任何Participant相关的更新
-            if 'Participant' in update_type:
-                print(f'[Raw权限检测] 🎯 发现Participant相关更新: {update_type}')
-
-                # 尝试从所有可能的字段中提取用户信息
-                if not target_user_id:
-                    target_user_id = getattr(update, 'user_id', None)
-                if not target_chat_id:
-                    target_chat_id = getattr(update, 'chat_id', getattr(update, 'channel_id', None))
-
-                # 从participant相关字段提取
-                if not target_user_id:
-                    for attr in ['participant', 'new_participant', 'prev_participant']:
-                        if hasattr(update, attr):
-                            participant = getattr(update, attr)
-                            if hasattr(participant, 'user_id'):
-                                target_user_id = participant.user_id
-                                break
-
-                # 如果找到了用户和群组信息，进行权限检查
-                if target_user_id and target_chat_id:
-                    print(f'[Raw权限检测] 发现用户 {target_user_id} 在群组 {target_chat_id} 的更新，开始权限验证...')
-
-                    # 检查是否是我们的机器人
-                    target_bot = None
-                    for client in clients:
-                        try:
-                            me = await client.get_me()
-                            if me.id == target_user_id:
-                                target_bot = client
-                                break
-                        except:
-                            continue
-
-                    if target_bot:
-                        print(f'[Raw权限检测] ✅ 确认是本机机器人 {target_user_id}，执行权限检查')
-
-                        # 执行权限检查
-                        await check_and_notify_permission_change(target_bot, target_user_id, target_chat_id, update_type)
-                    else:
-                        print(f'[Raw权限检测] 非本机机器人，跳过处理')
-                else:
-                    print(f'[Raw权限检测] 未找到完整的用户或群组信息')
-
-        # 如果前面已经检测到权限变更，直接处理
-        if permission_changed and target_user_id and target_chat_id:
-            print(f'[Raw权限检测] 🚨 确认权限变更: 用户 {target_user_id}, 群组 {target_chat_id}')
-
-            target_bot = None
-            for client in clients:
-                try:
-                    me = await client.get_me()
-                    if me.id == target_user_id:
-                        target_bot = client
-                        break
-                except:
-                    continue
-
-            if target_bot:
-                await check_and_notify_permission_change(target_bot, target_user_id, target_chat_id, update_type)
-            else:
-                print(f'[Raw权限检测] 未找到对应的机器人客户端，无法发送通知')
-
-        # 【新增】对于所有检测到的机器人相关更新，都进行权限检查
-        if target_user_id and target_chat_id:
             # 检查是否是我们的机器人
             is_our_bot = False
             target_bot = None
             for client in clients:
                 try:
                     me = await client.get_me()
-                    if me.id == target_user_id:
+                    if me.id == user_id:
                         is_our_bot = True
                         target_bot = client
                         break
-                except:
-                    continue
+                except: continue
 
-            if is_our_bot and target_bot:
-                print(f'[Raw权限检测] 发现本机机器人 {target_user_id} 的更新，执行主动权限检查')
-                try:
-                    # 无论什么更新类型，都主动检查当前权限状态
-                    full_chat_id = target_chat_id if str(target_chat_id).startswith('-100') else f"-100{target_chat_id}"
-                    perms = await target_bot.get_permissions(full_chat_id, target_user_id)
-                    current_is_admin = perms.is_admin or perms.is_creator
-                    print(f'[Raw权限检测] 当前权限状态检查: admin={current_is_admin}')
+            if not is_our_bot:
+                return
 
-                    if not current_is_admin:
-                        print(f'[Raw权限检测] ✅ 确认机器人已失去管理员权限，发送通知')
-                        await notify_group_binding_invalid(target_chat_id, target_user_id, f"Raw事件检测到管理员权限被撤销 ({update_type})", target_bot)
-                    else:
-                        print(f'[Raw权限检测] 机器人仍具有管理员权限')
-                except Exception as check_err:
-                    print(f'[Raw权限检测] 主动权限检查失败: {check_err}')
-                    # 如果检查失败，也发送通知（保守策略）
-                    await notify_group_binding_invalid(target_chat_id, target_user_id, f"Raw事件检测且权限检查失败，可能权限被撤销 ({update_type})", target_bot)
+            # 分析新旧状态
+            prev = update.prev_participant
+            new_p = update.new_participant
 
-        # 【新增】对所有权限相关更新都进行通用检测
-        elif not permission_changed and ('Admin' in update_type or 'Participant' in update_type or 'Chat' in update_type or 'Channel' in update_type):
-            print(f'[Raw权限检测] 未识别的权限相关更新类型: {update_type}，进行通用检测')
+            was_admin = isinstance(prev, (ChannelParticipantAdmin, ChannelParticipantCreator))
+            is_now_admin = isinstance(new_p, (ChannelParticipantAdmin, ChannelParticipantCreator))
 
-            # 通用检测：查找是否有我们的机器人ID
-            all_attrs = {}
-            for attr in dir(update):
-                if not attr.startswith('_'):
-                    try:
-                        value = getattr(update, attr)
-                        all_attrs[attr] = value
-                        # 查找可能的用户ID
-                        if isinstance(value, int) and str(value).startswith(('8', '5')) and len(str(value)) >= 9:
-                            print(f'[Raw权限检测] 发现可能的机器人ID: {value} in {attr}')
-                            # 检查是否是我们的机器人
-                            for client in clients:
-                                try:
-                                    me = await client.get_me()
-                                    if me.id == value:
-                                        print(f'[Raw权限检测] ✅ 确认是我们的机器人 {value}，查找群组ID')
-                                        # 查找群组ID
-                                        chat_id = None
-                                        for attr2, val2 in all_attrs.items():
-                                            if isinstance(val2, int) and (str(val2).startswith('-100') or (isinstance(val2, int) and val2 < 0)):
-                                                chat_id = val2
-                                                print(f'[Raw权限检测] 找到群组ID: {chat_id}')
-                                                break
+            # 关键判定：之前是管理员，现在不是了
+            if was_admin and not is_now_admin:
+                print(f"[Raw检测] 🚨 超级群 {channel_id}: 机器人 {user_id} 被撤销管理员")
+                await notify_group_binding_invalid(channel_id, user_id, "Raw事件:超级群权限撤销", target_bot)
 
-                                        if chat_id:
-                                            # 执行权限检查
-                                            try:
-                                                full_chat_id = chat_id if str(chat_id).startswith('-100') else f"-100{chat_id}"
-                                                perms = await client.get_permissions(full_chat_id, value)
-                                                current_is_admin = perms.is_admin or perms.is_creator
-                                                print(f'[Raw权限检测] 通用检测权限状态: admin={current_is_admin}')
+        # 2. 处理普通群组管理员变更
+        elif isinstance(update, UpdateChatParticipantAdmin):
+            user_id = update.user_id
+            chat_id = update.chat_id
+            is_admin = update.is_admin
 
-                                                if not current_is_admin:
-                                                    print(f'[Raw权限检测] 🚨 通用检测发现机器人失去管理员权限')
-                                                    await notify_group_binding_invalid(chat_id, value, f"通用Raw事件检测到管理员权限被撤销 ({update_type})", client)
-                                            except Exception as gen_check_err:
-                                                print(f'[Raw权限检测] 通用权限检查失败: {gen_check_err}')
-                                        break
-                                except:
-                                    continue
-                    except:
-                        pass
+            # 检查是否是我们的机器人被取消了管理员
+            is_our_bot = False
+            target_bot = None
+            for client in clients:
+                me = await client.get_me()
+                if me.id == user_id:
+                    is_our_bot = True
+                    target_bot = client
+                    break
+
+            if is_our_bot and not is_admin:
+                print(f"[Raw检测] 🚨 普通群 {chat_id}: 机器人 {user_id} 被撤销管理员")
+                await notify_group_binding_invalid(chat_id, user_id, "Raw事件:普通群权限撤销", target_bot)
 
     except Exception as e:
-        # 避免日志刷屏，仅在严重错误时打印
-        if 'Connection' not in str(e):
-            print(f'[Raw事件处理异常] {e}')
+        print(f"[Raw检测] 错误: {e}")
 
 # ==================== 权限检查和通知函数 ====================
 
@@ -3155,45 +2931,6 @@ async def check_and_notify_permission_change(bot, user_id, chat_id, update_type)
 
 # ==================== 备用Raw事件监听器 ====================
 
-@multi_bot_on(events.Raw)
-async def raw_update_handler_backup(event):
-    """备用Raw事件监听器，捕获所有可能的权限变更"""
-    try:
-        if not hasattr(event, 'update'):
-            return
-
-        update = event.update
-        update_type = type(update).__name__
-
-        # 只记录我们关心的更新类型
-        if 'Participant' in update_type or 'Chat' in update_type or 'Channel' in update_type:
-            print(f'[Raw备用] 📡 捕获更新: {update_type}')
-
-            # 尝试提取所有可能的用户和群组信息
-            user_id = None
-            chat_id = None
-
-            # 从各种可能的字段提取信息
-            for attr in ['user_id', 'participant', 'new_participant', 'prev_participant']:
-                if hasattr(update, attr):
-                    val = getattr(update, attr)
-                    if isinstance(val, int):
-                        user_id = val
-                        break
-                    elif hasattr(val, 'user_id'):
-                        user_id = val.user_id
-                        break
-
-            for attr in ['chat_id', 'channel_id']:
-                if hasattr(update, attr):
-                    chat_id = getattr(update, attr)
-                    break
-
-            if user_id and chat_id:
-                print(f'[Raw备用] 发现用户 {user_id} 在群组 {chat_id} 的更新')
-
-    except Exception as e:
-        pass  # 备用监听器不打印错误，避免刷屏
 
 @multi_bot_on(events.ChatAction)
 async def group_welcome_handler(event):
@@ -4328,106 +4065,57 @@ async def process_broadcasts():
             await asyncio.sleep(5)
 
 async def check_member_status_task():
-    """定期检查会员状态（核心修复：逻辑判断和通知）"""
-
+    """
+    【核心修复】定期轮询，作为 Raw 事件的兜底。
+    每 30 秒检查一次所有绑定了群组的机器人权限。
+    """
     while True:
         try:
-            global permission_check_triggered
-            if permission_check_triggered:
-                permission_check_triggered = False
-            else:
-                await asyncio.sleep(30)
+            await asyncio.sleep(30)
+            print("[轮询检测] 开始检查所有群组权限...")
 
-            # 先执行一次全量权限检查
-            await check_permission_changes()
-            
             conn = get_db_conn()
             c = conn.cursor()
-            c.execute("SELECT telegram_id, group_link, is_bot_admin FROM members WHERE group_link IS NOT NULL AND group_link != ''")
-            members = c.fetchall()
-            
-            for telegram_id, group_link, db_is_bot_admin in members:
-                try:
-                    original_is_bot_admin = db_is_bot_admin or 0
-                    
-                    # 尝试从 member_groups 获取更准确的 ID
-                    c.execute("SELECT group_id FROM member_groups WHERE telegram_id = ?", (telegram_id,))
-                    mg_row = c.fetchone()
-                    group_identifier = mg_row[0] if mg_row and mg_row[0] else None
-                    
-                    if not group_identifier:
-                        if 't.me/' in group_link:
-                            group_identifier = group_link.split('t.me/')[-1].split('/')[0].split('?')[0]
-                        elif group_link.startswith('@'):
-                            group_identifier = group_link[1:]
-                        else: continue # 无法检测
-                    
-                    is_group_bound = 0
-                    current_is_bot_admin = 0
-                    
-                    try:
-                        is_in_group, admin_bot_id = await check_any_bot_in_group(clients, group_identifier)
-                        if is_in_group:
-                            is_group_bound = 1
-                            if admin_bot_id:
-                                current_is_bot_admin = 1
-                    except:
-                        # 检测失败保持原状，避免误报
-                        current_is_bot_admin = original_is_bot_admin
-                    
-                    # 【核心修复】检测到权限丢失
-                    if original_is_bot_admin == 1 and current_is_bot_admin == 0:
-                        print(f"[权限检测] ⚠️ 会员 {telegram_id} 机器人权限丢失")
-                        # 发送轻量级通知，不完全清除绑定
-                        try:
-                            notify_msg = f"""
-⚠️ **机器人管理员权限异常**
-
-检测到您群组中的机器人已被撤销管理员权限！
-
-这将导致：
-• 您无法获得下级开通VIP的分红
-• 群组绑定功能可能受限
-
-请尽快将机器人重新设为管理员，以恢复分红资格。
-
-💡 如果您已经重新设置管理员，请等待系统自动检测（约30秒）。
-                            """.strip()
-
-                            # 使用任意可用的机器人发送通知
-                            notification_sent = False
-                            for client in clients:
-                                try:
-                                    await client.send_message(telegram_id, notify_msg)
-                                    print(f"[权限检测] ✅ 已通知用户 {telegram_id} 权限丢失")
-                                    notification_sent = True
-                                    break
-                                except Exception as e:
-                                    print(f"[权限检测] 通知失败 {telegram_id}: {e}")
-                                    continue
-
-                            if not notification_sent:
-                                print(f"[权限检测] ❌ 所有机器人向用户 {telegram_id} 发送通知都失败了")
-
-                        except Exception as e:
-                            print(f"[权限检测] 发送通知异常: {e}")
-
-                        # 只更新 member_groups 表中的管理员状态，不删除记录
-                        c.execute('UPDATE member_groups SET is_bot_admin = 0 WHERE telegram_id = ?', (telegram_id,))
-
-                    # 更新 members 表状态
-                    c.execute("UPDATE members SET is_group_bound = ?, is_bot_admin = ? WHERE telegram_id = ?", 
-                             (is_group_bound, current_is_bot_admin, telegram_id))
-                    
-                    await asyncio.sleep(0.5)
-                except Exception as e:
-                    print(f"[状态检测] 单用户错误 {telegram_id}: {e}")
-            
-            conn.commit()
+            # 获取所有标记为"机器人是管理员"的记录
+            c.execute("SELECT telegram_id, group_id, group_link FROM member_groups WHERE is_bot_admin = 1")
+            groups = c.fetchall()
             conn.close()
+
+            for uid, gid, link in groups:
+                if not gid and not link: continue
+
+                # 确定要检查的群标识符 (ID优先，其次链接)
+                target = gid if gid else link
+
+                # 使用多机器人检查
+                is_in, admin_bot_id = await check_any_bot_in_group(clients, target)
+
+                # 如果不在群里，或者在群里但不是管理员 -> 触发失效
+                if not is_in or not admin_bot_id:
+                    print(f"[轮询检测] ⚠️ 用户 {uid} 的群组 {gid} 权限异常 (在群:{is_in}, 管理:{admin_bot_id})")
+
+                    # 找到一个可用的 bot 用于发送通知
+                    notify_bot = clients[0] if clients else None
+
+                    # 触发通知
+                    # 注意：如果 gid 是 None，这里可能无法精确匹配 member_groups，但我们会尝试
+                    raw_chat_id = gid if gid else 0
+                    await notify_group_binding_invalid(raw_chat_id, uid, "轮询检测发现权限丢失", notify_bot)
+
+                    # 额外保险：直接更新 DB (notify_group_binding_invalid 也会更新，但双重保险)
+                    conn = get_db_conn()
+                    c = conn.cursor()
+                    if gid:
+                        c.execute('UPDATE member_groups SET is_bot_admin = 0 WHERE group_id = ?', (gid,))
+                    c.execute('UPDATE members SET is_bot_admin = 0 WHERE telegram_id = ?', (uid,))
+                    conn.commit()
+                    conn.close()
+
+                await asyncio.sleep(0.5) # 避免速率限制
+
         except Exception as e:
-            print(f"[状态检测] 任务错误: {e}")
-            await asyncio.sleep(30)
+            print(f"[轮询检测] 异常: {e}")
+            await asyncio.sleep(10)
 
 async def check_permission_changes():
     """定期检查绑定群组权限"""
