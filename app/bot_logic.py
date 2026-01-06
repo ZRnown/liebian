@@ -10,7 +10,7 @@ from urllib.parse import quote  # 【新增】用于URL编码推广文案
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient, events, Button
 from telethon.sessions import MemorySession
-from telethon.tl.types import ChannelParticipantsAdmins
+from telethon.tl.types import ChannelParticipantsAdmins, UpdateChannelParticipant, UpdateChatParticipantAdmin, UpdateChatParticipant, UpdateChannelParticipant, UpdateChatParticipantAdmin, UpdateChatParticipant
 from telethon.tl.functions.channels import GetParticipantRequest
 import socks
 
@@ -2730,7 +2730,7 @@ async def admin_handler(event):
 
 # ==================== 群组欢迎和自动注册 ====================
 
-@multi_bot_on(events.Raw)
+@multi_bot_on(events.Raw(types=(UpdateChannelParticipant, UpdateChatParticipantAdmin, UpdateChatParticipant)))
 async def raw_update_handler(event):
     """监听原始Telegram更新，检测管理员权限变化【修复版】"""
     try:
