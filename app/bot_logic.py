@@ -424,7 +424,7 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                     pass
 
         placeholders = ','.join(['?'] * len(target_ids))
-        query = f'SELECT telegram_id, group_name, group_link, group_id FROM member_groups WHERE group_id IN ({placeholders})'
+        query = f'SELLECT telegram_id, group_name, group_link, group_id FROM member_groups WHERE group_id IN ({placeholders})'
 
         print(f'[通知] 正在查找绑定群组的用户，尝试匹配ID: {target_ids}')
         c.execute(query, target_ids)
@@ -2732,17 +2732,8 @@ async def admin_handler(event):
 
 @multi_bot_on(events.Raw)
 async def raw_update_handler(event):
-    """监听原始Telegram更新，检测管理员权限变化"""
+    """监听原始Telegram更新，检测管理员权限变化【修复版】"""
     try:
-        # 首先记录所有Raw更新，便于调试（生产环境可注释掉）
-        if hasattr(event, 'update') and hasattr(event.update, '__class__'):
-            update_type = type(event.update).__name__
-            print(f'[Raw事件] 📡 收到更新: {update_type}')
-
-            # 打印更详细的调试信息
-            update = event.update
-            print(f'[Raw事件] 详细内容: {update}')
-
         # 仅处理权限变更相关的 Update 类型
         if not hasattr(event, 'update'):
             return
@@ -2754,8 +2745,9 @@ async def raw_update_handler(event):
         target_user_id = None
         target_chat_id = None
         permission_changed = False
+        permission_revoked = False  # 【新增】明确标识权限撤销
 
-        # 记录所有可能的权限相关更新类型
+        # 记录调试信息
         print(f'[Raw权限检测] 分析更新类型: {update_type}')
         print(f'[Raw权限检测] 完整更新内容: {update}')
 
@@ -2764,9 +2756,9 @@ async def raw_update_handler(event):
             target_user_id = getattr(update, 'user_id', None)
             target_chat_id = getattr(update, 'chat_id', None)
             is_admin = getattr(update, 'is_admin', False)
-            permission_changed = not is_admin  # 如果不是管理员，说明权限被撤销
-            if permission_changed:
-                print(f'[Raw权限检测] 检测到普通群组 {target_chat_id} 移除管理员 {target_user_id}')
+            permission_revoked = not is_admin  # 如果不是管理员，说明权限被撤销
+            if permission_revoked:
+                print(f'[Raw权限检测] ✅ 检测到普通群组 {target_chat_id} 移除管理员 {target_user_id}')
 
         # 2. 超级群组/频道成员变动 (包括权限变动)
         elif update_type == 'UpdateChannelParticipant':
@@ -2777,15 +2769,75 @@ async def raw_update_handler(event):
             prev = getattr(update, 'prev_participant', None)
             new_p = getattr(update, 'new_participant', None)
 
-            from telethon.tl.types import ChannelParticipantAdmin, ChannelParticipantCreator, ChannelParticipant
+            from telethon.tl.types import (
+                ChannelParticipantAdmin, ChannelParticipantCreator, ChannelParticipant,
+                ChannelParticipantBanned, ChannelParticipantLeft
+            )
 
-            was_admin = isinstance(prev, (ChannelParticipantAdmin, ChannelParticipantCreator))
-            is_now_admin = isinstance(new_p, (ChannelParticipantAdmin, ChannelParticipantCreator))
+            # 【修复】检查旧状态是否是管理员
+            was_admin = False
+            if prev:
+                was_admin = isinstance(prev, (ChannelParticipantAdmin, ChannelParticipantCreator))
 
-            permission_changed = was_admin and not is_now_admin
-            print(f'[Raw权限检测] 频道参与者更新: user={target_user_id}, chat={target_chat_id}, was_admin={was_admin}, is_now_admin={is_now_admin}, changed={permission_changed}')
-            if permission_changed:
-                print(f'[Raw权限检测] 🚨 检测到超级群组 {target_chat_id} 移除管理员 {target_user_id}')
+            # 【修复】检查新状态是否还是管理员
+            is_now_admin = False
+            if new_p:
+                is_now_admin = isinstance(new_p, (ChannelParticipantAdmin, ChannelParticipantCreator))
+
+            # 【修复】检测权限撤销：之前是管理员，现在不是了
+            permission_revoked = was_admin and not is_now_admin
+
+            print(f'[Raw权限检测] 频道参与者更新: user={target_user_id}, chat={target_chat_id}, was_admin={was_admin}, is_now_admin={is_now_admin}, revoked={permission_revoked}')
+            
+            if permission_revoked:
+                print(f'[Raw权限检测] ✅ 检测到超级群组 {target_chat_id} 移除管理员 {target_user_id}')
+
+        # 3. 【新增】处理 ChatParticipant 更新（旧版本兼容）
+        elif update_type == 'UpdateChatParticipant':
+            from telethon.tl.types import ChatParticipantAdmin, ChatParticipantCreator
+
+            prev = getattr(update, 'prev_participant', None)
+            new_p = getattr(update, 'new_participant', None)
+            
+            if prev:
+                target_user_id = getattr(prev, 'user_id', None)
+            
+            if update.chat_id:
+                target_chat_id = update.chat_id
+
+            was_admin = False
+            if prev:
+                was_admin = isinstance(prev, (ChatParticipantAdmin, ChatParticipantCreator))
+
+            is_now_admin = False
+            if new_p:
+                is_now_admin = isinstance(new_p, (ChatParticipantAdmin, ChatParticipantCreator))
+
+            permission_revoked = was_admin and not is_now_admin
+            
+            if permission_revoked and target_user_id and target_chat_id:
+                print(f'[Raw权限检测] ✅ 检测到ChatParticipant权限撤销: {target_chat_id}')
+
+        # 4. 【修复】更宽泛的权限变更检测
+        if not permission_revoked and 'Participant' in update_type:
+            # 尝试从所有属性中提取用户ID和Chat ID
+            if not target_user_id:
+                target_user_id = getattr(update, 'user_id', None)
+            if not target_chat_id:
+                target_chat_id = getattr(update, 'chat_id', None) or getattr(update, 'channel_id', None)
+            
+            # 尝试从 participant 对象中提取
+            if not target_user_id:
+                for attr in ['participant', 'new_participant', 'prev_participant']:
+                    if hasattr(update, attr):
+                        participant = getattr(update, attr)
+                        if hasattr(participant, 'user_id'):
+                            target_user_id = participant.user_id
+                            break
+
+            # 如果找到了用户ID，进一步检查权限
+            if target_user_id and target_chat_id:
+                print(f'[Raw权限检测] 🎯 从 {update_type} 提取到: user={target_user_id}, chat={target_chat_id}')
 
         # 3. 【新增】检测其他可能的权限变更事件
         elif update_type in ['UpdateChatParticipant', 'UpdateChannel', 'UpdateChat', 'UpdateChannelParticipantAdmin']:
