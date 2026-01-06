@@ -1,3 +1,0 @@
-"""
-Telegram Bot Application Package
-"""

@@ -14,17 +14,17 @@ from telethon.tl.types import ChannelParticipantsAdmins
 from telethon.tl.functions.channels import GetParticipantRequest
 import socks
 
-from app.config import (
+from config import (
     API_ID, API_HASH, ADMIN_IDS, USE_PROXY,
     PROXY_TYPE, PROXY_HOST, PROXY_PORT, DATA_DIR
 )
-from app.database import DB, get_cn_time, get_system_config, get_db_conn
-from app.core_functions import (
+from database import DB, get_cn_time, get_system_config, get_db_conn
+from core_functions import (
     get_upline_chain, check_user_conditions, update_level_path,
     distribute_vip_rewards, check_user_in_group, check_bot_is_admin,
     verify_group_link, check_any_bot_in_group
 )
-from app.bot_commands_addon import (
+from bot_commands_addon import (
     handle_bind_group, handle_join_upline, handle_group_link_message,
     handle_check_status, handle_my_team
 )
@@ -177,7 +177,7 @@ permission_check_triggered = False
 
 # 如果数据库没配置，尝试读取环境变量配置作为默认
 if not active_tokens:
-    from app.config import BOT_TOKEN
+    from config import BOT_TOKEN
     if BOT_TOKEN:
         print("[机器人初始化] 数据库无配置，使用默认配置文件Token")
         active_tokens.append((0, BOT_TOKEN))
@@ -197,7 +197,7 @@ if USE_PROXY:
         proxy = (socks.SOCKS5, PROXY_HOST, PROXY_PORT)
 
 # 确保 session 目录存在
-from app.config import SESSION_DIR
+from config import SESSION_DIR
 os.makedirs(SESSION_DIR, exist_ok=True)
 
 # 创建所有机器人客户端
@@ -263,7 +263,7 @@ withdraw_temp_data = {}
 admin_waiting = {}
 
 # 导入支付模块
-from app.payment import create_recharge_order, PAYMENT_CONFIG, generate_payment_sign
+from payment import create_recharge_order, PAYMENT_CONFIG, generate_payment_sign
 
 # ==================== 账号关联逻辑 ====================
 
@@ -1085,7 +1085,7 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
             if bot:
                 await distribute_vip_rewards(bot, telegram_id, vip_price, config)
 
-            from app.core_functions import generate_vip_success_message
+            from core_functions import generate_vip_success_message
             msg = generate_vip_success_message(telegram_id, amount, vip_price, new_balance)
             if bot:
                 try: await bot.send_message(telegram_id, msg, parse_mode='markdown')
@@ -1744,7 +1744,7 @@ async def recharge_for_vip_callback(event):
     
     # 调用充值订单创建函数（传入bot参数）
     try:
-        from app.payment import create_recharge_order
+        from payment import create_recharge_order
         await create_recharge_order(bot, event, need_recharge, is_vip_order=True)
     except Exception as e:
         print(f"[充值VIP订单创建失败] {e}")
@@ -1788,7 +1788,7 @@ async def verify_groups_callback(event):
     groups_to_check = []
     
     # 获取完整的10层关系
-    from app.core_functions import get_upline_chain
+    from core_functions import get_upline_chain
     chain = get_upline_chain(telegram_id, required_groups_count)
     
     # 获取所有捡漏群组
@@ -2715,7 +2715,7 @@ async def admin_handler(event):
     text += f'💳 提现门槛: {config["withdraw_threshold"]} U\n'
     text += f'💵 USDT地址: {config["usdt_address"][:10] if config["usdt_address"] else "未设置"}...{config["usdt_address"][-10:] if config["usdt_address"] and len(config["usdt_address"]) > 20 else ""}\n\n'
     text += f'客服文本:\n{config["support_text"]}\n\n'
-    from app.config import USE_PROXY
+    from config import USE_PROXY
     web_url = 'http://154.201.68.178:5051' if not USE_PROXY else 'http://localhost:5051'
     text += f'🌐 Web管理后台: {web_url}'
     
@@ -4036,7 +4036,7 @@ async def process_broadcast_queue():
                                 if send_image.startswith('/static/uploads/'):
                                     # prefer local file path using UPLOAD_DIR from config
                                     try:
-                                        from app.config import UPLOAD_DIR
+                                        from config import UPLOAD_DIR
                                         filename = os.path.basename(send_image)
                                         local_path = os.path.join(UPLOAD_DIR, filename)
                                     except Exception:
@@ -4054,7 +4054,7 @@ async def process_broadcast_queue():
                                 file_path = send_video
                                 if send_video.startswith('/static/uploads/'):
                                     try:
-                                        from app.config import UPLOAD_DIR
+                                        from config import UPLOAD_DIR
                                         filename = os.path.basename(send_video)
                                         local_path = os.path.join(UPLOAD_DIR, filename)
                                     except Exception:
@@ -4386,7 +4386,7 @@ def run_bot():
                 print(f"📊 共有 {len(connected_clients)} 个机器人可用于同步")
 
                 try:
-                    from app.database import sync_member_groups_from_members
+                    from database import sync_member_groups_from_members
                     # 传递已连接的客户端列表给同步函数
                     await sync_member_groups_from_members(connected_clients)
                     print("✅ 会员群组数据同步完成")
