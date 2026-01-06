@@ -3019,7 +3019,6 @@ async def check_permission_changes():
                         print(f"[权限检查] 🚨 发现机器人 {user_id} 在群组 {group_id} 失去管理员权限")
 
                         # 触发全局状态刷新
-                        global permission_check_triggered
                         permission_check_triggered = True
 
                         # 发送通知 - 转换group_id格式用于匹配
@@ -3147,6 +3146,7 @@ async def raw_update_handler_backup(event):
 @multi_bot_on(events.ChatAction)
 async def group_welcome_handler(event):
     """处理群组相关事件：加入、离开、权限变化等"""
+    global permission_check_triggered
     try:
         print(f'[ChatAction] 收到事件: {type(event.action_message.action).__name__ if event.action_message else "无"}')
         
@@ -3332,51 +3332,115 @@ async def group_welcome_handler(event):
             f'user_joined={event.user_joined}, user_left={event.user_left}, '
             f'action={type(event.action_message.action).__name__ if event.action_message else "None"}')
 
-        # 获取群组ID - 无论什么情况都获取，用于权限检查
+        # 获取群组ID - 用于权限检查
         chat_id = getattr(event, 'chat_id', None)
         if not chat_id and hasattr(event, 'chat'):
             chat_id = event.chat.id
 
-        if chat_id:
-            print(f'[权限检测] 群组ID: {chat_id}，对所有机器人进行主动权限检查')
+        # 重要修复：只有在机器人被移除/离开时才进行权限检查
+        # 机器人被添加时不应该触发权限撤销通知
+        should_check_permissions = False
 
-            # 对所有活跃机器人进行权限检查 - 更主动的检测策略
-            for client in clients:
-                try:
-                    me = await client.get_me()
-                    bot_id = me.id
+        # 检查是否是机器人离开/被踢出的事件
+        if event.user_left or (hasattr(event, 'user_kicked') and event.user_kicked):
+            # 只有当用户离开时，才检查是否是我们的机器人
+            user_id = getattr(event, 'user_id', None)
+            if user_id:
+                # 检查是否是我们的机器人
+                is_our_bot = False
+                for client in clients:
+                    try:
+                        me = await client.get_me()
+                        if me.id == user_id:
+                            is_our_bot = True
+                            break
+                    except:
+                        continue
 
+                if is_our_bot:
+                    print(f'[权限检测] 检测到本机机器人 {user_id} 离开群组 {chat_id}，开始权限检查')
+                    should_check_permissions = True
+        elif event.action_message and hasattr(event.action_message.action, 'users'):
+            # 检查是否是MessageActionChatDeleteUser (用户被移除)
+            action_type = type(event.action_message.action).__name__
+            if action_type == 'MessageActionChatDeleteUser':
+                print(f'[权限检测] 检测到用户被移除事件，检查是否是机器人')
+                # 检查被移除的用户是否是我们的机器人
+                removed_users = getattr(event.action_message.action, 'users', [])
+                for removed_user_id in removed_users:
+                    is_our_bot = False
+                    for client in clients:
+                        try:
+                            me = await client.get_me()
+                            if me.id == removed_user_id:
+                                is_our_bot = True
+                                break
+                        except:
+                            continue
+
+                    if is_our_bot:
+                        print(f'[权限检测] 检测到本机机器人 {removed_user_id} 被移除，准备权限检查')
+                        should_check_permissions = True
+                        break
+
+        # 只有在确认机器人离开/被移除时才进行权限检查
+        if should_check_permissions and chat_id:
+            print(f'[权限检测] 群组ID: {chat_id}，对离开的机器人进行权限检查')
+
+            # 只检查被移除的机器人，不检查所有机器人
+            user_id = getattr(event, 'user_id', None)
+            if not user_id and event.action_message and hasattr(event.action_message.action, 'users'):
+                # 从MessageActionChatDeleteUser中获取用户ID
+                removed_users = getattr(event.action_message.action, 'users', [])
+                if removed_users:
+                    user_id = removed_users[0]  # 通常只有一个用户
+
+            if user_id:
+                # 找到对应的机器人客户端
+                target_bot = None
+                for client in clients:
+                    try:
+                        me = await client.get_me()
+                        if me.id == user_id:
+                            target_bot = client
+                            break
+                    except:
+                        continue
+
+                if target_bot:
                     # 转换chat_id格式
                     full_chat_id = int(f"-100{chat_id}") if chat_id > 0 else chat_id
 
                     try:
-                        # 检查当前权限状态
-                        perms = await client.get_permissions(full_chat_id, bot_id)
+                        # 检查当前权限状态 - 由于机器人已被移除，这通常会失败
+                        perms = await target_bot.get_permissions(full_chat_id, user_id)
                         is_admin = perms.is_admin or perms.is_creator
 
-                        print(f'[权限检测] 机器人 {bot_id} 在群组 {full_chat_id} 的权限状态: admin={is_admin}')
+                        print(f'[权限检测] 机器人 {user_id} 在群组 {full_chat_id} 的权限状态: admin={is_admin}')
 
                         if not is_admin:
-                            print(f'[权限检测] ✅ 检测到机器人 {bot_id} 失去管理员权限，发送通知')
+                            print(f'[权限检测] ✅ 确认机器人 {user_id} 失去管理员权限，发送通知')
 
                             # 触发全局状态刷新
-                            global permission_check_triggered
                             permission_check_triggered = True
 
                             # 发送通知
-                            await notify_group_binding_invalid(chat_id, bot_id, f"ChatAction事件检测到机器人管理员权限被撤销", client)
-                            break  # 找到一个失去权限的机器人就处理，不需要继续检查其他机器人
+                            await notify_group_binding_invalid(chat_id, user_id, f"ChatAction事件检测到机器人被移除或离开", target_bot)
 
                     except Exception as perm_err:
-                        print(f'[权限检测] 机器人 {bot_id} 权限检查失败: {perm_err}')
-                        # 如果权限检查失败，可能意味着机器人被踢出或权限被撤销
-                        print(f'[权限检测] 由于权限检查失败，假设机器人 {bot_id} 权限被撤销，发送通知')
-                        await notify_group_binding_invalid(chat_id, bot_id, f"机器人权限检查失败，可能已被撤销", client)
-                        break  # 处理完一个就停止，避免重复通知
+                        print(f'[权限检测] 机器人 {user_id} 权限检查失败: {perm_err}')
+                        # 权限检查失败通常意味着机器人已被移除或权限被撤销
+                        print(f'[权限检测] 由于权限检查失败，确认机器人 {user_id} 权限被撤销，发送通知')
 
-                except Exception as client_err:
-                    print(f'[权限检测] 检查机器人时出错: {client_err}')
-                    continue
+                        # 触发全局状态刷新
+                        permission_check_triggered = True
+
+                        # 发送通知
+                        await notify_group_binding_invalid(chat_id, user_id, f"机器人被移除或权限检查失败", target_bot)
+                else:
+                    print(f'[权限检测] 未找到对应的机器人客户端')
+            else:
+                print(f'[权限检测] 无法确定被移除的机器人ID')
 
         # 保留原有的特定用户检测逻辑（作为备用）
         user_id = getattr(event, 'user_id', None)
@@ -3395,7 +3459,8 @@ async def group_welcome_handler(event):
                     continue
 
             if is_our_bot and target_bot:
-                print(f'[权限检测] 特定用户检测到本机机器人 {user_id} 的ChatAction事件')
+                action_type = type(event.action_message.action).__name__ if event.action_message else "Unknown"
+                print(f'[权限检测] 检测到本机机器人 {user_id} 的ChatAction事件: {action_type}')
 
         # ===== 群组解散检测 =====
         if hasattr(event, 'chat_deleted') and event.chat_deleted:
