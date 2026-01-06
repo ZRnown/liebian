@@ -5,7 +5,7 @@
 """
 
 from telethon import events, Button
-from core_functions import check_bot_is_admin, check_any_bot_in_group, get_upline_chain, get_downline_tree, check_user_conditions
+from app.core_functions import check_bot_is_admin, check_any_bot_in_group, get_upline_chain, get_downline_tree, check_user_conditions
 import sqlite3
 
 

@@ -10,9 +10,9 @@ import re
 from datetime import datetime, timedelta, timezone
 from telethon import Button
 
-from config import ADMIN_IDS
-from database import DB, get_cn_time, get_system_config, get_db_conn
-from core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
+from app.config import ADMIN_IDS
+from app.database import DB, get_cn_time, get_system_config, get_db_conn
+from app.core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
 
 # 支付配置
 PAYMENT_CONFIG = {
