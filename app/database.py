@@ -470,7 +470,7 @@ def get_system_config():
                     import json
                     # 确保value是字符串，如果已经是对象则直接使用
                     if isinstance(value, str):
-                    config['level_amounts'] = json.loads(value)
+                        config['level_amounts'] = json.loads(value)
                     else:
                         # 如果已经是解析后的对象，直接使用
                         config['level_amounts'] = value
