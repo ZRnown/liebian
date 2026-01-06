@@ -1035,17 +1035,17 @@ async def sync_member_groups_from_members(connected_clients=None):
         print(f'[sync_member_groups] 发现 {len(rows)} 条需要同步的记录')
 
         # 使用传入的已连接客户端
+        synced_count = 0
         if not connected_clients:
             print('[sync_member_groups] 警告：没有传入已连接的机器人客户端，跳过group_id获取')
             # 如果没有机器人客户端，仍然创建记录但group_id为None
-            synced_count = 0
-        for r in rows:
-            tg_id, uname, glink = r
-            try:
+            for r in rows:
+                tg_id, uname, glink = r
+                try:
                     upsert_member_group(tg_id, glink, uname or None, is_bot_admin=1, group_id=None)
                     synced_count += 1
-            except Exception as inner_err:
-                print(f'[sync_member_groups] 单条失败 {tg_id}: {inner_err}')
+                except Exception as inner_err:
+                    print(f'[sync_member_groups] 单条失败 {tg_id}: {inner_err}')
             print(f'[sync_member_groups] 同步完成（无机器人客户端），共处理 {len(rows)} 条记录，成功 {synced_count} 条')
             return
 
