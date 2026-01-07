@@ -2317,29 +2317,8 @@ async def view_fission_handler(event):
         return
 
     if not member['is_vip']:
-        # 使用和"群裂变加入"一样的VIP提示
-        vip_price = config.get('vip_price', 10)
-        user_balance = member.get('balance', 0)
-        need_recharge = vip_price - user_balance
-
-        text = f"""❌ 您还未开通VIP
-
-开通VIP后可获得以下权益:
-✅ 查看裂变数据
-✅ 获得下级开通VIP的奖励
-✅ 加入上级群组
-
-💰 VIP价格: {vip_price} U
-💵 您的余额: {user_balance} U"""
-
-        if user_balance >= vip_price:
-            buttons = [[Button.inline('💎 余额开通VIP', b'open_vip_balance')]]
-        else:
-            text += f"\n\n❌ 余额不足，请先充值"
-            buttons = [
-                [Button.inline(f'💰 充值{need_recharge}U开通VIP', b'recharge_for_vip')]]
-
-        await event.respond(text, buttons=buttons)
+        # 使用统一的VIP开通提示
+        await send_vip_required_prompt(event)
         return
 
     conn = get_db_conn()
@@ -2983,8 +2962,7 @@ async def my_promote_handler(event):
     text += f'💎 VIP下级: {total_vip} 人\n'
     text += f'💎累计收益: {member["balance"]} U\n'
     text += f'💎错过收益: {member["missed_balance"]} U\n\n'
-    text += f'🔗 您的推广链接:\n{invite_link}\n\n'
-    text += f'💡 分享链接邀请好友，可迅速裂变\n\n十级好友开通VIP您都可获得 {config["level_reward"]} U 奖励!'
+    text += f'💡 分享链接邀请好友，可迅速裂变\n十级好友开通VIP您都可获得 {config["level_reward"]} U 奖励!'
 
     # 【修改3】改为调用Telegram原生分享功能
     share_text = f"【资源联盟·裂变机器人】开启您的专属福利🎫\n\n🧧加入🤖属于您永久机器人工具，自动迅速帮您快速裂变资源！解决您人脉问题。\n\n👉 前沿互动工具每个人加入您群能主动给你1U ！💵\n\n👉 快速裂变资源粉丝 🚀，无需绞尽脑汁推广粉丝！\n\n🉐 分享邀请朋友一起发展，快速发展团队属于自己裂变机器人\n\n🎉【资源联盟·裂变机器人】—— 超前沿科技、工具、十级裂变快速发展资源！\n\n👇 点击链接获取工具：\n{invite_link}"
