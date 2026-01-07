@@ -410,9 +410,8 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
     """通知所有绑定指定群组的用户，群组绑定已失效"""
     try:
         # 【修复】避免重复通知 - 检查最近24小时内是否已经发送过相同类型的通知
-        # 注意：暂时移除这个功能，避免重复通知的逻辑过于复杂
-        # current_time = get_cn_time()
-        # one_day_ago = current_time - timedelta(hours=24)
+        current_time = get_cn_time()
+        one_day_ago = current_time - timedelta(hours=24)
 
         conn = get_db_conn()
         c = conn.cursor()
@@ -435,12 +434,10 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                     pass
 
         placeholders = ','.join(['?'] * len(target_ids))
-        # 将target_ids转换为字符串，因为数据库中可能以字符串形式存储
-        str_target_ids = [str(id) for id in target_ids]
         query = f'SELECT telegram_id, group_name, group_link, group_id FROM member_groups WHERE group_id IN ({placeholders})'
 
-        print(f'[通知] 正在查找绑定群组的用户，尝试匹配ID: {str_target_ids}')
-        c.execute(query, str_target_ids)
+        print(f'[通知] 正在查找绑定群组的用户，尝试匹配ID: {target_ids}')
+        c.execute(query, target_ids)
         bound_users = c.fetchall()
         conn.close()
 
@@ -2744,8 +2741,6 @@ async def admin_handler(event):
 
 # ==================== 群组欢迎和自动注册 ====================
 
-
-
 @multi_bot_on(events.Raw(types=(UpdateChannelParticipant, UpdateChatParticipantAdmin)))
 async def raw_permission_handler(event):
     """
@@ -2787,44 +2782,7 @@ async def raw_permission_handler(event):
             # 关键判定：之前是管理员，现在不是了
             if was_admin and not is_now_admin:
                 print(f"[Raw检测] 🚨 超级群 {channel_id}: 机器人 {user_id} 被撤销管理员")
-
-                # 检查机器人是否还在群组中，以确定是单纯的权限撤销还是被踢出
-                try:
-                    # 尝试获取机器人当前在群组中的状态
-                    # Telegram超级群的ID格式是 -100xxxxxxxxx
-                    if str(channel_id).startswith('-100'):
-                        full_channel_id = channel_id
-                    elif channel_id > 0:
-                        full_channel_id = int(f"-100{channel_id}")
-                    else:
-                        full_channel_id = channel_id
-
-                    participant = await target_bot(GetParticipantRequest(full_channel_id, user_id))
-                    # 如果能获取到参与者信息，说明还在群组中，只是权限被撤销
-                    reason = "Raw事件:超级群权限撤销"
-                except Exception as e:
-                    # 如果获取参与者信息失败，说明机器人已经被踢出群组
-                    print(f"[Raw检测] 机器人已不在群组中，判断为被踢出: {e}")
-                    reason = "机器人被踢出群组"
-
-                # 检查这个机器人是否绑定了这个群组，只有绑定了的才发送通知
-                conn = get_db_conn()
-                c = conn.cursor()
-
-                # 检查机器人是否绑定了这个群组
-                target_ids = [str(channel_id), str(channel_id if str(channel_id).startswith('-100') else f"-100{channel_id}")]
-                placeholders = ','.join(['?'] * len(target_ids))
-                query = f'SELECT COUNT(*) FROM member_groups WHERE telegram_id = ? AND group_id IN ({placeholders})'
-
-                c.execute(query, [str(user_id)] + target_ids)
-                count = c.fetchone()[0]
-                conn.close()
-
-                if count > 0:
-                    # 只有绑定了的机器人才发送通知
-                    await notify_group_binding_invalid(channel_id, user_id, reason, target_bot)
-                else:
-                    print(f"[Raw检测] 机器人 {user_id} 未绑定群组 {channel_id}，跳过通知")
+                await notify_group_binding_invalid(channel_id, user_id, "Raw事件:超级群权限撤销", target_bot)
 
         # 2. 处理普通群组管理员变更
         elif isinstance(update, UpdateChatParticipantAdmin):
@@ -2848,6 +2806,142 @@ async def raw_permission_handler(event):
 
     except Exception as e:
         print(f"[Raw检测] 错误: {e}")
+
+# ==================== 权限检查和通知函数 ====================
+
+async def check_permission_changes():
+    """定期检查所有绑定群组的机器人权限状态"""
+    try:
+        print("[权限检查] 开始定期权限状态检查...")
+
+        # 获取所有有群组绑定的用户
+        conn = get_db_conn()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT DISTINCT mg.telegram_id, mg.group_id, mg.group_name, m.username
+            FROM member_groups mg
+            JOIN members m ON mg.telegram_id = m.telegram_id
+            WHERE mg.is_bot_admin = 1
+        """)
+
+        bound_groups = c.fetchall()
+        conn.close()
+
+        print(f"[权限检查] 找到 {len(bound_groups)} 个需要检查的群组绑定")
+
+        for user_id, group_id, group_name, username in bound_groups:
+            try:
+                # 找到对应的机器人
+                target_bot = None
+                for client in clients:
+                    try:
+                        me = await client.get_me()
+                        if me.id == user_id:
+                            target_bot = client
+                            break
+                    except:
+                        continue
+
+                if not target_bot:
+                    print(f"[权限检查] 未找到用户 {user_id} 对应的机器人，跳过")
+                    continue
+
+                # 检查权限状态
+                try:
+                    perms = await target_bot.get_permissions(group_id, user_id)
+                    is_admin = perms.is_admin or perms.is_creator
+
+                    if not is_admin:
+                        print(f"[权限检查] 🚨 发现机器人 {user_id} 在群组 {group_id} 失去管理员权限")
+
+                        # 触发全局状态刷新
+                        permission_check_triggered = True
+
+                        # 发送通知 - 转换group_id格式用于匹配
+                        raw_chat_id = int(str(group_id).replace('-100', '')) if str(group_id).startswith('-100') else group_id
+                        await notify_group_binding_invalid(raw_chat_id, user_id, "定期检查发现管理员权限被撤销", target_bot)
+
+                        # 更新数据库状态 - 添加重试机制
+                        max_db_retries = 3
+                        for db_attempt in range(max_db_retries):
+                            try:
+                                conn = get_db_conn()
+                                c = conn.cursor()
+                                c.execute('UPDATE member_groups SET is_bot_admin = 0 WHERE telegram_id = ? AND group_id = ?',
+                                        (user_id, group_id))
+                                c.execute('UPDATE members SET is_bot_admin = 0 WHERE telegram_id = ?', (user_id,))
+                                conn.commit()
+                                conn.close()
+                                break
+                            except Exception as db_err:
+                                if conn:
+                                    try:
+                                        conn.close()
+                                    except:
+                                        pass
+                                if 'locked' in str(db_err).lower() and db_attempt < max_db_retries - 1:
+                                    print(f'[权限检查] 数据库锁定，重试 {db_attempt + 1}/{max_db_retries}: {db_err}')
+                                    await asyncio.sleep(0.5)
+                                    continue
+                                else:
+                                    print(f'[权限检查] 更新数据库失败: {db_err}')
+                                    break
+
+                        print(f"[权限检查] 已更新数据库状态并发送通知")
+                    else:
+                        print(f"[权限检查] ✅ 机器人 {user_id} 在群组 {group_id} 仍具有管理员权限")
+
+                except Exception as perm_err:
+                    print(f"[权限检查] 检查机器人 {user_id} 在群组 {group_id} 权限失败: {perm_err}")
+                    # 如果检查失败，可能意味着机器人被踢出
+                    raw_chat_id = int(str(group_id).replace('-100', '')) if str(group_id).startswith('-100') else group_id
+                    await notify_group_binding_invalid(raw_chat_id, user_id, "定期检查发现机器人无法访问群组，可能已被踢出", target_bot)
+
+            except Exception as e:
+                print(f"[权限检查] 检查用户 {user_id} 权限失败: {e}")
+
+        print("[权限检查] 定期权限检查完成")
+
+    except Exception as e:
+        print(f"[权限检查] 定期检查过程出错: {e}")
+
+async def check_and_notify_permission_change(bot, user_id, chat_id, update_type):
+    """检查机器人权限状态并发送通知"""
+    try:
+        # 构建完整的chat_id
+        full_chat_id = int(f"-100{chat_id}") if chat_id > 0 else chat_id
+
+        print(f'[权限检查] 正在验证机器人 {user_id} 在群组 {full_chat_id} 的权限...')
+
+        # 调用API检查当前权限
+        perms = await bot.get_permissions(full_chat_id, user_id)
+        is_admin = perms.is_admin or perms.is_creator
+
+        print(f'[权限检查] 当前权限状态: admin={is_admin}')
+
+        if not is_admin:
+            print(f'[权限检查] ✅ 确认机器人已失去管理员权限，发送通知')
+
+            # 触发全局状态刷新
+            global permission_check_triggered
+            permission_check_triggered = True
+
+            # 发送通知 - 使用原始chat_id进行匹配
+            await notify_group_binding_invalid(chat_id, user_id, f"机器人管理员权限被撤销 ({update_type})", bot)
+        else:
+            print(f'[权限检查] 机器人仍具有管理员权限')
+
+    except Exception as e:
+        print(f'[权限检查] 权限验证失败: {e}')
+        # 保守处理：如果验证失败，假设权限被撤销
+        print(f'[权限检查] 由于验证失败，保守处理为权限被撤销')
+        await notify_group_binding_invalid(chat_id, user_id, f"机器人权限验证失败，可能已被撤销 ({update_type})", bot)
+
+# ==================== 备用Raw事件监听器 ====================
+
+
+@multi_bot_on(events.ChatAction)
 async def group_welcome_handler(event):
     """处理群组相关事件：加入、离开、权限变化等"""
     global permission_check_triggered
@@ -3025,21 +3119,13 @@ async def group_welcome_handler(event):
                         except Exception as e:
                             continue
 
-                    # 【修改】机器人被踢出时不发送通知，因为踢出时管理员权限肯定已经被撤销了
-                    # 只需要清理数据库记录即可
-                    print(f'[机器人检测] 机器人被踢出，清理相关数据库记录')
-                    try:
-                        cleanup_conn = get_db_conn()
-                        cleanup_c = cleanup_conn.cursor()
-                        # 清理members表状态
-                        cleanup_c.execute('UPDATE members SET is_group_bound = 0, is_bot_admin = 0, is_joined_upline = 0 WHERE telegram_id = ?', (kicked_user_id,))
-                        # 删除member_groups表记录
-                        cleanup_c.execute('DELETE FROM member_groups WHERE telegram_id = ?', (kicked_user_id,))
-                        cleanup_conn.commit()
-                        cleanup_conn.close()
-                        print(f'[机器人检测] 已清理用户 {kicked_user_id} 的群组绑定记录')
-                    except Exception as cleanup_err:
-                        print(f'[机器人检测] 清理数据库记录失败: {cleanup_err}')
+                    # 使用其他可用的机器人发送通知（被踢出的机器人无法在群组中发送消息）
+                    available_bot = clients[0] if clients else None
+                    if available_bot != kicked_bot:  # 优先使用其他机器人
+                        notify_bot = available_bot
+                    else:
+                        notify_bot = available_bot  # 如果只有这一个机器人，也只能用它了
+                    await notify_group_binding_invalid(event.chat_id, kicked_user_id, "机器人被踢出群组", notify_bot)
                     return
                 else:
                     print(f'[机器人检测] 普通用户离开/被踢出: {kicked_user_id}')
@@ -3178,48 +3264,6 @@ async def group_welcome_handler(event):
             if is_our_bot and target_bot:
                 action_type = type(event.action_message.action).__name__ if event.action_message else "Unknown"
                 print(f'[权限检测] 检测到本机机器人 {user_id} 的ChatAction事件: {action_type}')
-
-                # 检查机器人是否绑定了这个群组
-                bot_is_bound = False
-                conn = get_db_conn()
-                c = conn.cursor()
-                target_ids = [str(chat_id), str(chat_id if str(chat_id).startswith('-100') else f"-100{chat_id}")]
-                placeholders = ','.join(['?'] * len(target_ids))
-                query = f'SELECT COUNT(*) FROM member_groups WHERE telegram_id = ? AND group_id IN ({placeholders})'
-                c.execute(query, [str(user_id)] + target_ids)
-                count = c.fetchone()[0]
-                conn.close()
-
-                if count > 0:
-                    bot_is_bound = True
-                    print(f'[权限检测] 机器人 {user_id} 已绑定群组 {chat_id}')
-
-                    # 根据事件类型进行不同处理
-                    if action_type == 'MessageActionChatAddUser' or event.user_joined:
-                        # 机器人被加入群组 - 检查权限状态
-                        print(f'[权限检测] 机器人 {user_id} 被加入群组，检查权限状态')
-                        try:
-                            full_chat_id = chat_id if str(chat_id).startswith('-100') else f"-100{chat_id}"
-                            perms = await target_bot.get_permissions(full_chat_id, user_id)
-                            is_admin = perms.is_admin or perms.is_creator
-
-                            if is_admin:
-                                print(f'[权限检测] ✅ 机器人 {user_id} 在群组中具有管理员权限')
-                                # 可以选择发送通知：机器人已获得管理员权限
-                                # await notify_group_binding_invalid(chat_id, user_id, f"机器人已获得管理员权限", target_bot)
-                            else:
-                                print(f'[权限检测] ⚠️ 机器人 {user_id} 在群组中没有管理员权限')
-                                # 发送通知：机器人需要管理员权限
-                                await notify_group_binding_invalid(chat_id, user_id, f"机器人被加入群组但没有管理员权限", target_bot)
-
-                        except Exception as e:
-                            print(f'[权限检测] 检查机器人 {user_id} 权限失败: {e}')
-
-                    elif should_check_permissions:
-                        # 机器人离开/被踢出 - 权限检查逻辑在上面已经处理
-                        pass
-                else:
-                    print(f'[权限检测] 机器人 {user_id} 未绑定群组 {chat_id}，跳过权限检查')
 
         # ===== 群组解散检测 =====
         if hasattr(event, 'chat_deleted') and event.chat_deleted:
@@ -4034,7 +4078,6 @@ async def process_broadcasts():
             print(f'群发任务处理异常: {e}')
             await asyncio.sleep(5)
 
-
 async def check_member_status_task():
     """
     【核心修复】定期轮询，作为 Raw 事件的兜底。
@@ -4044,7 +4087,7 @@ async def check_member_status_task():
         try:
             await asyncio.sleep(30)
             print("[轮询检测] 开始检查所有群组权限...")
-
+            
             conn = get_db_conn()
             c = conn.cursor()
             # 【修复】获取所有绑定了群组的记录，不仅仅是管理员的
@@ -4102,6 +4145,7 @@ async def check_member_status_task():
         except Exception as e:
             print(f"[轮询检测] 异常: {e}")
             await asyncio.sleep(10)
+
 async def check_permission_changes():
     """定期检查绑定群组权限"""
     try:
