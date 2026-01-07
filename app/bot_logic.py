@@ -3111,8 +3111,13 @@ async def group_welcome_handler(event):
                         except Exception as e:
                             continue
 
-                    # 使用被踢出的机器人发送通知
-                    await notify_group_binding_invalid(event.chat_id, kicked_user_id, "机器人被踢出群组", kicked_bot)
+                    # 使用其他可用的机器人发送通知（被踢出的机器人无法在群组中发送消息）
+                    available_bot = clients[0] if clients else None
+                    if available_bot != kicked_bot:  # 优先使用其他机器人
+                        notify_bot = available_bot
+                    else:
+                        notify_bot = available_bot  # 如果只有这一个机器人，也只能用它了
+                    await notify_group_binding_invalid(event.chat_id, kicked_user_id, "机器人被踢出群组", notify_bot)
                     return
                 else:
                     print(f'[机器人检测] 普通用户离开/被踢出: {kicked_user_id}')
