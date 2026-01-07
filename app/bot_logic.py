@@ -410,8 +410,9 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
     """通知所有绑定指定群组的用户，群组绑定已失效"""
     try:
         # 【修复】避免重复通知 - 检查最近24小时内是否已经发送过相同类型的通知
-        current_time = get_cn_time()
-        one_day_ago = current_time - timedelta(hours=24)
+        # 注意：暂时移除这个功能，避免重复通知的逻辑过于复杂
+        # current_time = get_cn_time()
+        # one_day_ago = current_time - timedelta(hours=24)
 
         conn = get_db_conn()
         c = conn.cursor()
@@ -3119,13 +3120,21 @@ async def group_welcome_handler(event):
                         except Exception as e:
                             continue
 
-                    # 使用其他可用的机器人发送通知（被踢出的机器人无法在群组中发送消息）
-                    available_bot = clients[0] if clients else None
-                    if available_bot != kicked_bot:  # 优先使用其他机器人
-                        notify_bot = available_bot
-                    else:
-                        notify_bot = available_bot  # 如果只有这一个机器人，也只能用它了
-                    await notify_group_binding_invalid(event.chat_id, kicked_user_id, "机器人被踢出群组", notify_bot)
+                    # 【修改】机器人被踢出时不发送通知，因为踢出时管理员权限肯定已经被撤销了
+                    # 只需要清理数据库记录即可
+                    print(f'[机器人检测] 机器人被踢出，清理相关数据库记录')
+                    try:
+                        cleanup_conn = get_db_conn()
+                        cleanup_c = cleanup_conn.cursor()
+                        # 清理members表状态
+                        cleanup_c.execute('UPDATE members SET is_group_bound = 0, is_bot_admin = 0, is_joined_upline = 0 WHERE telegram_id = ?', (kicked_user_id,))
+                        # 删除member_groups表记录
+                        cleanup_c.execute('DELETE FROM member_groups WHERE telegram_id = ?', (kicked_user_id,))
+                        cleanup_conn.commit()
+                        cleanup_conn.close()
+                        print(f'[机器人检测] 已清理用户 {kicked_user_id} 的群组绑定记录')
+                    except Exception as cleanup_err:
+                        print(f'[机器人检测] 清理数据库记录失败: {cleanup_err}')
                     return
                 else:
                     print(f'[机器人检测] 普通用户离开/被踢出: {kicked_user_id}')
