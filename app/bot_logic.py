@@ -1043,25 +1043,38 @@ async def start_handler(event):
     member = DB.get_member(telegram_id)
 
     if not member:
+        print(f"[DEBUG] start_handler: 成员不存在，telegram_id={telegram_id}, original_id={original_id}")
         # 如果是备用号映射，检查主账号是否存在
         if original_id != telegram_id:
             print(f"⚠️ [备用号访问] 备用号 {original_id} 映射到主账号 {telegram_id}")
             # 检查主账号是否存在
             main_member = DB.get_member(telegram_id)
+            print(f"[DEBUG] 主账号查询结果: {main_member is not None}")
             if not main_member:
                 # 主账号不存在，先为主账号创建记录
                 print(f"⚠️ [备用号访问] 主账号 {telegram_id} 不存在，创建主账号记录")
-                DB.create_member(telegram_id, username, referrer_id)
+                created = DB.create_member(telegram_id, username, referrer_id)
+                print(f"[DEBUG] 主账号创建结果: {created}")
                 main_member = DB.get_member(telegram_id)
+                print(f"[DEBUG] 主账号创建后查询结果: {main_member is not None}")
 
             # 为备用号创建记录（如果还没有的话）
             backup_member = DB.get_member(original_id)
+            print(f"[DEBUG] 备用号查询结果: {backup_member is not None}")
             if not backup_member:
                 print(f"⚠️ [备用号访问] 备用号 {original_id} 不存在，创建备用号记录")
-                DB.create_member(original_id, username, referrer_id)
+                created = DB.create_member(original_id, username, referrer_id)
+                print(f"[DEBUG] 备用号创建结果: {created}")
+
+        else:
+            # 普通用户注册
+            print(f"[DEBUG] 普通用户注册: telegram_id={telegram_id}")
+            created = DB.create_member(telegram_id, username, referrer_id)
+            print(f"[DEBUG] 普通用户创建结果: {created}")
 
         # 现在主账号应该存在了
         member = DB.get_member(telegram_id)
+        print(f"[DEBUG] 最终成员查询结果: {member is not None}")
         if not member:
             await event.respond('❌ 账号信息创建失败，请稍后再试')
             return
@@ -2960,6 +2973,7 @@ async def my_promote_handler(event):
     text += f'💎 VIP下级: {total_vip} 人\n'
     text += f'💎累计收益: {member["balance"]} U\n'
     text += f'💎错过收益: {member["missed_balance"]} U\n\n'
+    text += f'🔗 您的推广链接:\n{invite_link}\n\n'
     text += f'💡 分享链接邀请好友，可迅速裂变\n十级好友开通VIP您都可获得 {config["level_reward"]} U 奖励!'
 
     # 【修改3】改为调用Telegram原生分享功能
