@@ -726,7 +726,7 @@ async def distribute_vip_rewards(bot, telegram_id, pay_amount, config):
                 if not is_rewarding_fallback:
                     try:
                         await bot.send_message(target_id_to_reward,
-                            f'🎉 获得 {reward_amount} U 奖励\n来源：第 {level} 层下级 @{source_username} 开通VIP')
+                            f'🎉 获得 {reward_amount} U 奖励\n\n来源：第 {level} 层下级 @{source_username} 开通VIP\n\n快去联系他带领他一起发展团队')
                     except: pass
 
             conn.commit()

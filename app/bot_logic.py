@@ -1056,7 +1056,7 @@ async def start_handler(event):
                     user_full_name = event.sender.first_name or f'user_{telegram_id}'
                     await bot.send_message(
                         referrer_id,
-                        f'🎉 新成员加入!\n用户: [{user_full_name}](tg://user?id={telegram_id})\n通过您的推广链接加入了机器人',
+                        f'🎉 新成员加入!\n用户: [{user_full_name}](tg://user?id={telegram_id})\n通过您的推广链接加入了机器人\n\n快去引导开通VIP完成任务，快速发展团队。',
                         parse_mode='markdown'
                     )
                 except BaseException:
@@ -1324,7 +1324,7 @@ async def fission_handler(event):
         return
 
     # 已开通VIP，统一显示所有需要加入的群组（1-10层）
-    text = "🔗 **群裂变加入列表**\n━━━━━━━━━━━━━━━━\n\n"
+    text = "🧧上级群完成任务获取更多资源\n\n    知识更好发展团队\n\n━━━━━━━━━━━━━━━━\n\n🎫 您的上级群组：\n\n"
 
     # 获取系统配置
     level_count = min(config.get('level_count', 10), 10)
@@ -2306,7 +2306,7 @@ async def view_fission_handler(event):
     conn = get_db_conn()
     c = conn.cursor()
 
-    text = '📊 我的裂变数据\n'
+    text = '📊 我的裂变数据\n\n━━━━━━━━━━━━━━\n\n🥇可通过层级联系下层带领\n\n     团队迅速裂变\n\n━━━━━━━━━━━━━━\n\n'
     text += '━━━━━━━━━━━━━━\n\n'
 
     total_members = 0
@@ -2556,7 +2556,7 @@ async def promote_handler(event):
     text += f'💡 分享此链接给好友即可开始赚钱!'
 
     # 【修改3】改为调用Telegram原生分享功能
-    share_text = f"🔥 推荐一个非常棒的群裂变工具！\n\n💰 自动管理群组，自动分红，多层级收益！\n\n👇 点击下方链接加入：\n{invite_link}"
+    share_text = f"【资源联盟·裂变机器人】开启您的专属福利🎫\n\n🧧加入🤖属于您永久机器人工具，自动迅速帮您快速裂变资源！解决您人脉问题。\n\n👉 前沿互动工具每个人加入您群能主动给你1U ！💵\n\n👉 快速裂变资源粉丝 🚀，无需绞尽脑汁推广粉丝！\n\n🉐 分享邀请朋友一起发展，快速发展团队属于自己裂变机器人\n\n🎉【资源联盟·裂变机器人】—— 超前沿科技、工具、十级裂变快速发展资源！\n\n👇 点击链接获取工具：\n{invite_link}"
     share_url = f"https://t.me/share/url?url={quote(invite_link)}&text={quote(share_text)}"
 
     await event.respond(text, buttons=[[Button.url('📤 立即推广 (选择好友/群)', share_url)]])
@@ -2580,7 +2580,7 @@ async def show_resource_categories(event, page=1, is_new=False):
     categories = DB.get_resource_categories(0)
 
     if not categories:
-        msg = '📁 行业资源\n\n暂无资源分类'
+        msg = '🎯行业资源\n\n暂无资源分类'
         if is_new:
             await event.respond(msg)
         else:
@@ -2598,7 +2598,7 @@ async def show_resource_categories(event, page=1, is_new=False):
     page_categories = categories[start:end]
 
     # 构建文本列表（编号 + 名称），下方放按钮（每行3个）用于进入分类资源
-    text_lines = [f'📁 行业资源\n\n共 {total} 个分类 （第 {page}/{total_pages} 页）\n']
+    text_lines = [f'🎯行业资源\n\n过科技创新，为广大行业伙伴 "助力"\n\n为业内传递更多的价值💵\n\n🕵‍♂通过下方选择自己行业寻找\n\n宝贵资源\n\n如需入驻请联系客服👩‍💻🧑‍💻👨‍💻\n\n共 {total} 个分类 （第 {page}/{total_pages} 页）\n']
     buttons = []
     for idx, cat in enumerate(page_categories, start + 1):
         text_lines.append(f'{idx}. {cat["name"]}')
@@ -2867,27 +2867,31 @@ async def vip_handler(event):
     if member['balance'] >= config['vip_price']:
         await event.respond(
             f'💎 开通VIP会员\n\n'
-            f'VIP价格: {config["vip_price"]} U\n'
-            f'当前余额: {member["balance"]} U\n\n'
+            f'🏅 VIP价格: {config["vip_price"]} U\n'
+            f'🏦 当前余额: {member["balance"]} U\n\n'
+            f'--------------------\n\n'
             f'开通VIP后您将获得:\n'
             f'✅ 查看裂变数据\n'
-            f'✅ 获得下级开通VIP的奖励\n'
+            f'✅ 十级裂变VIP奖励\n'
             f'✅ 加入上级群组\n'
-            f'✅ 推广赚钱功能\n\n'
+            f'✅ 机器人推送群裂变\n'
+            f'✅ 拓展资源裂变财富\n\n'
             f'✅ 余额充足，可以直接开通',
             buttons=[[Button.inline('💳 确认开通', b'confirm_vip')]]
         )
     else:
         await event.respond(
             f'💎 开通VIP会员\n\n'
-            f'VIP价格: {config["vip_price"]} U\n'
-            f'当前余额: {member["balance"]} U\n'
-            f'还需充值: {config["vip_price"] - member["balance"]} U\n\n'
+            f'🏅 VIP价格: {config["vip_price"]} U\n'
+            f'🏦 当前余额: {member["balance"]} U\n'
+            f'💹 还需充值: {config["vip_price"] - member["balance"]} U\n\n'
+            f'--------------------\n\n'
             f'开通VIP后您将获得:\n'
             f'✅ 查看裂变数据\n'
-            f'✅ 获得下级开通VIP的奖励\n'
+            f'✅ 十级裂变VIP奖励\n'
             f'✅ 加入上级群组\n'
-            f'✅ 推广赚钱功能\n\n'
+            f'✅ 机器人推送群裂变\n'
+            f'✅ 拓展资源裂变财富\n\n'
             f'❌ 余额不足，请先充值',
             buttons=[[Button.inline(f'💰 充值 {config["vip_price"]} U 开通VIP', b'recharge_for_vip')]]
         )
@@ -2921,17 +2925,17 @@ async def my_promote_handler(event):
     bot_info = await event.client.get_me()
     invite_link = f'https://t.me/{bot_info.username}?start={event.sender_id}'
 
-    text = f'💫 我的推广\n\n'
+    text = f'🎁 我的推广\n\n'
     text += f'📊 推广统计:\n'
-    text += f'• 总下级: {total_members} 人\n'
-    text += f'• VIP下级: {total_vip} 人\n'
-    text += f'• 累计收益: {member["balance"]} U\n'
-    text += f'• 错过收益: {member["missed_balance"]} U\n\n'
+    text += f'💎总下级: {total_members} 人\n'
+    text += f'💎 VIP下级: {total_vip} 人\n'
+    text += f'💎累计收益: {member["balance"]} U\n'
+    text += f'💎错过收益: {member["missed_balance"]} U\n\n'
     text += f'🔗 您的推广链接:\n{invite_link}\n\n'
-    text += f'💡 分享链接邀请好友，好友开通VIP您即可获得 {config["level_reward"]} U 奖励!'
+    text += f'💡 分享链接邀请好友，可迅速裂变\n\n十级好友开通VIP您都可获得 {config["level_reward"]} U 奖励!'
 
     # 【修改3】改为调用Telegram原生分享功能
-    share_text = f"🔥 推荐一个非常棒的群裂变工具！\n\n💰 自动管理群组，自动分红，多层级收益！\n\n👇 点击下方链接加入：\n{invite_link}"
+    share_text = f"【资源联盟·裂变机器人】开启您的专属福利🎫\n\n🧧加入🤖属于您永久机器人工具，自动迅速帮您快速裂变资源！解决您人脉问题。\n\n👉 前沿互动工具每个人加入您群能主动给你1U ！💵\n\n👉 快速裂变资源粉丝 🚀，无需绞尽脑汁推广粉丝！\n\n🉐 分享邀请朋友一起发展，快速发展团队属于自己裂变机器人\n\n🎉【资源联盟·裂变机器人】—— 超前沿科技、工具、十级裂变快速发展资源！\n\n👇 点击链接获取工具：\n{invite_link}"
     share_url = f"https://t.me/share/url?url={quote(invite_link)}&text={quote(share_text)}"
 
     buttons = [[Button.url('📤 立即推广 (选择好友/群)', share_url)]]
