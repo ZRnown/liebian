@@ -410,7 +410,8 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
     """通知所有绑定指定群组的用户，群组绑定已失效"""
     try:
         # 【修复】避免重复通知 - 检查最近24小时内是否已经发送过相同类型的通知
-        current_time = get_cn_time()
+        current_time_str = get_cn_time()
+        current_time = datetime.fromisoformat(current_time_str)
         one_day_ago = current_time - timedelta(hours=24)
 
         conn = get_db_conn()
@@ -4085,7 +4086,7 @@ async def check_member_status_task():
     """
     while True:
         try:
-            await asyncio.sleep(30)
+                await asyncio.sleep(30)
             print("[轮询检测] 开始检查所有群组权限...")
             
             conn = get_db_conn()
@@ -4142,7 +4143,7 @@ async def check_member_status_task():
 
                 await asyncio.sleep(0.5) # 避免速率限制
 
-        except Exception as e:
+                                except Exception as e:
             print(f"[轮询检测] 异常: {e}")
             await asyncio.sleep(10)
 
