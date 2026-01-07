@@ -223,10 +223,11 @@ async def check_any_bot_in_group(clients, group_link):
 
             except Exception as participant_err:
                 # GetParticipantRequest 失败
-                # 这可能意味着机器人不在群组中，或者API权限不足
-                # 由于我们已经能获取实体，我们保守地认为机器人可能在群组中但权限不足
-                # 返回 True, None 表示在群组中但不是管理员
-                return True, None
+                # 这通常意味着机器人不在群组中，或者没有权限查看成员列表
+                # 由于我们已经能获取实体但无法获取参与者信息，更可能的情况是机器人不在群组中
+                # 返回 False, None 表示不在群组中
+                print(f"[权限检查] 机器人 {bot_id} 在群组中获取参与者信息失败，可能不在群组中: {participant_err}")
+                return False, None
 
         except Exception as e:
             # 其他异常，继续检查下一个机器人

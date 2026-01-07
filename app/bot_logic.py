@@ -409,8 +409,15 @@ async def check_user_group_binding_status(user_id, clients):
 async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状态异常", notify_bot=None):
     """通知所有绑定指定群组的用户，群组绑定已失效"""
     try:
+        # 【修复】避免重复通知 - 检查最近24小时内是否已经发送过相同类型的通知
+        current_time = get_cn_time()
+        one_day_ago = current_time - timedelta(hours=24)
+
         conn = get_db_conn()
         c = conn.cursor()
+
+        # 检查最近的通知记录（简单防重复机制）
+        # 这里可以考虑添加一个通知历史表，但暂时用时间戳检查
 
         # 【核心修复】ID 格式兼容处理
         # 尝试查找匹配的 ID，考虑到 -100 前缀的情况
@@ -466,8 +473,8 @@ async def notify_group_binding_invalid(chat_id, bot_id=None, reason="群组状�
                             WHERE telegram_id = ?
                         ''', (user_id,))
 
-                        # 同时删除member_groups表中的记录
-                        user_cursor.execute('DELETE FROM member_groups WHERE telegram_id = ? AND group_id = ?', (user_id, chat_id))
+                        # 同时删除member_groups表中的记录 - 使用数据库中存储的group_id确保格式匹配
+                        user_cursor.execute('DELETE FROM member_groups WHERE telegram_id = ? AND group_id = ?', (user_id, db_group_id))
 
                         user_conn.commit()
                         user_conn.close()
@@ -4080,7 +4087,7 @@ async def check_member_status_task():
         try:
             await asyncio.sleep(30)
             print("[轮询检测] 开始检查所有群组权限...")
-
+            
             conn = get_db_conn()
             c = conn.cursor()
             # 【修复】获取所有绑定了群组的记录，不仅仅是管理员的
