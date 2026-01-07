@@ -2740,7 +2740,8 @@ async def raw_permission_handler(event):
     Telegram 在超级群中，管理员变更为普通成员时，会发送 UpdateChannelParticipant。
     """
     try:
-        update = event.update
+        # 处理不同格式的事件对象：有些有update属性，有些直接就是更新对象
+        update = event.update if hasattr(event, 'update') else event
 
         # 1. 处理超级群组/频道成员变更 (这是最常见的情况)
         if isinstance(update, UpdateChannelParticipant):
@@ -4100,7 +4101,7 @@ async def check_member_status_task():
                     # 触发通知
                     # 注意：如果 gid 是 None，这里可能无法精确匹配 member_groups，但我们会尝试
                     raw_chat_id = gid if gid else 0
-                    await notify_group_binding_invalid(raw_chat_id, uid, "轮询检测发现权限丢失", notify_bot)
+                    await notify_group_binding_invalid(raw_chat_id, uid, "系统检测发现机器人权限丢失", notify_bot)
 
                     # 额外保险：直接更新 DB (notify_group_binding_invalid 也会更新，但双重保险)
                     conn = get_db_conn()
