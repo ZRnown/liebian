@@ -32,7 +32,7 @@ interval_time_in_seconds = 9  # 检查支付间隔（秒）
 check_duration_seconds = 1200  # 订单有效期（秒），20分钟
 
 # 支付系统状态控制
-PAYMENT_ENABLED = True  # 可以临时禁用支付功能
+PAYMENT_ENABLED = False  # 临时禁用支付功能 - 支付网关连接失败
 
 CN_TIMEZONE = timezone(timedelta(hours=8))
 
