@@ -313,7 +313,7 @@ def get_main_account_id(telegram_id, username=None):
             )
             row = c.fetchone()
 
-        # 捡漏账号逻辑
+        # 捡漏账号逻辑 - 优先查询 fallback_accounts
         if not row:
             c.execute(
                 'SELECT main_account_id FROM fallback_accounts '
@@ -323,6 +323,7 @@ def get_main_account_id(telegram_id, username=None):
             fallback_result = c.fetchone()
             if fallback_result and fallback_result[0]:
                 conn.close()
+                print(f"✅ [账号映射] {target_id_str} -> 主账号 {fallback_result[0]} (fallback_accounts)")
                 return fallback_result[0]
 
         conn.close()
@@ -1042,20 +1043,26 @@ async def start_handler(event):
     member = DB.get_member(telegram_id)
 
     if not member:
-        # 如果是备用号映射，尝试为备用号本身也创建记录（如果还没有的话）
+        # 如果是备用号映射，检查主账号是否存在
         if original_id != telegram_id:
+            print(f"⚠️ [备用号访问] 备用号 {original_id} 映射到主账号 {telegram_id}")
+            # 检查主账号是否存在
+            main_member = DB.get_member(telegram_id)
+            if not main_member:
+                # 主账号不存在，先为主账号创建记录
+                print(f"⚠️ [备用号访问] 主账号 {telegram_id} 不存在，创建主账号记录")
+                DB.create_member(telegram_id, username, referrer_id)
+                main_member = DB.get_member(telegram_id)
+
+            # 为备用号创建记录（如果还没有的话）
             backup_member = DB.get_member(original_id)
             if not backup_member:
-                # 为备用号创建记录，关联到主账号
+                print(f"⚠️ [备用号访问] 备用号 {original_id} 不存在，创建备用号记录")
                 DB.create_member(original_id, username, referrer_id)
-                # 更新备用号的关联
-                from database import DB
-                DB.update_member(original_id, referrer_id=referrer_id)
 
-        # 为映射后的主账号创建记录
-        created = DB.create_member(telegram_id, username, referrer_id)
+        # 现在主账号应该存在了
         member = DB.get_member(telegram_id)
-        if not created and not member:
+        if not member:
             await event.respond('❌ 账号信息创建失败，请稍后再试')
             return
 
