@@ -338,27 +338,49 @@ def get_main_account_id(telegram_id, username=None):
         return telegram_id
 
 
-def format_backup_account_display(backup_account):
+def format_backup_account_display(backup_account, main_account_id=None):
     """格式化备用号显示"""
-    if not backup_account:
-        return "未设置"
-
-    backup_account_str = str(backup_account).strip()
-
-    if backup_account_str.startswith('@'):
-        return backup_account_str
-    if not backup_account_str.isdigit():
-        return f"@{backup_account_str}"
-
-    try:
-        backup_id = int(backup_account_str)
-        backup_member = DB.get_member(backup_id)
-        if backup_member and backup_member.get('username'):
-            return f"@{backup_member['username']}"
-        else:
+    # 如果有传统备用号字段，直接使用
+    if backup_account:
+        backup_account_str = str(backup_account).strip()
+        if backup_account_str.startswith('@'):
             return backup_account_str
-    except (ValueError, Exception):
-        return backup_account_str
+        if not backup_account_str.isdigit():
+            return f"@{backup_account_str}"
+
+        try:
+            backup_id = int(backup_account_str)
+            backup_member = DB.get_member(backup_id)
+            if backup_member and backup_member.get('username'):
+                return f"@{backup_member['username']}"
+            else:
+                return backup_account_str
+        except (ValueError, Exception):
+            return backup_account_str
+
+    # 如果没有传统备用号，尝试从fallback_accounts表查找
+    if main_account_id:
+        try:
+            conn = get_db_conn()
+            c = conn.cursor()
+            c.execute('SELECT telegram_id, username FROM fallback_accounts WHERE main_account_id = ? AND is_active = 1', (main_account_id,))
+            row = c.fetchone()
+            conn.close()
+
+            if row:
+                backup_id, backup_username = row
+                if backup_username:
+                    return f"@{backup_username}"
+                else:
+                    return str(backup_id)
+        except Exception as e:
+            print(f"[备用号显示错误] {e}")
+            try:
+                conn.close()
+            except:
+                pass
+
+    return "未设置"
 
 
 def resolve_sender_id(event):
@@ -1574,7 +1596,7 @@ async def profile_handler(event):
                                         '📊 收益记录', b'earnings_history')], ]
 
     backup_display = format_backup_account_display(
-        member.get("backup_account"))
+        member.get("backup_account"), member["telegram_id"])
 
     # 获取推荐人信息
     referrer_info = ""
@@ -1924,7 +1946,7 @@ async def back_to_profile_callback(event):
 
     # 格式化备用号显示（显示用户名而不是ID）
     backup_display = format_backup_account_display(
-        member.get("backup_account"))
+        member.get("backup_account"), member["telegram_id"])
 
     text = (
         f'👤 个人中心\n\n'

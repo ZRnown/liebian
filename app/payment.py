@@ -210,8 +210,20 @@ async def create_recharge_order(bot, event, amount, is_vip_order=False):
     telegram_id = event.sender_id
     order_number = f"RCH_{telegram_id}_{int(time.time())}"
     payment_result = create_payment_order(amount, order_number, f"TG{telegram_id}")
-    if not payment_result or payment_result.get("code") != 200:
+
+    # 添加调试信息
+    print(f"[支付调试] 订单号: {order_number}, 金额: {amount}")
+    print(f"[支付调试] API响应: {payment_result}")
+
+    if not payment_result:
+        print("[支付调试] API返回None，可能是网络错误")
         await event.respond("创建支付订单失败，请稍后重试")
+        return
+
+    if payment_result.get("code") != 200:
+        error_msg = payment_result.get("msg", "未知错误")
+        print(f"[支付调试] API错误: {error_msg}")
+        await event.respond(f"创建支付订单失败: {error_msg}")
         return
 
     # 保存充值记录到数据库
