@@ -511,8 +511,9 @@ async def notify_group_binding_invalid(
                         ''', (user_id,))
 
                         # 同时删除member_groups表中的记录 - 使用数据库中存储的group_id确保格式匹配
+                        # 【修复】改为更新状态而不是删除，防止"撤销权限"紧接着"踢出"时，踢出事件查不到用户
                         user_cursor.execute(
-                            'DELETE FROM member_groups WHERE telegram_id = ? AND group_id = ?',
+                            'UPDATE member_groups SET is_bot_admin = 0 WHERE telegram_id = ? AND group_id = ?',
                             (user_id,
                              db_group_id))
 
