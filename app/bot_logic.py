@@ -858,7 +858,8 @@ async def bind_command_handler(event):
 
         # 5. 更新数据库
         # 更新 members 表
-        is_bot_admin = 1 # 既然机器人在群里能收到命令，且能响应，大概率状态正常，后续由后台任务校验
+        # 【修复】实际检查机器人管理员权限，而不是直接假设
+        is_bot_admin = 0  # 默认设为0，后续由后台任务检查更新
 
         # 如果没有公开链接，尝试保留旧链接或提示用户
         final_link = group_link
@@ -4082,12 +4083,12 @@ async def check_member_status_task():
 
             conn = get_db_conn()
             c = conn.cursor()
-            # 获取所有标记为"机器人是管理员"的记录
-            c.execute("SELECT telegram_id, group_id, group_link FROM member_groups WHERE is_bot_admin = 1")
+            # 【修复】获取所有绑定了群组的记录，不仅仅是管理员的
+            c.execute("SELECT telegram_id, group_id, group_link, is_bot_admin FROM member_groups WHERE group_id IS NOT NULL")
             groups = c.fetchall()
             conn.close()
 
-            for uid, gid, link in groups:
+            for uid, gid, link, current_is_admin in groups:
                 if not gid and not link: continue
 
                 # 确定要检查的群标识符 (ID优先，其次链接)
@@ -4096,26 +4097,41 @@ async def check_member_status_task():
                 # 使用多机器人检查
                 is_in, admin_bot_id = await check_any_bot_in_group(clients, target)
 
-                # 如果不在群里，或者在群里但不是管理员 -> 触发失效
-                if not is_in or not admin_bot_id:
-                    print(f"[轮询检测] ⚠️ 用户 {uid} 的群组 {gid} 权限异常 (在群:{is_in}, 管理:{admin_bot_id})")
+                # 获取数据库中当前的管理员状态
+                db_is_admin = current_is_admin or 0
 
-                    # 找到一个可用的 bot 用于发送通知
-                    notify_bot = clients[0] if clients else None
+                if is_in and admin_bot_id:
+                    # 机器人在群里且是管理员
+                    if db_is_admin == 0:
+                        # 数据库状态需要更新为管理员
+                        print(f"[轮询检测] ✅ 用户 {uid} 的群组 {gid} 权限正常，更新数据库")
+                        conn = get_db_conn()
+                        c = conn.cursor()
+                        c.execute('UPDATE member_groups SET is_bot_admin = 1 WHERE group_id = ? AND telegram_id = ?', (gid, uid))
+                        c.execute('UPDATE members SET is_bot_admin = 1 WHERE telegram_id = ?', (uid,))
+                        conn.commit()
+                        conn.close()
+                else:
+                    # 不在群里，或者在群里但不是管理员
+                    if db_is_admin == 1:
+                        # 权限丢失，需要通知并更新数据库
+                        print(f"[轮询检测] ⚠️ 用户 {uid} 的群组 {gid} 权限异常 (在群:{is_in}, 管理:{admin_bot_id})")
 
-                    # 触发通知
-                    # 注意：如果 gid 是 None，这里可能无法精确匹配 member_groups，但我们会尝试
-                    raw_chat_id = gid if gid else 0
-                    await notify_group_binding_invalid(raw_chat_id, uid, "系统检测发现机器人权限丢失", notify_bot)
+                        # 找到一个可用的 bot 用于发送通知
+                        notify_bot = clients[0] if clients else None
 
-                    # 额外保险：直接更新 DB (notify_group_binding_invalid 也会更新，但双重保险)
-                    conn = get_db_conn()
-                    c = conn.cursor()
-                    if gid:
-                        c.execute('UPDATE member_groups SET is_bot_admin = 0 WHERE group_id = ?', (gid,))
-                    c.execute('UPDATE members SET is_bot_admin = 0 WHERE telegram_id = ?', (uid,))
-                    conn.commit()
-                    conn.close()
+                        # 触发通知
+                        raw_chat_id = gid if gid else 0
+                        await notify_group_binding_invalid(raw_chat_id, uid, "系统检测发现机器人权限丢失", notify_bot)
+
+                        # 更新数据库状态
+                        conn = get_db_conn()
+                        c = conn.cursor()
+                        if gid:
+                            c.execute('UPDATE member_groups SET is_bot_admin = 0 WHERE group_id = ?', (gid,))
+                        c.execute('UPDATE members SET is_bot_admin = 0 WHERE telegram_id = ?', (uid,))
+                        conn.commit()
+                        conn.close()
 
                 await asyncio.sleep(0.5) # 避免速率限制
 
