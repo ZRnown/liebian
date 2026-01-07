@@ -31,6 +31,9 @@ payment_tasks = {}  # 存储支付检查任务
 interval_time_in_seconds = 9  # 检查支付间隔（秒）
 check_duration_seconds = 1200  # 订单有效期（秒），20分钟
 
+# 支付系统状态控制
+PAYMENT_ENABLED = True  # 可以临时禁用支付功能
+
 CN_TIMEZONE = timezone(timedelta(hours=8))
 
 def generate_payment_sign(params, key):
@@ -207,6 +210,11 @@ async def payment_timeout_handler(bot, order):
 
 async def create_recharge_order(bot, event, amount, is_vip_order=False):
     """创建充值订单"""
+    # 检查支付系统是否启用
+    if not PAYMENT_ENABLED:
+        await event.respond("💳 支付系统暂时维护中\n\n请稍后重试或联系客服")
+        return
+
     telegram_id = event.sender_id
     order_number = f"RCH_{telegram_id}_{int(time.time())}"
     payment_result = create_payment_order(amount, order_number, f"TG{telegram_id}")
@@ -221,9 +229,17 @@ async def create_recharge_order(bot, event, amount, is_vip_order=False):
         return
 
     if payment_result.get("code") != 200:
+        error_code = payment_result.get("code")
         error_msg = payment_result.get("msg", "未知错误")
-        print(f"[支付调试] API错误: {error_msg}")
-        await event.respond(f"创建支付订单失败: {error_msg}")
+        print(f"[支付调试] API错误 {error_code}: {error_msg}")
+
+        # 根据错误代码提供不同的提示
+        if error_code == -5:
+            await event.respond("💳 支付网关暂时不可用\n\n请稍后重试或联系客服处理\n错误详情：网关连接失败")
+        elif error_code == 3013:
+            await event.respond("💳 支付配置错误\n\n请联系管理员检查支付配置\n错误详情：签名错误")
+        else:
+            await event.respond(f"创建支付订单失败: {error_msg}")
         return
 
     # 保存充值记录到数据库
