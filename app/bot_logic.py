@@ -1042,6 +1042,17 @@ async def start_handler(event):
     member = DB.get_member(telegram_id)
 
     if not member:
+        # 如果是备用号映射，尝试为备用号本身也创建记录（如果还没有的话）
+        if original_id != telegram_id:
+            backup_member = DB.get_member(original_id)
+            if not backup_member:
+                # 为备用号创建记录，关联到主账号
+                DB.create_member(original_id, username, referrer_id)
+                # 更新备用号的关联
+                from database import DB
+                DB.update_member(original_id, referrer_id=referrer_id)
+
+        # 为映射后的主账号创建记录
         created = DB.create_member(telegram_id, username, referrer_id)
         member = DB.get_member(telegram_id)
         if not created and not member:
@@ -1324,7 +1335,7 @@ async def fission_handler(event):
         return
 
     # 已开通VIP，统一显示所有需要加入的群组（1-10层）
-    text = "🧧上级群完成任务获取更多资源\n\n    知识更好发展团队\n\n━━━━━━━━━━━━━━━━\n\n🎫 您的上级群组：\n\n"
+    text = "🧧上级群完成任务获取更多资源\n\n    知识更好发展团队\n\n━━━━━━━━━━━━━━━━\n\n🎫 您的上级群组：\n"
 
     # 获取系统配置
     level_count = min(config.get('level_count', 10), 10)
@@ -2307,7 +2318,6 @@ async def view_fission_handler(event):
     c = conn.cursor()
 
     text = '📊 我的裂变数据\n\n━━━━━━━━━━━━━━\n\n🥇可通过层级联系下层带领\n\n     团队迅速裂变\n\n━━━━━━━━━━━━━━\n\n'
-    text += '━━━━━━━━━━━━━━\n\n'
 
     total_members = 0
     total_vip = 0
