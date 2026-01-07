@@ -2614,11 +2614,10 @@ async def show_resource_categories(event, page=1, is_new=False):
     end = start + per_page
     page_categories = categories[start:end]
 
-    # 构建文本列表（编号 + 名称），下方放按钮（每行3个）用于进入分类资源
-    text_lines = [f'🎯行业资源\n\n过科技创新，为广大行业伙伴 "助力"\n\n为业内传递更多的价值💵\n\n🕵‍♂通过下方选择自己行业寻找\n\n宝贵资源\n\n如需入驻请联系客服👩‍💻🧑‍💻👨‍💻\n\n共 {total} 个分类 （第 {page}/{total_pages} 页）\n']
+    # 构建简洁的页面，只显示标题和描述，通过按钮选择分类
+    text = f'🎯行业资源\n\n过科技创新，为广大行业伙伴 "助力"\n\n为业内传递更多的价值💵\n\n🕵‍♂通过下方选择自己行业寻找宝贵资源\n\n如需入驻请联系客服👩‍💻🧑‍💻👨‍💻'
+
     buttons = []
-    for idx, cat in enumerate(page_categories, start + 1):
-        text_lines.append(f'{idx}. {cat["name"]}')
 
     # 每行3个按钮排列
     current_row = []
@@ -2645,12 +2644,11 @@ async def show_resource_categories(event, page=1, is_new=False):
 
     buttons.append([Button.inline('< 返回', b'res_back_main')])
 
-    text = '\n'.join(text_lines)
     try:
         if is_new:
-            await event.respond(text, buttons=buttons, parse_mode='markdown')
+            await event.respond(text, buttons=buttons)
         else:
-            await event.edit(text, buttons=buttons, parse_mode='markdown')
+            await event.edit(text, buttons=buttons)
     except BaseException:
         # fallback without buttons
         if is_new:
