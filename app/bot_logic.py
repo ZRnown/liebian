@@ -1729,7 +1729,17 @@ async def earnings_history_callback(event):
 async def withdraw_callback(event):
     """提现回调"""
     config = get_system_config()
-    member = DB.get_member(event.sender_id)
+
+    # 备用号映射：始终使用主账号ID
+    try:
+        mapped_id = get_main_account_id(
+            event.sender_id, getattr(
+                event.sender, 'username', None))
+        effective_user_id = mapped_id if mapped_id != event.sender_id else event.sender_id
+    except BaseException:
+        effective_user_id = event.sender_id
+
+    member = DB.get_member(effective_user_id)
     if not member:
         await event.answer('请先发送 /start 注册')
         return
@@ -1795,14 +1805,15 @@ async def do_recharge_callback(event):
 async def open_vip_callback(event):
     """开通VIP"""
     # 账号关联处理（备用号->主账号）
+    original_sender_id = event.sender_id
     try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(
+        mapped_id = get_main_account_id(
             original_sender_id, getattr(
                 event.sender, 'username', None))
+        # 强制使用映射后的主账号ID
+        telegram_id = mapped_id if mapped_id != original_sender_id else original_sender_id
     except BaseException:
-        pass
-    telegram_id = event.sender_id
+        telegram_id = original_sender_id
     member = DB.get_member(telegram_id)
 
     if not member:
@@ -2284,20 +2295,22 @@ async def view_fission_handler(event):
     original_sender_id = event.sender_id
     print(f"[DEBUG] view_fission_handler: original_sender_id = {original_sender_id}")
 
+    # 备用号映射：始终使用主账号ID
     try:
         mapped_id = get_main_account_id(
             original_sender_id, getattr(
                 event.sender, 'username', None))
         print(f"[DEBUG] view_fission_handler: mapped_id = {mapped_id}")
-        event.sender_id = mapped_id
+        # 强制使用映射后的主账号ID
+        effective_user_id = mapped_id if mapped_id != original_sender_id else original_sender_id
     except BaseException as e:
         print(f"[DEBUG] view_fission_handler: get_main_account_id failed: {e}")
-        pass
+        effective_user_id = original_sender_id
 
-    print(f"[DEBUG] view_fission_handler: final event.sender_id = {event.sender_id}")
+    print(f"[DEBUG] view_fission_handler: effective_user_id = {effective_user_id}")
 
     config = get_system_config()
-    member = DB.get_member(event.sender_id)
+    member = DB.get_member(effective_user_id)
     print(f"[DEBUG] view_fission_handler: member found = {member is not None}")
     if not member:
         await event.respond('请先发送 /start 注册')
@@ -2865,15 +2878,19 @@ async def support_handler(event):
 @multi_bot_on(events.NewMessage(pattern=BTN_VIP))
 async def vip_handler(event):
     """开通会员"""
+    original_sender_id = event.sender_id
+
+    # 备用号映射：始终使用主账号ID
     try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(
+        mapped_id = get_main_account_id(
             original_sender_id, getattr(
                 event.sender, 'username', None))
+        # 强制使用映射后的主账号ID
+        effective_user_id = mapped_id if mapped_id != original_sender_id else original_sender_id
     except BaseException:
-        pass
+        effective_user_id = original_sender_id
 
-    member = DB.get_member(event.sender_id)
+    member = DB.get_member(effective_user_id)
     if not member:
         await event.respond('请先发送 /start 注册')
         return
@@ -2928,20 +2945,22 @@ async def my_promote_handler(event):
     original_sender_id = event.sender_id
     print(f"[DEBUG] my_promote_handler: original_sender_id = {original_sender_id}")
 
+    # 备用号映射：始终使用主账号ID
     try:
         mapped_id = get_main_account_id(
             original_sender_id, getattr(
                 event.sender, 'username', None))
         print(f"[DEBUG] my_promote_handler: mapped_id = {mapped_id}")
-        event.sender_id = mapped_id
+        # 强制使用映射后的主账号ID
+        effective_user_id = mapped_id if mapped_id != original_sender_id else original_sender_id
     except BaseException as e:
         print(f"[DEBUG] my_promote_handler: get_main_account_id failed: {e}")
-        pass
+        effective_user_id = original_sender_id
 
-    print(f"[DEBUG] my_promote_handler: final event.sender_id = {event.sender_id}")
+    print(f"[DEBUG] my_promote_handler: effective_user_id = {effective_user_id}")
 
     config = get_system_config()
-    member = DB.get_member(event.sender_id)
+    member = DB.get_member(effective_user_id)
     print(f"[DEBUG] my_promote_handler: member found = {member is not None}")
     if not member:
         await event.respond('请先发送 /start 注册')
