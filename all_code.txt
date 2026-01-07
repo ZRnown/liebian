@@ -3046,7 +3046,7 @@ async def raw_permission_handler(event):
             # 关键判定：之前是管理员，现在不是了
             if was_admin and not is_now_admin:
                 print(f"[Raw检测] 🚨 超级群 {channel_id}: 机器人 {user_id} 被撤销管理员")
-                await notify_group_binding_invalid(channel_id, user_id, "Raw事件:超级群权限撤销", target_bot)
+                await notify_group_binding_invalid(channel_id, user_id, "管理员权限被撤销", target_bot)
 
         # 2. 处理普通群组管理员变更
         elif isinstance(update, UpdateChatParticipantAdmin):
@@ -3066,7 +3066,7 @@ async def raw_permission_handler(event):
 
             if is_our_bot and not is_admin:
                 print(f"[Raw检测] 🚨 普通群 {chat_id}: 机器人 {user_id} 被撤销管理员")
-                await notify_group_binding_invalid(chat_id, user_id, "Raw事件:普通群权限撤销", target_bot)
+                await notify_group_binding_invalid(chat_id, user_id, "管理员权限被撤销", target_bot)
 
     except Exception as e:
         print(f"[Raw检测] 错误: {e}")
@@ -3407,12 +3407,10 @@ async def group_welcome_handler(event):
                         except Exception as e:
                             continue
 
-                    # 使用其他可用的机器人发送通知（被踢出的机器人无法在群组中发送消息）
-                    available_bot = clients[0] if clients else None
-                    if available_bot != kicked_bot:  # 优先使用其他机器人
-                        notify_bot = available_bot
-                    else:
-                        notify_bot = available_bot  # 如果只有这一个机器人，也只能用它了
+                    # 【修改】优先使用被踢出的机器人发送私聊通知（因为是PM给用户，不需要在群里发）
+                    # 只有当找不到该机器人实例时，才使用其他机器人兜底
+                    notify_bot = kicked_bot if kicked_bot else (clients[0] if clients else None)
+
                     await notify_group_binding_invalid(event.chat_id, kicked_user_id, "机器人被踢出群组", notify_bot)
                     return
                 else:

@@ -283,6 +283,9 @@ waiting_for_withdraw_address = {}
 withdraw_temp_data = {}
 admin_waiting = {}
 
+# 全局通知防重缓存 { "user_group_reason": timestamp }
+notification_history = {}
+
 # 导入支付模块
 
 # ==================== 账号关联逻辑 ====================
@@ -485,6 +488,21 @@ async def notify_group_binding_invalid(
 
         # 重置这些用户的群组绑定状态
         for user_id, group_name, group_link, db_group_id in bound_users:
+            # 【修复】防重逻辑：如果同一个用户、同一个群、同一个原因在60秒内已通知，则跳过
+            dedup_key = f"{user_id}_{db_group_id}_{reason}"
+            now_ts = time.time()
+
+            # 清理过期缓存（超过60秒的记录）
+            expired_keys = [k for k, ts in notification_history.items() if now_ts - ts > 60]
+            for k in expired_keys:
+                del notification_history[k]
+
+            if dedup_key in notification_history:
+                if now_ts - notification_history[dedup_key] < 60:
+                    print(f'[通知] ⏳ 拦截重复通知: {dedup_key}')
+                    continue
+            notification_history[dedup_key] = now_ts
+
             try:
                 # 为每个用户单独处理数据库操作，避免并发问题
                 # 添加重试机制处理数据库锁定
