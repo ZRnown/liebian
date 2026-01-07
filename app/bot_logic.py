@@ -2281,16 +2281,24 @@ async def my_team_cmd(event):
 @multi_bot_on(events.NewMessage(pattern=BTN_VIEW_FISSION))
 async def view_fission_handler(event):
     """查看裂变数据"""
+    original_sender_id = event.sender_id
+    print(f"[DEBUG] view_fission_handler: original_sender_id = {original_sender_id}")
+
     try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(
+        mapped_id = get_main_account_id(
             original_sender_id, getattr(
                 event.sender, 'username', None))
-    except BaseException:
+        print(f"[DEBUG] view_fission_handler: mapped_id = {mapped_id}")
+        event.sender_id = mapped_id
+    except BaseException as e:
+        print(f"[DEBUG] view_fission_handler: get_main_account_id failed: {e}")
         pass
+
+    print(f"[DEBUG] view_fission_handler: final event.sender_id = {event.sender_id}")
 
     config = get_system_config()
     member = DB.get_member(event.sender_id)
+    print(f"[DEBUG] view_fission_handler: member found = {member is not None}")
     if not member:
         await event.respond('请先发送 /start 注册')
         return
@@ -2917,16 +2925,24 @@ async def vip_handler(event):
 @multi_bot_on(events.NewMessage(pattern=BTN_MY_PROMOTE))
 async def my_promote_handler(event):
     """我的推广"""
+    original_sender_id = event.sender_id
+    print(f"[DEBUG] my_promote_handler: original_sender_id = {original_sender_id}")
+
     try:
-        original_sender_id = event.sender_id
-        event.sender_id = get_main_account_id(
+        mapped_id = get_main_account_id(
             original_sender_id, getattr(
                 event.sender, 'username', None))
-    except BaseException:
+        print(f"[DEBUG] my_promote_handler: mapped_id = {mapped_id}")
+        event.sender_id = mapped_id
+    except BaseException as e:
+        print(f"[DEBUG] my_promote_handler: get_main_account_id failed: {e}")
         pass
+
+    print(f"[DEBUG] my_promote_handler: final event.sender_id = {event.sender_id}")
 
     config = get_system_config()
     member = DB.get_member(event.sender_id)
+    print(f"[DEBUG] my_promote_handler: member found = {member is not None}")
     if not member:
         await event.respond('请先发送 /start 注册')
         return
