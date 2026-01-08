@@ -37,10 +37,16 @@ PAYMENT_ENABLED = True  # 启用支付功能 - 已更新为新接口
 CN_TIMEZONE = timezone(timedelta(hours=8))
 
 def generate_payment_sign(params, key):
-    """生成支付签名"""
-    sorted_params = sorted([(k, v) for k, v in params.items() if v is not None and v != ''])
+    """生成支付签名 - 排除sign和remark参数"""
+    # 排除sign和remark参数（remark不参与签名）
+    filtered_params = [(k, v) for k, v in params.items() if k not in ['sign', 'remark'] and v is not None and v != '']
+    sorted_params = sorted(filtered_params)
     sign_str = '&'.join([f'{k}={v}' for k, v in sorted_params])
     sign_str += f'&key={key}'
+
+    print(f'[签名调试] 参与签名的参数: {sorted_params}')
+    print(f'[签名调试] 签名字符串: {sign_str}')
+
     return hashlib.md5(sign_str.encode()).hexdigest().upper()
 
 def create_payment_order(amount, out_trade_no, remark=''):
