@@ -352,8 +352,8 @@ function displayMembers(members) {
         <td class="py-1" style="padding-left:4px;padding-right:0px;">
             <div class="text-sm font-semibold ${m.is_fallback ? 'text-orange-600' : 'text-indigo-600'}">@${m.username || 'N/A'}</div>
             ${
-                m.backup_username
-                    ? '<div class="text-[11px] text-slate-500">备:' + (m.backup_username.startsWith('@') ? m.backup_username : '@' + m.backup_username) + '</div>'
+                m.backup_account
+                    ? '<div class="text-[11px] text-slate-500">备:' + (m.backup_account.startsWith('@') ? m.backup_account : '@' + m.backup_account) + '</div>'
                     : '<div class="text-[11px] text-slate-400">备: —</div>'
             }
         </td>
