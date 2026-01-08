@@ -820,6 +820,7 @@ class WebDB:
                 'is_group_bound': bool(row[11]),  # 添加群状态字段
                 'is_bot_admin': bool(row[12]),
                 'is_joined_upline': bool(row[13]),
+                'backup_account': row[14] or '',  # 添加备用账号字段
                 'direct_count': direct_count,  # 实时计算的直推人数
                 'team_count': team_count  # 实时计算的团队人数
             })
