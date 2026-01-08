@@ -12,7 +12,9 @@ from telethon import Button
 
 from config import ADMIN_IDS
 from database import DB, get_cn_time, get_system_config, get_db_conn
-from core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
+
+# 移除循环导入，在函数内部导入
+from core_functions import update_level_path, distribute_vip_rewards
 
 # 支付配置 - 从web_app.py导入，确保配置一致性
 try:
@@ -37,8 +39,8 @@ PAYMENT_ENABLED = True  # 启用支付功能 - 已更新为新接口
 CN_TIMEZONE = timezone(timedelta(hours=8))
 
 def generate_payment_sign(params, key):
-    """生成支付签名 - 按照之前能用的版本"""
-    # 按照之前能用的版本，包含所有非空参数（包括remark）
+    """生成支付签名"""
+    # 按照文档规则：非空字段排序拼接
     sorted_params = sorted([(k, v) for k, v in params.items() if v is not None and v != ''])
     sign_str = '&'.join([f'{k}={v}' for k, v in sorted_params])
     sign_str += f'&key={key}'
@@ -49,68 +51,55 @@ def generate_payment_sign(params, key):
     return hashlib.md5(sign_str.encode()).hexdigest().upper()
 
 def create_payment_order(amount, out_trade_no, remark=''):
-    """创建支付订单 - 按照之前能用的参数顺序"""
-    # 按照之前能用的版本：amount, partnerid, notifyUrl, out_trade_no, payType, returnUrl, version, format
+    """创建支付订单"""
+    # 1. 构造基本参数字典
     params = {
         'amount': f'{amount:.2f}',
         'partnerid': PAYMENT_CONFIG['partner_id'],
         'notifyUrl': PAYMENT_CONFIG['notify_url'],
         'out_trade_no': out_trade_no,
-        'payType': PAYMENT_CONFIG['pay_type'],
+        'payType': '1', # 使用数字编号1(UUU/trc20)
         'returnUrl': PAYMENT_CONFIG['return_url'],
         'version': PAYMENT_CONFIG['version'],
-        'format': 'json'  # 改回json格式
+        'format': 'json'
     }
 
-    # 生成签名
-    params['sign'] = generate_payment_sign(params, PAYMENT_CONFIG['key'])
-
-    # 如果有备注，添加到参数中（在签名后添加）
+    # 【核心修复】如果存在备注，必须在签名生成前加入到 params 中
+    # 除非接口明确说明提交时remark不签名，否则默认所有提交参数都需签名
     if remark:
         params['remark'] = remark
+
+    # 2. 生成签名（此时 params 已包含 remark）
+    params['sign'] = generate_payment_sign(params, PAYMENT_CONFIG['key'])
     try:
         print(f'[支付API] 请求参数: {params}')
-        response = req.post(PAYMENT_CONFIG['api_url'], data=params, timeout=10)
+        response = req.post(PAYMENT_CONFIG['api_url'], data=params, timeout=15)
 
-        # 调试：打印原始响应内容
+        # 调试信息
         print(f'[支付API] 响应状态码: {response.status_code}')
-        print(f'[支付API] 响应内容: {response.text[:500]}...')  # 只打印前500字符
+        print(f'[支付API] 响应内容: {response.text[:500]}...')
 
-        # 检查是否是重定向
-        if response.status_code == 302 or response.status_code == 301:
-            print(f'[支付API] 重定向到: {response.headers.get("Location", "未知")}')
-
-        # 检查Content-Type
-        content_type = response.headers.get('content-type', '').lower()
-        print(f'[支付API] Content-Type: {content_type}')
-
-        if 'application/json' in content_type:
+        # 处理响应
+        if 'application/json' in response.headers.get('content-type', '').lower():
             try:
                 result = response.json()
                 print(f'[支付API] JSON响应: {result}')
                 return result
-            except ValueError as json_error:
-                print(f'[支付API] JSON解析失败: {json_error}')
-                print(f'[支付API] 原始响应: {response.text[:1000]}...')
+            except ValueError:
+                print(f'[支付API] JSON解析失败')
                 return None
         else:
-            # 非JSON响应，可能是HTML页面或重定向
-            print(f'[支付API] 非JSON响应，可能是支付页面跳转')
-            print(f'[支付API] 响应内容类型: {content_type}')
-            print(f'[支付API] 响应长度: {len(response.text)} 字符')
+            # 兼容非JSON返回（有些接口直接返回HTML或二维码链接）
+            # 如果包含 success 或 code=200 相关的字眼
+            if '"code":200' in response.text or '"code": 200' in response.text:
+                 try:
+                     import json
+                     return json.loads(response.text)
+                 except:
+                     pass
 
-            # 检查是否包含支付相关信息
-            if 'qrcode' in response.text.lower() or '支付' in response.text or 'pay' in response.text.lower():
-                print(f'[支付API] 检测到支付相关内容，可能成功跳转到支付页面')
-                # 返回模拟的成功响应
-                return {
-                    'code': 200,
-                    'msg': '支付页面跳转',
-                    'data': {'url': response.url, 'content': response.text[:200]}
-                }
-            else:
-                print(f'[支付API] 响应内容: {response.text[:500]}...')
-                return None
+            print(f'[支付API] 非JSON响应，可能是直接跳转')
+            return {'code': -1, 'msg': '非JSON响应', 'raw': response.text[:200]}
 
     except Exception as e:
         print(f'[支付API错误] {e}')
