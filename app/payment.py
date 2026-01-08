@@ -58,7 +58,7 @@ def create_payment_order(amount, out_trade_no, remark=''):
         'partnerid': PAYMENT_CONFIG['partner_id'],
         'notifyUrl': PAYMENT_CONFIG['notify_url'],
         'out_trade_no': out_trade_no,
-        'payType': '1', # 使用数字编号1(UUU/trc20)
+        'payType': 'UUU', # 使用文档中的标识符UUU
         'returnUrl': PAYMENT_CONFIG['return_url'],
         'version': PAYMENT_CONFIG['version'],
         'format': 'json'
