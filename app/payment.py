@@ -37,10 +37,9 @@ PAYMENT_ENABLED = True  # 启用支付功能 - 已更新为新接口
 CN_TIMEZONE = timezone(timedelta(hours=8))
 
 def generate_payment_sign(params, key):
-    """生成支付签名 - 排除sign和remark参数"""
-    # 排除sign和remark参数（remark不参与签名）
-    filtered_params = [(k, v) for k, v in params.items() if k not in ['sign', 'remark'] and v is not None and v != '']
-    sorted_params = sorted(filtered_params)
+    """生成支付签名 - 按照之前能用的版本"""
+    # 按照之前能用的版本，包含所有非空参数（包括remark）
+    sorted_params = sorted([(k, v) for k, v in params.items() if v is not None and v != ''])
     sign_str = '&'.join([f'{k}={v}' for k, v in sorted_params])
     sign_str += f'&key={key}'
 
@@ -50,25 +49,25 @@ def generate_payment_sign(params, key):
     return hashlib.md5(sign_str.encode()).hexdigest().upper()
 
 def create_payment_order(amount, out_trade_no, remark=''):
-    """创建支付订单 - 按照API实际期望的参数顺序"""
-    # 根据API错误信息显示的参数顺序：version, format, partnerid, payType, out_trade_no, notifyUrl, returnUrl, amount
+    """创建支付订单 - 按照之前能用的参数顺序"""
+    # 按照之前能用的版本：amount, partnerid, notifyUrl, out_trade_no, payType, returnUrl, version, format
     params = {
-        'version': PAYMENT_CONFIG['version'],
-        'format': '',  # API显示为空字符串
+        'amount': f'{amount:.2f}',
         'partnerid': PAYMENT_CONFIG['partner_id'],
-        'payType': PAYMENT_CONFIG['pay_type'],
-        'out_trade_no': out_trade_no,
         'notifyUrl': PAYMENT_CONFIG['notify_url'],
+        'out_trade_no': out_trade_no,
+        'payType': PAYMENT_CONFIG['pay_type'],
         'returnUrl': PAYMENT_CONFIG['return_url'],
-        'amount': f'{amount:.2f}'
+        'version': PAYMENT_CONFIG['version'],
+        'format': 'json'  # 改回json格式
     }
-
-    # 如果有备注，添加到参数中（备注参与签名）
-    if remark:
-        params['remark'] = remark
 
     # 生成签名
     params['sign'] = generate_payment_sign(params, PAYMENT_CONFIG['key'])
+
+    # 如果有备注，添加到参数中（在签名后添加）
+    if remark:
+        params['remark'] = remark
     try:
         print(f'[支付API] 请求参数: {params}')
         response = req.post(PAYMENT_CONFIG['api_url'], data=params, timeout=10)
