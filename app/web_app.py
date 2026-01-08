@@ -65,13 +65,10 @@ def api_require_login_for_api():
         pass
 
 # ==================== 支付系统配置 ====================
+# 完全从数据库加载，不使用硬编码默认值
 PAYMENT_CONFIG = {
-    'api_url': 'https://usdt.qxzy7888.org/pay/',
-    'partner_id': '15',
-    'key': '5c9dd0b054b184f964',
     'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
     'return_url': 'http://154.201.68.178:5051/payment/success',
-    'pay_type': '0',
     'version': '1.0'
 }
 
@@ -2575,19 +2572,30 @@ def run_web():
     """Web 启动入口"""
     global PAYMENT_CONFIG
 
-    # Load payment config from database
+    # Load payment config from database - 完全依赖数据库配置
     try:
         config = get_system_config()
+
+        # 从数据库加载所有配置，如果数据库中没有则为空
         PAYMENT_CONFIG.update({
-            'api_url': config.get('payment_url', PAYMENT_CONFIG.get('api_url', '')),
-            'partner_id': str(config.get('payment_user_id', PAYMENT_CONFIG.get('partner_id', ''))),
-            'key': config.get('payment_token', PAYMENT_CONFIG.get('key', '')),
-            'pay_type': config.get('payment_channel', PAYMENT_CONFIG.get('pay_type', 'trc20')),
-            'payment_rate': float(config.get('payment_rate', PAYMENT_CONFIG.get('payment_rate', 1.0))),
+            'api_url': config.get('payment_url', ''),
+            'partner_id': str(config.get('payment_user_id', '')),
+            'key': config.get('payment_token', ''),
+            'pay_type': config.get('payment_channel', ''),
+            'payment_rate': float(config.get('payment_rate', 1.0)),
         })
-        print(f"[Web启动] 已加载支付配置: URL={PAYMENT_CONFIG['api_url']}, PartnerID={PAYMENT_CONFIG['partner_id']}")
+
+        print(f"[Web启动] 已加载支付配置: URL={PAYMENT_CONFIG.get('api_url', '未设置')}, PartnerID={PAYMENT_CONFIG.get('partner_id', '未设置')}, PayType={PAYMENT_CONFIG.get('pay_type', '未设置')}")
     except Exception as e:
         print(f"[Web启动] 加载支付配置失败: {e}")
+        # 如果加载失败，清空配置
+        PAYMENT_CONFIG.update({
+            'api_url': '',
+            'partner_id': '',
+            'key': '',
+            'pay_type': '',
+            'payment_rate': 1.0,
+        })
 
     # Ensure recharge_records has a remark column for admin notes
     try:

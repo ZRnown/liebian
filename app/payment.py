@@ -14,16 +14,16 @@ from config import ADMIN_IDS
 from database import DB, get_cn_time, get_system_config, get_db_conn
 from core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
 
-# 支付配置 - 根据新接口文档更新
-PAYMENT_CONFIG = {
-    'api_url': 'https://usdt.qxzy7888.org/pay/',
-    'partner_id': '15',
-    'key': '5c9dd0b054b184f964',
-    'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
-    'return_url': 'http://154.201.68.178:5051/payment/success',
-    'pay_type': '1',  # 支付类型：使用数字编号1(UUU/trc20)
-    'version': '1.0'  # 1.0用户版 2.0商户版
-}
+# 支付配置 - 从web_app.py导入，确保配置一致性
+try:
+    from web_app import PAYMENT_CONFIG
+except ImportError:
+    # 如果导入失败，使用空配置
+    PAYMENT_CONFIG = {
+        'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
+        'return_url': 'http://154.201.68.178:5051/payment/success',
+        'version': '1.0'
+    }
 
 # 支付订单相关
 payment_orders = {}  # 存储充值订单
