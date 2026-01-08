@@ -352,13 +352,13 @@ def payment_notify():
 
                     # 增加余额
                     c.execute("UPDATE members SET balance = balance + ? WHERE telegram_id = ?", (amount, member_id))
-                conn.commit()
+                    conn.commit()
 
                     print(f'[支付回调] 订单 {out_trade_no} 处理成功，充值 {amount} U')
 
                     # 触发后续逻辑 (推入Bot队列)
-                try:
-                    import bot_logic
+                    try:
+                        import bot_logic
                         # 判断是否为VIP开通意向
                         is_vip_order = (remark == '开通')
                         # 如果没有备注但金额足够VIP价格，也可以视为VIP订单
@@ -367,12 +367,12 @@ def payment_notify():
                             if amount >= float(config.get('vip_price', 10)):
                                 is_vip_order = True
 
-                    if hasattr(bot_logic, 'process_recharge_queue'):
-                        bot_logic.process_recharge_queue.append({
+                        if hasattr(bot_logic, 'process_recharge_queue'):
+                            bot_logic.process_recharge_queue.append({
                                 'member_id': member_id,
-                            'amount': amount,
-                            'is_vip_order': is_vip_order
-                        })
+                                'amount': amount,
+                                'is_vip_order': is_vip_order
+                            })
                     except Exception as e:
                         print(f'[支付回调] 推送Bot队列失败: {e}')
             else:
@@ -542,7 +542,7 @@ def api_assign_broadcast_to_group(group_id):
             c.execute('UPDATE broadcast_assignments SET is_active = ?, create_time = ? WHERE id = ?', (is_active, now, row[0]))
         else:
             c.execute('INSERT INTO broadcast_assignments (group_id, message_id, is_active, create_time) VALUES (?, ?, ?, ?)',
-                      (group_id, message_id, is_active, now))
+                (group_id, message_id, is_active, now))
         conn.commit()
         conn.close()
         return jsonify({'success': True, 'message': '分配已保存'})
