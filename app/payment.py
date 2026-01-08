@@ -14,15 +14,15 @@ from config import ADMIN_IDS
 from database import DB, get_cn_time, get_system_config, get_db_conn
 from core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
 
-# 支付配置
+# 支付配置 - 根据新接口文档更新
 PAYMENT_CONFIG = {
     'api_url': 'https://usdt.qxzy7888.org/pay/',
     'partner_id': '15',
     'key': '5c9dd0b054b184f964',
     'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
     'return_url': 'http://154.201.68.178:5051/payment/success',
-    'pay_type': 'trc20',
-    'version': '1.0'
+    'pay_type': 'UUU',  # 支付类型：UUU对应trc20
+    'version': '1.0'  # 1.0用户版 2.0商户版
 }
 
 # 支付订单相关
@@ -32,7 +32,7 @@ interval_time_in_seconds = 9  # 检查支付间隔（秒）
 check_duration_seconds = 1200  # 订单有效期（秒），20分钟
 
 # 支付系统状态控制
-PAYMENT_ENABLED = False  # 临时禁用支付功能 - 支付网关连接失败
+PAYMENT_ENABLED = True  # 启用支付功能 - 已更新为新接口
 
 CN_TIMEZONE = timezone(timedelta(hours=8))
 
@@ -44,7 +44,7 @@ def generate_payment_sign(params, key):
     return hashlib.md5(sign_str.encode()).hexdigest().upper()
 
 def create_payment_order(amount, out_trade_no, remark=''):
-    """创建支付订单"""
+    """创建支付订单 - 根据新接口文档更新"""
     params = {
         'amount': f'{amount:.2f}',
         'partnerid': PAYMENT_CONFIG['partner_id'],
@@ -53,11 +53,15 @@ def create_payment_order(amount, out_trade_no, remark=''):
         'payType': PAYMENT_CONFIG['pay_type'],
         'returnUrl': PAYMENT_CONFIG['return_url'],
         'version': PAYMENT_CONFIG['version'],
-        'format': 'json'
+        'format': 'json'  # 返回json数据格式
     }
-    params['sign'] = generate_payment_sign(params, PAYMENT_CONFIG['key'])
+
+    # 如果有备注，添加到参数中（备注参与签名）
     if remark:
         params['remark'] = remark
+
+    # 生成签名
+    params['sign'] = generate_payment_sign(params, PAYMENT_CONFIG['key'])
     try:
         print(f'[支付API] 请求参数: {params}')
         response = req.post(PAYMENT_CONFIG['api_url'], data=params, timeout=10)
@@ -80,6 +84,29 @@ def check_usdt_transaction(usdt_address):
         return None
     except Exception as e:
         print(f"查询USDT交易失败: {e}")
+        return None
+
+def query_payment_order(out_trade_no):
+    """查询支付订单状态"""
+    params = {
+        'partnerid': PAYMENT_CONFIG['partner_id'],
+        'out_trade_no': out_trade_no,
+        'version': PAYMENT_CONFIG['version']
+    }
+
+    # 生成签名
+    params['sign'] = generate_payment_sign(params, PAYMENT_CONFIG['key'])
+
+    try:
+        print(f'[订单查询] 请求参数: {params}')
+        response = req.post(f"{PAYMENT_CONFIG['api_url']}index.php?c=merorderQuery", data=params, timeout=10)
+        result = response.json()
+        print(f'[订单查询] 响应: {result}')
+        return result
+    except Exception as e:
+        print(f'[订单查询错误] {e}')
+        import traceback
+        traceback.print_exc()
         return None
 
 def extract_usdt_address_from_payment_url(payment_url):

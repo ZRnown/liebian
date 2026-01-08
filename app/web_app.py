@@ -296,7 +296,7 @@ def payment_notify():
 
         print(f'[支付回调] 收到数据: {raw_data}')
 
-        # 2. 签名验证 (排除 sign, remark, 空值)
+        # 2. 签名验证 (根据新接口文档：remark不参与签名)
         sign_received = ''
         filtered_params = {}
         for k, v in raw_data.items():
@@ -305,8 +305,8 @@ def payment_notify():
                 sign_received = val_str
                 continue
             if k.lower() == 'remark':
-                continue
-            if val_str == '':
+                continue  # remark不参与签名
+            if val_str == '' or val_str is None:
                 continue
             filtered_params[k] = val_str
 
