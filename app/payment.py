@@ -14,16 +14,35 @@ from config import ADMIN_IDS
 from database import DB, get_cn_time, get_system_config, get_db_conn
 from core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
 
-# 支付配置 - 恢复之前可用的硬编码配置
+# 支付配置 - 使用数据库配置，带默认值
 PAYMENT_CONFIG = {
-    'api_url': 'https://usdt.qxzy7888.org/pay/',
-    'partner_id': '15',
-    'key': '5c9dd0b054b184f964',
+    'api_url': '',
+    'partner_id': '',
+    'key': '',
     'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
     'return_url': 'http://154.201.68.178:5051/payment/success',
     'pay_type': 'trc20',
-    'version': '1.0'
+    'version': '1.0',
+    'payment_rate': 1.0
 }
+
+def load_payment_config():
+    """从数据库加载支付配置"""
+    try:
+        config = get_system_config()
+        PAYMENT_CONFIG.update({
+            'api_url': config.get('payment_url', ''),
+            'partner_id': str(config.get('payment_user_id', '')),
+            'key': config.get('payment_token', ''),
+            'pay_type': config.get('payment_channel', 'trc20'),
+            'payment_rate': float(config.get('payment_rate', 1.0)),
+        })
+        print(f"[支付模块] 已加载配置: URL={PAYMENT_CONFIG['api_url']}, PartnerID={PAYMENT_CONFIG['partner_id']}, PayType={PAYMENT_CONFIG['pay_type']}")
+    except Exception as e:
+        print(f"[支付模块] 加载配置失败，使用默认配置: {e}")
+
+# 在模块导入时自动加载配置
+load_payment_config()
 
 # 支付订单相关
 payment_orders = {}  # 存储充值订单

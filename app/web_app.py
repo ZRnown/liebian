@@ -288,8 +288,8 @@ def payment_notify():
     try:
         # 1. 获取参数
         if request.method == 'POST':
-        raw_data = request.form.to_dict()
-        if not raw_data:
+            raw_data = request.form.to_dict()
+            if not raw_data:
                 raw_data = request.get_json(silent=True) or {}
         else:
             raw_data = request.args.to_dict()
