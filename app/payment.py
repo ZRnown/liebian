@@ -44,22 +44,25 @@ def generate_payment_sign(params, key):
     return hashlib.md5(sign_str.encode()).hexdigest().upper()
 
 def create_payment_order(amount, out_trade_no, remark=''):
-    """创建支付订单 - 调整参数顺序匹配API期望"""
-    # 按照API期望的顺序构建参数：version, format, partnerid, payType, out_trade_no, notifyUrl, returnUrl, amount
+    """创建支付订单 - 按照接口文档示例的顺序"""
+    # 按照接口文档示例的顺序：amount, notifyUrl, out_trade_no, partnerid, payType, returnUrl, version
     params = {
-        'version': PAYMENT_CONFIG['version'],
-        'format': 'json',  # 返回json数据格式
+        'amount': f'{amount:.2f}',
+        'notifyUrl': PAYMENT_CONFIG['notify_url'],
+        'out_trade_no': out_trade_no,
         'partnerid': PAYMENT_CONFIG['partner_id'],
         'payType': PAYMENT_CONFIG['pay_type'],
-        'out_trade_no': out_trade_no,
-        'notifyUrl': PAYMENT_CONFIG['notify_url'],
         'returnUrl': PAYMENT_CONFIG['return_url'],
-        'amount': f'{amount:.2f}'
+        'version': PAYMENT_CONFIG['version']
     }
 
     # 如果有备注，添加到参数中（备注参与签名）
     if remark:
         params['remark'] = remark
+
+    # 如果format不为空，也参与签名
+    if 'format' in PAYMENT_CONFIG and PAYMENT_CONFIG['format']:
+        params['format'] = PAYMENT_CONFIG['format']
 
     # 生成签名
     params['sign'] = generate_payment_sign(params, PAYMENT_CONFIG['key'])
