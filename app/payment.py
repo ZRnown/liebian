@@ -44,16 +44,17 @@ def generate_payment_sign(params, key):
     return hashlib.md5(sign_str.encode()).hexdigest().upper()
 
 def create_payment_order(amount, out_trade_no, remark=''):
-    """创建支付订单 - 根据新接口文档更新"""
+    """创建支付订单 - 调整参数顺序匹配API期望"""
+    # 按照API期望的顺序构建参数：version, format, partnerid, payType, out_trade_no, notifyUrl, returnUrl, amount
     params = {
-        'amount': f'{amount:.2f}',
-        'partnerid': PAYMENT_CONFIG['partner_id'],
-        'notifyUrl': PAYMENT_CONFIG['notify_url'],
-        'out_trade_no': out_trade_no,
-        'payType': PAYMENT_CONFIG['pay_type'],
-        'returnUrl': PAYMENT_CONFIG['return_url'],
         'version': PAYMENT_CONFIG['version'],
-        'format': 'json'  # 返回json数据格式
+        'format': 'json',  # 返回json数据格式
+        'partnerid': PAYMENT_CONFIG['partner_id'],
+        'payType': PAYMENT_CONFIG['pay_type'],
+        'out_trade_no': out_trade_no,
+        'notifyUrl': PAYMENT_CONFIG['notify_url'],
+        'returnUrl': PAYMENT_CONFIG['return_url'],
+        'amount': f'{amount:.2f}'
     }
 
     # 如果有备注，添加到参数中（备注参与签名）
