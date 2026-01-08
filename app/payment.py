@@ -12,20 +12,18 @@ from telethon import Button
 
 from config import ADMIN_IDS
 from database import DB, get_cn_time, get_system_config, get_db_conn
+from core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
 
-# 移除循环导入，在函数内部导入
-from core_functions import update_level_path, distribute_vip_rewards
-
-# 支付配置 - 从web_app.py导入，确保配置一致性
-try:
-    from web_app import PAYMENT_CONFIG
-except ImportError:
-    # 如果导入失败，使用空配置
-    PAYMENT_CONFIG = {
-        'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
-        'return_url': 'http://154.201.68.178:5051/payment/success',
-        'version': '1.0'
-    }
+# 支付配置
+PAYMENT_CONFIG = {
+    'api_url': 'https://usdt.qxzy7888.org/pay/',
+    'partner_id': '15',
+    'key': '5c9dd0b054b184f964',
+    'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
+    'return_url': 'http://154.201.68.178:5051/payment/success',
+    'pay_type': 'trc20',
+    'version': '1.0'
+}
 
 # 支付订单相关
 payment_orders = {}  # 存储充值订单
@@ -64,42 +62,19 @@ def create_payment_order(amount, out_trade_no, remark=''):
         'format': 'json'
     }
 
-    # 【核心修复】如果存在备注，必须在签名生成前加入到 params 中
-    # 除非接口明确说明提交时remark不签名，否则默认所有提交参数都需签名
+    # 生成签名（remark不参与签名）
+    params['sign'] = generate_payment_sign(params, PAYMENT_CONFIG['key'])
+
+    # 如果有备注，在签名后添加到请求参数中
     if remark:
         params['remark'] = remark
-
-    # 2. 生成签名（此时 params 已包含 remark）
-    params['sign'] = generate_payment_sign(params, PAYMENT_CONFIG['key'])
     try:
         print(f'[支付API] 请求参数: {params}')
         response = req.post(PAYMENT_CONFIG['api_url'], data=params, timeout=15)
 
-        # 调试信息
-        print(f'[支付API] 响应状态码: {response.status_code}')
-        print(f'[支付API] 响应内容: {response.text[:500]}...')
-
-        # 处理响应
-        if 'application/json' in response.headers.get('content-type', '').lower():
-            try:
-                result = response.json()
-                print(f'[支付API] JSON响应: {result}')
-                return result
-            except ValueError:
-                print(f'[支付API] JSON解析失败')
-                return None
-        else:
-            # 兼容非JSON返回（有些接口直接返回HTML或二维码链接）
-            # 如果包含 success 或 code=200 相关的字眼
-            if '"code":200' in response.text or '"code": 200' in response.text:
-                 try:
-                     import json
-                     return json.loads(response.text)
-                 except:
-                     pass
-
-            print(f'[支付API] 非JSON响应，可能是直接跳转')
-            return {'code': -1, 'msg': '非JSON响应', 'raw': response.text[:200]}
+        result = response.json()
+        print(f'[支付API] 响应: {result}')
+        return result
 
     except Exception as e:
         print(f'[支付API错误] {e}')
