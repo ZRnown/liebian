@@ -482,7 +482,7 @@ def get_system_config():
         elif key.startswith('payment_'):
             # 处理支付相关配置
             config[key] = value
-
+    
     conn.close()
     return config
 

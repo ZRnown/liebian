@@ -288,8 +288,8 @@ def payment_notify():
     try:
         # 1. 获取参数
         if request.method == 'POST':
-            raw_data = request.form.to_dict()
-            if not raw_data:
+        raw_data = request.form.to_dict()
+        if not raw_data:
                 raw_data = request.get_json(silent=True) or {}
         else:
             raw_data = request.args.to_dict()
@@ -326,7 +326,7 @@ def payment_notify():
             print(f'[支付回调] 签名验证失败! 收到: {sign_received}, 计算: {calc_sign}')
             print(f'[支付回调] 签名原串: {sign_str_with_key}')
             return 'fail'
-
+        
         # 3. 业务处理
         # 假设 status=4 为成功 (参考文档)
         # 文档参数：status string 订单支付状态 4：支付成功
@@ -352,13 +352,13 @@ def payment_notify():
 
                     # 增加余额
                     c.execute("UPDATE members SET balance = balance + ? WHERE telegram_id = ?", (amount, member_id))
-                    conn.commit()
+                conn.commit()
 
                     print(f'[支付回调] 订单 {out_trade_no} 处理成功，充值 {amount} U')
 
                     # 触发后续逻辑 (推入Bot队列)
-                    try:
-                        import bot_logic
+                try:
+                    import bot_logic
                         # 判断是否为VIP开通意向
                         is_vip_order = (remark == '开通')
                         # 如果没有备注但金额足够VIP价格，也可以视为VIP订单
@@ -367,20 +367,20 @@ def payment_notify():
                             if amount >= float(config.get('vip_price', 10)):
                                 is_vip_order = True
 
-                        if hasattr(bot_logic, 'process_recharge_queue'):
-                            bot_logic.process_recharge_queue.append({
+                    if hasattr(bot_logic, 'process_recharge_queue'):
+                        bot_logic.process_recharge_queue.append({
                                 'member_id': member_id,
-                                'amount': amount,
-                                'is_vip_order': is_vip_order
-                            })
+                            'amount': amount,
+                            'is_vip_order': is_vip_order
+                        })
                     except Exception as e:
                         print(f'[支付回调] 推送Bot队列失败: {e}')
             else:
                 print(f'[支付回调] 未找到订单: {out_trade_no}')
 
-            conn.close()
-            return 'success'
-
+                conn.close()
+                return 'success'
+        
         return 'success' # 即使状态不是4，也返回success告知网关已收到
 
     except Exception as e:

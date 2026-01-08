@@ -340,9 +340,11 @@ def get_main_account_id(telegram_id, username=None):
     
 def format_backup_account_display(backup_account, main_account_id=None):
     """格式化备用号显示"""
-    # 如果有传统备用号字段，直接使用
-    if backup_account:
-        backup_account_str = str(backup_account).strip()
+    # 如果没有备用号，返回空
+    if not backup_account:
+        return ""
+
+    backup_account_str = str(backup_account).strip()
     if backup_account_str.startswith('@'):
         return backup_account_str
     if not backup_account_str.isdigit():
@@ -1377,7 +1379,7 @@ async def fission_handler(event):
         return
     
     # 已开通VIP，统一显示所有需要加入的群组（1-10层）
-    text = "🧧上级群完成任务获取更多资源\n\n     知识更好发展团队\n\n\n\n⚠️温馨提示tg机制一次性只能加入\n\n5个群请休息一小时后继续完成\n\n━━━━━━━━━━━━━━━━\n6.绑定群链接，在群里绑定完，应在机器人里也发送个提示💡提示绑定成功/完成\n"
+    text = "🧧上级群完成任务获取更多资源\n     知识更好发展团队\n⚠️温馨提示tg机制一次性只能加入\n5个群请休息一小时后继续完成\n\n━━━━━━━━━━━━━━━━\n6.绑定群链接，在群里绑定完，应在机器人里也发送个提示💡提示绑定成功/完成\n"
     
     # 获取系统配置
     level_count = min(config.get('level_count', 10), 10)
