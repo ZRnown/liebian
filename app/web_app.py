@@ -71,7 +71,7 @@ PAYMENT_CONFIG = {
     'key': '5c9dd0b054b184f964',
     'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
     'return_url': 'http://154.201.68.178:5051/payment/success',
-    'pay_type': 'trc20',
+    'pay_type': '1',
     'version': '1.0'
 }
 
