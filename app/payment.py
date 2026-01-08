@@ -14,7 +14,7 @@ from config import ADMIN_IDS
 from database import DB, get_cn_time, get_system_config, get_db_conn
 from core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
 
-# 支付配置
+# 支付配置 - 恢复之前可用的硬编码配置
 PAYMENT_CONFIG = {
     'api_url': 'https://usdt.qxzy7888.org/pay/',
     'partner_id': '15',
@@ -38,34 +38,26 @@ CN_TIMEZONE = timezone(timedelta(hours=8))
 
 def generate_payment_sign(params, key):
     """生成支付签名"""
-    # 按照文档规则：非空字段排序拼接
     sorted_params = sorted([(k, v) for k, v in params.items() if v is not None and v != ''])
     sign_str = '&'.join([f'{k}={v}' for k, v in sorted_params])
     sign_str += f'&key={key}'
-
-    print(f'[签名调试] 参与签名的参数: {sorted_params}')
-    print(f'[签名调试] 签名字符串: {sign_str}')
-
     return hashlib.md5(sign_str.encode()).hexdigest().upper()
 
 def create_payment_order(amount, out_trade_no, remark=''):
     """创建支付订单"""
-    # 1. 构造基本参数字典
     params = {
         'amount': f'{amount:.2f}',
         'partnerid': PAYMENT_CONFIG['partner_id'],
         'notifyUrl': PAYMENT_CONFIG['notify_url'],
         'out_trade_no': out_trade_no,
-        'payType': 'UUU', # 使用文档中的标识符UUU
+        'payType': PAYMENT_CONFIG['pay_type'],
         'returnUrl': PAYMENT_CONFIG['return_url'],
         'version': PAYMENT_CONFIG['version'],
         'format': 'json'
     }
 
-    # 生成签名（remark不参与签名）
     params['sign'] = generate_payment_sign(params, PAYMENT_CONFIG['key'])
 
-    # 如果有备注，在签名后添加到请求参数中
     if remark:
         params['remark'] = remark
     try:
