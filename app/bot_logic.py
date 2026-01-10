@@ -301,68 +301,75 @@ user_restrictions = {}
 
 def check_button_rate_limit(user_id, event=None):
     """
-    检查按钮点击频率限制 (增强版)
+    检查按钮点击频率限制 (带强制惩罚机制)
 
     规则:
-    1. 5秒内连续点击3次 -> 限制1分钟
-    2. 1分钟内累计点击超过20次 -> 限制5分钟
+    - 5秒内点3次 -> 封1分钟
+    - 1分钟内点20次 -> 封5分钟
 
     返回值:
     - None: 允许点击
-    - (限制时间, 提示消息): 被限制
+    - (剩余秒数, 提示消息): 被限制
     """
     import time
     current_time = time.time()
 
-    # 1. 优先检查是否处于惩罚期 (黑名单检查)
+    # --- 第一步：检查是否在惩罚期内 ---
+
     if user_id in user_restrictions:
         expire_time = user_restrictions[user_id]
         if current_time < expire_time:
+            # 仍在惩罚期，计算剩余时间
             remaining = int(expire_time - current_time)
-            # 根据剩余时间显示不同文案
+
+            # 根据剩余时间生成文案
             if remaining > 60:
-                msg = f"🚫 操作过于频繁，系统限制中\n需等待 {int(remaining/60)}分{remaining%60}秒 后解除"
+                mins = int(remaining / 60)
+                secs = remaining % 60
+                msg = f"🚫 操作频率过高！\n系统限制中，需等待 {mins}分{secs}秒 后解除"
             else:
-                msg = f"⏰ 操作太快了，请休息 {remaining} 秒"
+                msg = f"⏰ 操作太快了\n请休息 {remaining} 秒后再试"
+
             return (remaining, msg)
         else:
-            # 惩罚期已过，移除惩罚并清空历史记录，给用户重新开始的机会
+            # 惩罚时间已过，移除惩罚并清空历史，给用户重新开始的机会
             del user_restrictions[user_id]
             if user_id in button_click_history:
-                del button_click_history[user_id]
+                button_click_history[user_id] = []
 
-    # 2. 初始化用户的点击历史
+    # --- 第二步：记录与判定 ---
+
+    # 初始化
     if user_id not in button_click_history:
         button_click_history[user_id] = []
 
-    # 3. 清理过期记录（仅保留最近60秒内的记录，用于计算频次）
-    # 注意：这里不清空 user_restrictions，只清理计数用的历史
+    # 清理60秒前的旧记录 (只保留最近60秒的数据用于计算频率)
     button_click_history[user_id] = [
-        timestamp for timestamp in button_click_history[user_id]
-        if current_time - timestamp < 60
+        ts for ts in button_click_history[user_id]
+        if current_time - ts < 60
     ]
 
-    # 获取当前用户的有效点击历史
     user_clicks = button_click_history[user_id]
 
-    # 4. 规则检查 (预测性检查：如果加上这次点击会怎样)
-
-    # 规则A: 5秒内连续点击3次 (即过去5秒内已经有2次或更多)
-    recent_clicks = [ts for ts in user_clicks if current_time - ts <= 5]
-    if len(recent_clicks) >= 2:
-        # 触发 1分钟 限制
+    # 规则A：5秒内点击 >= 3次 (检测短时爆发)
+    # 逻辑：如果过去5秒内已经有2次点击，加上这一次就是3次，触发限制
+    recent_clicks_count = len([ts for ts in user_clicks if current_time - ts <= 5])
+    if recent_clicks_count >= 2:
+        # 触发 1分钟 惩罚
         restriction_time = 60
         user_restrictions[user_id] = current_time + restriction_time
-        return (restriction_time, "⏰ 点击太快了！\n检测到5秒内连续操作\n请等待 1分钟 后再试")
+        return (restriction_time, "⏰ 点击太快了！\n检测到5秒内连续操作\n系统限制 1分钟 后解除")
 
-    # 规则B: 1分钟内超过20次 (即过去60秒内已经有20次或更多)
-    if len(user_clicks) >= 20:
-        # 触发 5分钟 限制
+    # 规则B：1分钟内点击 >= 20次 (检测长时刷屏)
+    # 逻辑：如果过去60秒内已经有19次点击，加上这一次就是20次，触发限制
+    if len(user_clicks) >= 19:
+        # 触发 5分钟 惩罚
         restriction_time = 300
         user_restrictions[user_id] = current_time + restriction_time
         return (restriction_time, "🚫 操作频率过高！\n1分钟内操作超20次\n系统限制 5分钟 后解除")
 
-    # 5. 检查通过，记录这次点击
+    # --- 第三步：通过检查，记录本次点击 ---
+
     user_clicks.append(current_time)
 
     return None
