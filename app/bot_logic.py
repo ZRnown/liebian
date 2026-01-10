@@ -318,9 +318,6 @@ def check_button_rate_limit(user_id, event=None):
     # 获取当前用户的点击历史
     user_clicks = button_click_history[user_id]
 
-    # 添加当前点击
-    user_clicks.append(current_time)
-
     # 检查5秒内连续点击3次的规则
     recent_clicks = [ts for ts in user_clicks if current_time - ts <= 5]
     if len(recent_clicks) >= 3:
@@ -330,7 +327,8 @@ def check_button_rate_limit(user_id, event=None):
     if len(user_clicks) >= 20:
         return (300, "🚫 操作过于频繁，请等待5分钟后再试")
 
-    # 允许点击
+    # 允许点击，记录这次点击
+    user_clicks.append(current_time)
     return None
 
 
@@ -350,6 +348,7 @@ def rate_limit_callback(func):
         limit_result = check_button_rate_limit(user_id)
         if limit_result:
             limit_seconds, message = limit_result
+            print(f'[频率限制] 🚫 用户 {user_id} 被限制 {limit_seconds}秒: {message}')
             await event.answer(message, alert=True)
 
             # 清理过期记录（防止内存泄漏）
@@ -366,6 +365,7 @@ def rate_limit_callback(func):
             return
 
         # 正常执行
+        print(f'[频率限制] ✅ 用户 {user_id} 点击正常，已记录')
         return await func(event, *args, **kwargs)
 
     return wrapper
