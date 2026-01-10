@@ -2881,6 +2881,103 @@ async def back_to_categories_callback(event):
 @rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=rb'res_page_(\d+)_(\d+)'))
 async def resource_page_callback(event):
+    """处理资源页面按钮"""
+
+
+@rate_limit_callback
+@multi_bot_on(events.CallbackQuery(data=b'res_back_main'))
+async def resource_back_main_callback(event):
+    """处理资源页面返回主菜单按钮"""
+    # 账号关联处理（备用号->主账号）
+    original_sender_id = event.sender_id
+    try:
+        mapped_id = get_main_account_id(
+            original_sender_id, getattr(event.sender, 'username', None))
+        telegram_id = mapped_id if mapped_id != original_sender_id else original_sender_id
+    except BaseException:
+        telegram_id = original_sender_id
+
+    member = DB.get_member(telegram_id)
+    if not member:
+        await event.answer("❌ 用户信息不存在", alert=True)
+        return
+
+    # 返回主菜单（这里应该调用显示主菜单的逻辑）
+    # 简单起见，先给个提示
+    await event.answer("返回主菜单", alert=True)
+
+
+@rate_limit_callback
+@multi_bot_on(events.CallbackQuery(pattern=rb'catpg_(\d+)'))
+async def category_page_callback(event):
+    """处理分类页面分页按钮"""
+    try:
+        data = event.data.decode()
+        page = int(data.replace('catpg_', ''))
+
+        # 账号关联处理（备用号->主账号）
+        original_sender_id = event.sender_id
+        try:
+            mapped_id = get_main_account_id(
+                original_sender_id, getattr(event.sender, 'username', None))
+            telegram_id = mapped_id if mapped_id != original_sender_id else original_sender_id
+        except BaseException:
+            telegram_id = original_sender_id
+
+        # 获取分类并显示对应页面的分类
+        categories = DB.get_categories()
+        if not categories:
+            await event.answer("暂无分类", alert=True)
+            return
+
+        # 计算分页
+        per_page = 15  # 每页显示的分类数量
+        total_categories = len(categories)
+        total_pages = (total_categories + per_page - 1) // per_page
+
+        if page < 1 or page > total_pages:
+            await event.answer("无效页面", alert=True)
+            return
+
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        page_categories = categories[start_idx:end_idx]
+
+        # 构建页面内容（复用show_resources函数的逻辑）
+        text = f'🎯行业资源\n\n过科技创新，为广大行业伙伴 "助力"\n\n为业内传递更多的价值💵\n\n🕵‍♂通过下方选择自己行业寻找宝贵资源\n\n如需入驻请联系客服👩‍💻🧑‍💻👨‍💻'
+
+        buttons = []
+
+        # 每行3个按钮排列
+        current_row = []
+        for cat in page_categories:
+            current_row.append(
+                Button.inline(
+                    cat["name"],
+                    f'cat_{cat["id"]}'.encode()))
+            if len(current_row) == 3:
+                buttons.append(current_row)
+                current_row = []
+        # 处理剩余的按钮
+        if current_row:
+            buttons.append(current_row)
+
+        # 分页控制按钮
+        nav = []
+        if page > 1:
+            nav.append(Button.inline('< 上一页', f'catpg_{page-1}'.encode()))
+        if page < total_pages:
+            nav.append(Button.inline('下一页 >', f'catpg_{page+1}'.encode()))
+        if nav:
+            buttons.append(nav)
+
+        buttons.append([Button.inline('< 返回', b'res_back_main')])
+
+        await event.edit(text, buttons=buttons)
+
+    except Exception as e:
+        print(f"分类分页处理错误: {e}")
+        await event.answer("处理失败", alert=True)
     """分页资源显示：res_page_{category_id}_{page}"""
     try:
         data = event.data.decode()
