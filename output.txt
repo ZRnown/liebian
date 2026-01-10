@@ -411,7 +411,125 @@ admin_waiting = {}
 # 全局通知防重缓存 { "user_group_reason": timestamp }
 notification_history = {}
 
+# 按钮点击频率限制缓存 { user_id: [timestamp1, timestamp2, ...] }
+button_click_history = {}
+
+# 【新增】用户惩罚状态缓存 { user_id: expire_timestamp }
+# 用于记录被封禁用户的解封时间，确保即便是由"1分钟20次"触发的"5分钟惩罚"，
+# 在1分钟历史记录清除后，依然能持续生效直到5分钟结束。
+user_restrictions = {}
+
 # 导入支付模块
+
+# ==================== 按钮频率限制逻辑 ====================
+
+
+def check_button_rate_limit(user_id, event=None):
+    """
+    检查按钮点击频率限制 (增强版)
+
+    规则:
+    1. 5秒内连续点击3次 -> 限制1分钟
+    2. 1分钟内累计点击超过20次 -> 限制5分钟
+
+    返回值:
+    - None: 允许点击
+    - (限制时间, 提示消息): 被限制
+    """
+    import time
+    current_time = time.time()
+
+    # 1. 优先检查是否处于惩罚期 (黑名单检查)
+    if user_id in user_restrictions:
+        expire_time = user_restrictions[user_id]
+        if current_time < expire_time:
+            remaining = int(expire_time - current_time)
+            # 根据剩余时间显示不同文案
+            if remaining > 60:
+                msg = f"🚫 操作过于频繁，系统限制中\n需等待 {int(remaining/60)}分{remaining%60}秒 后解除"
+            else:
+                msg = f"⏰ 操作太快了，请休息 {remaining} 秒"
+            return (remaining, msg)
+        else:
+            # 惩罚期已过，移除惩罚并清空历史记录，给用户重新开始的机会
+            del user_restrictions[user_id]
+            if user_id in button_click_history:
+                del button_click_history[user_id]
+
+    # 2. 初始化用户的点击历史
+    if user_id not in button_click_history:
+        button_click_history[user_id] = []
+
+    # 3. 清理过期记录（仅保留最近60秒内的记录，用于计算频次）
+    # 注意：这里不清空 user_restrictions，只清理计数用的历史
+    button_click_history[user_id] = [
+        timestamp for timestamp in button_click_history[user_id]
+        if current_time - timestamp < 60
+    ]
+
+    # 获取当前用户的有效点击历史
+    user_clicks = button_click_history[user_id]
+
+    # 4. 规则检查 (预测性检查：如果加上这次点击会怎样)
+
+    # 规则A: 5秒内连续点击3次 (即过去5秒内已经有2次或更多)
+    recent_clicks = [ts for ts in user_clicks if current_time - ts <= 5]
+    if len(recent_clicks) >= 2:
+        # 触发 1分钟 限制
+        restriction_time = 60
+        user_restrictions[user_id] = current_time + restriction_time
+        return (restriction_time, "⏰ 点击太快了！\n检测到5秒内连续操作\n请等待 1分钟 后再试")
+
+    # 规则B: 1分钟内超过20次 (即过去60秒内已经有20次或更多)
+    if len(user_clicks) >= 20:
+        # 触发 5分钟 限制
+        restriction_time = 300
+        user_restrictions[user_id] = current_time + restriction_time
+        return (restriction_time, "🚫 操作频率过高！\n1分钟内操作超20次\n系统限制 5分钟 后解除")
+
+    # 5. 检查通过，记录这次点击
+    user_clicks.append(current_time)
+
+    return None
+
+
+def rate_limit_callback(func):
+    """按钮频率限制装饰器"""
+    async def wrapper(event, *args, **kwargs):
+        # 获取用户ID（考虑账号关联）
+        original_sender_id = event.sender_id
+        try:
+            mapped_id = get_main_account_id(
+                original_sender_id, getattr(event.sender, 'username', None))
+            user_id = mapped_id if mapped_id != original_sender_id else original_sender_id
+        except:
+            user_id = original_sender_id
+
+        # 检查频率限制
+        limit_result = check_button_rate_limit(user_id)
+        if limit_result:
+            limit_seconds, message = limit_result
+            print(f'[频率限制] 🚫 用户 {user_id} 被限制 {limit_seconds}秒: {message}')
+            await event.answer(message, alert=True)
+
+            # 清理过期记录（防止内存泄漏）
+            import time
+            current_time = time.time()
+            for uid in list(button_click_history.keys()):
+                button_click_history[uid] = [
+                    ts for ts in button_click_history[uid]
+                    if current_time - ts < 3600  # 1小时后清理
+                ]
+                if not button_click_history[uid]:
+                    del button_click_history[uid]
+
+            return
+
+        # 正常执行
+        print(f'[频率限制] ✅ 用户 {user_id} 点击正常，已记录')
+        return await func(event, *args, **kwargs)
+
+    return wrapper
 
 # ==================== 账号关联逻辑 ====================
 
@@ -465,9 +583,11 @@ def get_main_account_id(telegram_id, username=None):
     
 def format_backup_account_display(backup_account, main_account_id=None):
     """格式化备用号显示"""
-    # 如果有传统备用号字段，直接使用
-    if backup_account:
-        backup_account_str = str(backup_account).strip()
+    # 如果没有备用号，返回空
+    if not backup_account:
+        return ""
+
+    backup_account_str = str(backup_account).strip()
     if backup_account_str.startswith('@'):
         return backup_account_str
     if not backup_account_str.isdigit():
@@ -1257,6 +1377,7 @@ async def start_handler(event):
     await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(data=b'open_vip_balance'))
 async def open_vip_balance_callback(event):
     """【已修复】使用余额开通VIP - 统一调用 distribute_vip_rewards"""
@@ -1311,6 +1432,7 @@ async def open_vip_balance_callback(event):
         pass
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'confirm_vip'))
 async def confirm_vip_callback(event):
     """【已修复】确认开通VIP - 统一调用 distribute_vip_rewards"""
@@ -1502,7 +1624,7 @@ async def fission_handler(event):
         return
     
     # 已开通VIP，统一显示所有需要加入的群组（1-10层）
-    text = "🧧上级群完成任务获取更多资源\n\n     知识更好发展团队\n\n\n\n⚠️温馨提示tg机制一次性只能加入\n\n5个群请休息一小时后继续完成\n\n━━━━━━━━━━━━━━━━\n6.绑定群链接，在群里绑定完，应在机器人里也发送个提示💡提示绑定成功/完成\n"
+    text = "🧧上级群完成任务获取更多资源\n     知识更好发展团队\n⚠️温馨提示tg机制一次性只能加入\n5个群请休息一小时后继续完成\n━━━━━━━━━━━━━━━━"
     
     # 获取系统配置
     level_count = min(config.get('level_count', 10), 10)
@@ -1750,6 +1872,7 @@ async def profile_handler(event):
 # ==================== 个人中心按钮回调处理 ====================
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'set_group'))
 async def set_group_callback(event):
     """设置群链接回调"""
@@ -1790,6 +1913,7 @@ async def set_group_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'set_backup'))
 async def set_backup_callback(event):
     """设置备用号回调"""
@@ -1817,6 +1941,7 @@ async def set_backup_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'earnings_history'))
 async def earnings_history_callback(event):
     """查看个人收益记录"""
@@ -1885,6 +2010,7 @@ async def earnings_history_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'withdraw'))
 async def withdraw_callback(event):
     """提现回调"""
@@ -1923,6 +2049,7 @@ async def withdraw_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'do_recharge'))
 async def do_recharge_callback(event):
     """充值回调"""
@@ -1961,6 +2088,7 @@ async def do_recharge_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'open_vip'))
 async def open_vip_callback(event):
     """开通VIP"""
@@ -2041,6 +2169,7 @@ VIP价格: {vip_price} U
 # 返回个人中心
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'back_to_profile'))
 async def back_to_profile_callback(event):
     """返回个人中心"""
@@ -2092,6 +2221,7 @@ async def back_to_profile_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(data=b'recharge_for_vip'))
 async def recharge_for_vip_callback(event):
     """充值开通VIP - 调用充值输入金额功能"""
@@ -2132,6 +2262,7 @@ async def recharge_for_vip_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=rb'verify_groups_.*'))
 async def verify_groups_callback(event):
     """验证用户是否加入所有需要加入的群组（上级群 + 捡漏群组，共10个）"""
@@ -2547,6 +2678,7 @@ async def view_fission_handler(event):
     await event.respond(text, buttons=buttons)
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=rb'flv_(\d+)_(\d+)'))
 async def flv_level_callback(event):
     """查看指定层的下级成员列表：flv_{level}_{page}"""
@@ -2637,6 +2769,7 @@ async def flv_level_callback(event):
         await event.answer('加载失败', alert=True)
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'fission_main_menu'))
 async def fission_main_menu_callback(event):
     """返回主菜单"""
@@ -2674,6 +2807,7 @@ async def fission_main_menu_callback(event):
         await event.answer('返回失败', alert=True)
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'back_handler'))
 async def back_handler_callback(event):
     """Callback 版本的返回主菜单"""
@@ -2818,6 +2952,7 @@ async def show_resource_categories(event, page=1, is_new=False):
 
 
 # 点击分类回调：显示该分类下的资源
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=rb'cat_(\d+)'))
 async def category_callback(event):
     try:
@@ -2892,6 +3027,7 @@ async def category_callback(event):
         await event.answer('加载失败', alert=True)
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=rb'back_to_categories'))
 async def back_to_categories_callback(event):
     """返回分类列表（同 show_resource_categories 第1页）"""
@@ -2903,8 +3039,106 @@ async def back_to_categories_callback(event):
         await event.answer('返回失败', alert=True)
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=rb'res_page_(\d+)_(\d+)'))
 async def resource_page_callback(event):
+    """处理资源页面按钮"""
+
+
+@rate_limit_callback
+@multi_bot_on(events.CallbackQuery(data=b'res_back_main'))
+async def resource_back_main_callback(event):
+    """处理资源页面返回主菜单按钮"""
+    # 账号关联处理（备用号->主账号）
+    original_sender_id = event.sender_id
+    try:
+        mapped_id = get_main_account_id(
+            original_sender_id, getattr(event.sender, 'username', None))
+        telegram_id = mapped_id if mapped_id != original_sender_id else original_sender_id
+    except BaseException:
+        telegram_id = original_sender_id
+
+    member = DB.get_member(telegram_id)
+    if not member:
+        await event.answer("❌ 用户信息不存在", alert=True)
+        return
+
+    # 返回主菜单（这里应该调用显示主菜单的逻辑）
+    # 简单起见，先给个提示
+    await event.answer("返回主菜单", alert=True)
+
+
+@rate_limit_callback
+@multi_bot_on(events.CallbackQuery(pattern=rb'catpg_(\d+)'))
+async def category_page_callback(event):
+    """处理分类页面分页按钮"""
+    try:
+        data = event.data.decode()
+        page = int(data.replace('catpg_', ''))
+
+        # 账号关联处理（备用号->主账号）
+        original_sender_id = event.sender_id
+        try:
+            mapped_id = get_main_account_id(
+                original_sender_id, getattr(event.sender, 'username', None))
+            telegram_id = mapped_id if mapped_id != original_sender_id else original_sender_id
+        except BaseException:
+            telegram_id = original_sender_id
+
+        # 获取分类并显示对应页面的分类
+        categories = DB.get_categories()
+        if not categories:
+            await event.answer("暂无分类", alert=True)
+            return
+
+        # 计算分页
+        per_page = 15  # 每页显示的分类数量
+        total_categories = len(categories)
+        total_pages = (total_categories + per_page - 1) // per_page
+
+        if page < 1 or page > total_pages:
+            await event.answer("无效页面", alert=True)
+            return
+
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        page_categories = categories[start_idx:end_idx]
+
+        # 构建页面内容（复用show_resources函数的逻辑）
+        text = f'🎯行业资源\n过科技创新，为广大行业伙伴 "助力"\n为业内传递更多的价值💵\n🕵‍♂通过下方选择自己行业寻找宝贵资源\n如需入驻请联系客服👩‍💻🧑‍💻👨‍💻'
+
+        buttons = []
+
+        # 每行3个按钮排列
+        current_row = []
+        for cat in page_categories:
+            current_row.append(
+                Button.inline(
+                    cat["name"],
+                    f'cat_{cat["id"]}'.encode()))
+            if len(current_row) == 3:
+                buttons.append(current_row)
+                current_row = []
+        # 处理剩余的按钮
+        if current_row:
+            buttons.append(current_row)
+
+        # 分页控制按钮
+        nav = []
+        if page > 1:
+            nav.append(Button.inline('< 上一页', f'catpg_{page-1}'.encode()))
+        if page < total_pages:
+            nav.append(Button.inline('下一页 >', f'catpg_{page+1}'.encode()))
+        if nav:
+            buttons.append(nav)
+
+        buttons.append([Button.inline('< 返回', b'res_back_main')])
+
+        await event.edit(text, buttons=buttons)
+
+    except Exception as e:
+        print(f"分类分页处理错误: {e}")
+        await event.answer("处理失败", alert=True)
     """分页资源显示：res_page_{category_id}_{page}"""
     try:
         data = event.data.decode()
@@ -5314,102 +5548,107 @@ def team_graph_page(telegram_id):
 
 # ==================== 支付回调 ====================
 
-@app.route('/api/payment/notify', methods=['POST'])
+@app.route('/api/payment/notify', methods=['POST', 'GET'])
 def payment_notify():
-    global notify_queue
+    """支付异步回调通知"""
     try:
-        # 1. 获取和解析数据
-        raw_data = request.form.to_dict()
-        if not raw_data:
-            raw_data = request.get_json() or {}
+        # 1. 获取参数
+        if request.method == 'POST':
+            raw_data = request.form.to_dict()
+            if not raw_data:
+                raw_data = request.get_json(silent=True) or {}
+        else:
+            raw_data = request.args.to_dict()
 
         print(f'[支付回调] 收到数据: {raw_data}')
 
-        # 2. 签名验证 (根据新接口文档：remark不参与签名)
-        sign_received = ''
-        filtered_params = {}
-        for k, v in raw_data.items():
-            val_str = str(v)
-            if k.lower() == 'sign':
-                sign_received = val_str
-                continue
-            if k.lower() == 'remark':
-                continue  # remark不参与签名
-            if val_str == '' or val_str is None:
-                continue
-            filtered_params[k] = val_str
+        if not raw_data:
+            return 'fail'
 
+        # 2. 验证签名
+        # 文档说明：remark 不参与签名
+        # 算法：非空字段排序拼接 + &key=... -> MD5 -> Upper
+
+        sign_received = raw_data.get('sign', '')
         my_key = PAYMENT_CONFIG.get('key', '')
-        sorted_keys = sorted(filtered_params.keys())
-        sign_str = '&'.join([f'{k}={filtered_params[k]}' for k in sorted_keys])
+
+        # 过滤参与签名的参数
+        params_to_sign = {}
+        for k, v in raw_data.items():
+            if k == 'sign': continue
+            if k == 'remark': continue # 文档2.3明确指出remark不参与签名
+            if v == '' or v is None: continue
+            params_to_sign[k] = str(v)
+
+        # 排序并拼接
+        sorted_keys = sorted(params_to_sign.keys())
+        sign_str = '&'.join([f'{k}={params_to_sign[k]}' for k in sorted_keys])
         sign_str_with_key = f"{sign_str}&key={my_key}"
+
+        # 计算签名
         calc_sign = hashlib.md5(sign_str_with_key.encode('utf-8')).hexdigest().upper()
 
         if sign_received.upper() != calc_sign:
-            print('[支付回调] 签名验证失败')
+            print(f'[支付回调] 签名验证失败! 收到: {sign_received}, 计算: {calc_sign}')
+            print(f'[支付回调] 签名原串: {sign_str_with_key}')
             return 'fail'
         
         # 3. 业务处理
-        status = str(raw_data.get('status'))
+        # 假设 status=4 为成功 (参考文档)
+        # 文档参数：status string 订单支付状态 4：支付成功
+        status = str(raw_data.get('status', ''))
         out_trade_no = raw_data.get('out_trade_no')
         amount = float(raw_data.get('amount', 0))
 
-        # status=4 代表成功
         if status == '4':
             conn = get_db_conn()
             c = conn.cursor()
 
-            # 解析用户ID
-            telegram_id = 0
-            if out_trade_no and out_trade_no.startswith('RCH_'):
-                parts = out_trade_no.split('_')
-                if len(parts) >= 2:
-                    telegram_id = int(parts[1])
+            # 查询订单
+            c.execute('SELECT member_id, status, remark FROM recharge_records WHERE order_id = ?', (out_trade_no,))
+            order = c.fetchone()
 
-            # 查重
-            c.execute('SELECT status, remark FROM recharge_records WHERE order_id = ?', (out_trade_no,))
-            existing = c.fetchone()
+            if order:
+                member_id, current_status, remark = order
 
-            if existing and existing[0] != 'completed':
-                # A. 标记订单完成
-                c.execute('UPDATE recharge_records SET status = ? WHERE order_id = ?', ('completed', out_trade_no))
+                # 防止重复处理
+                if current_status != 'completed':
+                    # 更新订单状态
+                    c.execute("UPDATE recharge_records SET status = 'completed' WHERE order_id = ?", (out_trade_no,))
 
-                # B. 增加用户余额 (只加余额，千万别在这里扣费开VIP！)
-                c.execute('UPDATE members SET balance = balance + ? WHERE telegram_id = ?', (amount, telegram_id))
-                conn.commit()
+                    # 增加余额
+                    c.execute("UPDATE members SET balance = balance + ? WHERE telegram_id = ?", (amount, member_id))
+                    conn.commit()
 
-                # C. 判断是否为 VIP 订单
-                # 逻辑：备注是"开通"，或者充值金额 >= VIP价格
-                is_vip_order = False
-                if existing[1] == '开通':
-                    is_vip_order = True
-                else:
-                    # 补充检测：如果没备注，但金额足够，也视为VIP意向(可选，根据您的需求)
-                    config = get_system_config()
-                    vip_price = float(config.get('vip_price', 10))
-                    if amount >= vip_price:
-                        is_vip_order = True
+                    print(f'[支付回调] 订单 {out_trade_no} 处理成功，充值 {amount} U')
 
-                print(f"[支付回调] 订单 {out_trade_no} 处理完毕，余额已加。VIP订单标记: {is_vip_order}")
+                    # 触发后续逻辑 (推入Bot队列)
+                    try:
+                        import bot_logic
+                        # 判断是否为VIP开通意向
+                        is_vip_order = (remark == '开通')
+                        # 如果没有备注但金额足够VIP价格，也可以视为VIP订单
+                        if not is_vip_order:
+                            config = get_system_config()
+                            if amount >= float(config.get('vip_price', 10)):
+                                is_vip_order = True
 
-                # D. 【关键】推入队列，让 Bot 线程去处理扣费、开通和分红
-                # 这样可以避免 Web 线程和 Bot 线程的状态冲突
-                try:
-                    import bot_logic
-                    if hasattr(bot_logic, 'process_recharge_queue'):
-                        bot_logic.process_recharge_queue.append({
-                            'member_id': telegram_id,
-                            'amount': amount,
-                            'is_vip_order': is_vip_order
-                        })
-                        print(f"[支付回调] 已将任务推入 Bot 队列，等待 Bot 处理 VIP 逻辑")
-                except Exception as q_err:
-                    print(f"[支付回调] 推送队列失败: {q_err}")
+                        if hasattr(bot_logic, 'process_recharge_queue'):
+                            bot_logic.process_recharge_queue.append({
+                                'member_id': member_id,
+                                'amount': amount,
+                                'is_vip_order': is_vip_order
+                            })
+                    except Exception as e:
+                        print(f'[支付回调] 推送Bot队列失败: {e}')
+            else:
+                print(f'[支付回调] 未找到订单: {out_trade_no}')
 
                 conn.close()
                 return 'success'
         
-        return 'success'
+        return 'success' # 即使状态不是4，也返回success告知网关已收到
+
     except Exception as e:
         print(f'[支付回调] 异常: {e}')
         import traceback
@@ -5569,7 +5808,7 @@ def api_assign_broadcast_to_group(group_id):
             c.execute('UPDATE broadcast_assignments SET is_active = ?, create_time = ? WHERE id = ?', (is_active, now, row[0]))
         else:
             c.execute('INSERT INTO broadcast_assignments (group_id, message_id, is_active, create_time) VALUES (?, ?, ?, ?)',
-                      (group_id, message_id, is_active, now))
+                (group_id, message_id, is_active, now))
         conn.commit()
         conn.close()
         return jsonify({'success': True, 'message': '分配已保存'})
@@ -8986,7 +9225,7 @@ def get_system_config():
         elif key.startswith('payment_'):
             # 处理支付相关配置
             config[key] = value
-
+    
     conn.close()
     return config
 
@@ -9324,6 +9563,7 @@ class WebDB:
                 'is_group_bound': bool(row[11]),  # 添加群状态字段
                 'is_bot_admin': bool(row[12]),
                 'is_joined_upline': bool(row[13]),
+                'backup_account': row[14] or '',  # 添加备用账号字段
                 'direct_count': direct_count,  # 实时计算的直推人数
                 'team_count': team_count  # 实时计算的团队人数
             })
@@ -9687,16 +9927,35 @@ from config import ADMIN_IDS
 from database import DB, get_cn_time, get_system_config, get_db_conn
 from core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
 
-# 支付配置 - 从web_app.py导入，确保配置一致性
-try:
-    from web_app import PAYMENT_CONFIG
-except ImportError:
-    # 如果导入失败，使用空配置
-    PAYMENT_CONFIG = {
-        'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
-        'return_url': 'http://154.201.68.178:5051/payment/success',
-        'version': '1.0'
-    }
+# 支付配置 - 使用数据库配置，带默认值
+PAYMENT_CONFIG = {
+    'api_url': '',
+    'partner_id': '',
+    'key': '',
+    'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
+    'return_url': 'http://154.201.68.178:5051/payment/success',
+    'pay_type': 'trc20',
+    'version': '1.0',
+    'payment_rate': 1.0
+}
+
+def load_payment_config():
+    """从数据库加载支付配置"""
+    try:
+        config = get_system_config()
+        PAYMENT_CONFIG.update({
+            'api_url': config.get('payment_url', ''),
+            'partner_id': str(config.get('payment_user_id', '')),
+            'key': config.get('payment_token', ''),
+            'pay_type': config.get('payment_channel', 'trc20'),
+            'payment_rate': float(config.get('payment_rate', 1.0)),
+        })
+        print(f"[支付模块] 已加载配置: URL={PAYMENT_CONFIG['api_url']}, PartnerID={PAYMENT_CONFIG['partner_id']}, PayType={PAYMENT_CONFIG['pay_type']}")
+    except Exception as e:
+        print(f"[支付模块] 加载配置失败，使用默认配置: {e}")
+
+# 在模块导入时自动加载配置
+load_payment_config()
 
 # 支付订单相关
 payment_orders = {}  # 存储充值订单
@@ -9710,20 +9969,14 @@ PAYMENT_ENABLED = True  # 启用支付功能 - 已更新为新接口
 CN_TIMEZONE = timezone(timedelta(hours=8))
 
 def generate_payment_sign(params, key):
-    """生成支付签名 - 按照之前能用的版本"""
-    # 按照之前能用的版本，包含所有非空参数（包括remark）
+    """生成支付签名"""
     sorted_params = sorted([(k, v) for k, v in params.items() if v is not None and v != ''])
     sign_str = '&'.join([f'{k}={v}' for k, v in sorted_params])
     sign_str += f'&key={key}'
-
-    print(f'[签名调试] 参与签名的参数: {sorted_params}')
-    print(f'[签名调试] 签名字符串: {sign_str}')
-
     return hashlib.md5(sign_str.encode()).hexdigest().upper()
 
 def create_payment_order(amount, out_trade_no, remark=''):
-    """创建支付订单 - 按照之前能用的参数顺序"""
-    # 按照之前能用的版本：amount, partnerid, notifyUrl, out_trade_no, payType, returnUrl, version, format
+    """创建支付订单"""
     params = {
         'amount': f'{amount:.2f}',
         'partnerid': PAYMENT_CONFIG['partner_id'],
@@ -9732,58 +9985,20 @@ def create_payment_order(amount, out_trade_no, remark=''):
         'payType': PAYMENT_CONFIG['pay_type'],
         'returnUrl': PAYMENT_CONFIG['return_url'],
         'version': PAYMENT_CONFIG['version'],
-        'format': 'json'  # 改回json格式
+        'format': 'json'
     }
 
-    # 生成签名
     params['sign'] = generate_payment_sign(params, PAYMENT_CONFIG['key'])
 
-    # 如果有备注，添加到参数中（在签名后添加）
     if remark:
         params['remark'] = remark
     try:
         print(f'[支付API] 请求参数: {params}')
-        response = req.post(PAYMENT_CONFIG['api_url'], data=params, timeout=10)
+        response = req.post(PAYMENT_CONFIG['api_url'], data=params, timeout=15)
 
-        # 调试：打印原始响应内容
-        print(f'[支付API] 响应状态码: {response.status_code}')
-        print(f'[支付API] 响应内容: {response.text[:500]}...')  # 只打印前500字符
-
-        # 检查是否是重定向
-        if response.status_code == 302 or response.status_code == 301:
-            print(f'[支付API] 重定向到: {response.headers.get("Location", "未知")}')
-
-        # 检查Content-Type
-        content_type = response.headers.get('content-type', '').lower()
-        print(f'[支付API] Content-Type: {content_type}')
-
-        if 'application/json' in content_type:
-            try:
-                result = response.json()
-                print(f'[支付API] JSON响应: {result}')
-                return result
-            except ValueError as json_error:
-                print(f'[支付API] JSON解析失败: {json_error}')
-                print(f'[支付API] 原始响应: {response.text[:1000]}...')
-                return None
-        else:
-            # 非JSON响应，可能是HTML页面或重定向
-            print(f'[支付API] 非JSON响应，可能是支付页面跳转')
-            print(f'[支付API] 响应内容类型: {content_type}')
-            print(f'[支付API] 响应长度: {len(response.text)} 字符')
-
-            # 检查是否包含支付相关信息
-            if 'qrcode' in response.text.lower() or '支付' in response.text or 'pay' in response.text.lower():
-                print(f'[支付API] 检测到支付相关内容，可能成功跳转到支付页面')
-                # 返回模拟的成功响应
-                return {
-                    'code': 200,
-                    'msg': '支付页面跳转',
-                    'data': {'url': response.url, 'content': response.text[:200]}
-                }
-            else:
-                print(f'[支付API] 响应内容: {response.text[:500]}...')
-                return None
+        result = response.json()
+        print(f'[支付API] 响应: {result}')
+        return result
 
     except Exception as e:
         print(f'[支付API错误] {e}')
@@ -15112,8 +15327,8 @@ function displayMembers(members) {
         <td class="py-1" style="padding-left:4px;padding-right:0px;">
             <div class="text-sm font-semibold ${m.is_fallback ? 'text-orange-600' : 'text-indigo-600'}">@${m.username || 'N/A'}</div>
             ${
-                m.backup_username
-                    ? '<div class="text-[11px] text-slate-500">备:' + (m.backup_username.startsWith('@') ? m.backup_username : '@' + m.backup_username) + '</div>'
+                m.backup_account
+                    ? '<div class="text-[11px] text-slate-500">备:' + (m.backup_account.startsWith('@') ? m.backup_account : '@' + m.backup_account) + '</div>'
                     : '<div class="text-[11px] text-slate-400">备: —</div>'
             }
         </td>
