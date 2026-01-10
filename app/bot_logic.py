@@ -286,7 +286,89 @@ admin_waiting = {}
 # 全局通知防重缓存 { "user_group_reason": timestamp }
 notification_history = {}
 
+# 按钮点击频率限制缓存 { user_id: [timestamp1, timestamp2, ...] }
+button_click_history = {}
+
 # 导入支付模块
+
+# ==================== 按钮频率限制逻辑 ====================
+
+
+def check_button_rate_limit(user_id, event=None):
+    """
+    检查按钮点击频率限制
+
+    返回值:
+    - None: 允许点击
+    - (限制时间, 提示消息): 被限制
+    """
+    import time
+    current_time = time.time()
+
+    # 初始化用户的点击历史
+    if user_id not in button_click_history:
+        button_click_history[user_id] = []
+
+    # 清理过期记录（超过1分钟的记录）
+    button_click_history[user_id] = [
+        timestamp for timestamp in button_click_history[user_id]
+        if current_time - timestamp < 60
+    ]
+
+    # 获取当前用户的点击历史
+    user_clicks = button_click_history[user_id]
+
+    # 添加当前点击
+    user_clicks.append(current_time)
+
+    # 检查5秒内连续点击3次的规则
+    recent_clicks = [ts for ts in user_clicks if current_time - ts <= 5]
+    if len(recent_clicks) >= 3:
+        return (60, "⏰ 操作过于频繁，请等待1分钟后再试")
+
+    # 检查1分钟内超过20次的规则
+    if len(user_clicks) >= 20:
+        return (300, "🚫 操作过于频繁，请等待5分钟后再试")
+
+    # 允许点击
+    return None
+
+
+def rate_limit_callback(func):
+    """按钮频率限制装饰器"""
+    async def wrapper(event, *args, **kwargs):
+        # 获取用户ID（考虑账号关联）
+        original_sender_id = event.sender_id
+        try:
+            mapped_id = get_main_account_id(
+                original_sender_id, getattr(event.sender, 'username', None))
+            user_id = mapped_id if mapped_id != original_sender_id else original_sender_id
+        except:
+            user_id = original_sender_id
+
+        # 检查频率限制
+        limit_result = check_button_rate_limit(user_id)
+        if limit_result:
+            limit_seconds, message = limit_result
+            await event.answer(message, alert=True)
+
+            # 清理过期记录（防止内存泄漏）
+            import time
+            current_time = time.time()
+            for uid in list(button_click_history.keys()):
+                button_click_history[uid] = [
+                    ts for ts in button_click_history[uid]
+                    if current_time - ts < 3600  # 1小时后清理
+                ]
+                if not button_click_history[uid]:
+                    del button_click_history[uid]
+
+            return
+
+        # 正常执行
+        return await func(event, *args, **kwargs)
+
+    return wrapper
 
 # ==================== 账号关联逻辑 ====================
 
@@ -1134,6 +1216,7 @@ async def start_handler(event):
     await event.respond(welcome_text, buttons=get_main_keyboard(telegram_id))
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(data=b'open_vip_balance'))
 async def open_vip_balance_callback(event):
     """【已修复】使用余额开通VIP - 统一调用 distribute_vip_rewards"""
@@ -1188,6 +1271,7 @@ async def open_vip_balance_callback(event):
         pass
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'confirm_vip'))
 async def confirm_vip_callback(event):
     """【已修复】确认开通VIP - 统一调用 distribute_vip_rewards"""
@@ -1627,6 +1711,7 @@ async def profile_handler(event):
 # ==================== 个人中心按钮回调处理 ====================
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'set_group'))
 async def set_group_callback(event):
     """设置群链接回调"""
@@ -1667,6 +1752,7 @@ async def set_group_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'set_backup'))
 async def set_backup_callback(event):
     """设置备用号回调"""
@@ -1694,6 +1780,7 @@ async def set_backup_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'earnings_history'))
 async def earnings_history_callback(event):
     """查看个人收益记录"""
@@ -1762,6 +1849,7 @@ async def earnings_history_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'withdraw'))
 async def withdraw_callback(event):
     """提现回调"""
@@ -1800,6 +1888,7 @@ async def withdraw_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'do_recharge'))
 async def do_recharge_callback(event):
     """充值回调"""
@@ -1838,6 +1927,7 @@ async def do_recharge_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'open_vip'))
 async def open_vip_callback(event):
     """开通VIP"""
@@ -1918,6 +2008,7 @@ VIP价格: {vip_price} U
 # 返回个人中心
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'back_to_profile'))
 async def back_to_profile_callback(event):
     """返回个人中心"""
@@ -1969,6 +2060,7 @@ async def back_to_profile_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(data=b'recharge_for_vip'))
 async def recharge_for_vip_callback(event):
     """充值开通VIP - 调用充值输入金额功能"""
@@ -2009,6 +2101,7 @@ async def recharge_for_vip_callback(event):
     await event.answer()
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=rb'verify_groups_.*'))
 async def verify_groups_callback(event):
     """验证用户是否加入所有需要加入的群组（上级群 + 捡漏群组，共10个）"""
@@ -2424,6 +2517,7 @@ async def view_fission_handler(event):
     await event.respond(text, buttons=buttons)
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=rb'flv_(\d+)_(\d+)'))
 async def flv_level_callback(event):
     """查看指定层的下级成员列表：flv_{level}_{page}"""
@@ -2514,6 +2608,7 @@ async def flv_level_callback(event):
         await event.answer('加载失败', alert=True)
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'fission_main_menu'))
 async def fission_main_menu_callback(event):
     """返回主菜单"""
@@ -2551,6 +2646,7 @@ async def fission_main_menu_callback(event):
         await event.answer('返回失败', alert=True)
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=b'back_handler'))
 async def back_handler_callback(event):
     """Callback 版本的返回主菜单"""
@@ -2695,6 +2791,7 @@ async def show_resource_categories(event, page=1, is_new=False):
 
 
 # 点击分类回调：显示该分类下的资源
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=rb'cat_(\d+)'))
 async def category_callback(event):
     try:
@@ -2769,6 +2866,7 @@ async def category_callback(event):
         await event.answer('加载失败', alert=True)
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=rb'back_to_categories'))
 async def back_to_categories_callback(event):
     """返回分类列表（同 show_resource_categories 第1页）"""
@@ -2780,6 +2878,7 @@ async def back_to_categories_callback(event):
         await event.answer('返回失败', alert=True)
 
 
+@rate_limit_callback
 @multi_bot_on(events.CallbackQuery(pattern=rb'res_page_(\d+)_(\d+)'))
 async def resource_page_callback(event):
     """分页资源显示：res_page_{category_id}_{page}"""
