@@ -3,6 +3,7 @@
 """
 import threading
 import time
+# 【注意】这里必须加点 . 表示从当前包导入
 from .database import init_db, sync_member_groups_from_members
 from .bot_logic import run_bot
 
@@ -19,8 +20,6 @@ def main():
     
     # 同步已有会员群链接到 member_groups
     print("🔄 同步会员群组数据...")
-    # 注意：这里不进行同步，因为此时机器人还没有启动
-    # 同步将在机器人启动后进行
     print("ℹ️ 跳过启动时的群组数据同步，将在机器人启动后进行")
     print()
     
@@ -28,6 +27,7 @@ def main():
     print("🌐 启动Web管理后台...")
     web_thread = None
     try:
+        # 【注意】这里的导入也建议检查一下 web_app.py 内部是否使用了相对导入
         from .web_app import run_web
         web_thread = threading.Thread(target=run_web, daemon=True)
         web_thread.start()
@@ -46,16 +46,11 @@ def main():
     print("   公网地址: http://154.201.68.178:5051")
     print("=" * 60)
     print()
-    print("💡 提示：")
-    print("   - 所有服务正在运行中...")
-    print("   - 如果网站无法访问，请检查防火墙和端口配置")
-    print("   - 按 Ctrl+C 停止所有服务")
-    print("=" * 60)
-    print()
     
     try:
         run_bot()
 
+        # 保活逻辑
         print("ℹ️ Bot服务未启动或已结束，主进程进入保活模式以维持Web后台运行...")
         while True:
             time.sleep(10)
@@ -70,10 +65,8 @@ def main():
         import traceback
         traceback.print_exc()
 
-        # 如果机器人启动失败，但Web服务可能还在运行
         if web_thread and web_thread.is_alive():
             print("💡 Web服务可能仍在运行，可以单独访问管理后台")
-
             print("ℹ️ 主进程进入保活模式以维持Web后台运行...")
             while True:
                 time.sleep(10)
@@ -82,4 +75,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

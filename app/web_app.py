@@ -15,7 +15,7 @@ from .config import UPLOAD_DIR, BASE_DIR
 
 # 延迟导入bot，避免循环依赖
 try:
-    from bot_logic import bot, process_recharge, admin_manual_vip_handler, notify_queue, pending_broadcasts
+    from .bot_logic import bot, process_recharge, admin_manual_vip_handler, notify_queue, pending_broadcasts
 except ImportError:
     # 如果导入失败，设置为None，后续使用时再导入
     bot = None
