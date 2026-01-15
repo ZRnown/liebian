@@ -3,8 +3,8 @@
 机器人逻辑层 - 统一管理所有Telegram机器人交互
 【核心修复】所有VIP开通路径都调用 distribute_vip_rewards，删除冗余的手写分红逻辑
 """
-from payment import create_recharge_order, PAYMENT_CONFIG, generate_payment_sign
-from config import SESSION_DIR
+from .payment import create_recharge_order, PAYMENT_CONFIG, generate_payment_sign
+from .config import SESSION_DIR
 import asyncio
 import sqlite3
 import time
@@ -23,17 +23,17 @@ from telethon.tl.types import (
 from telethon.tl.functions.channels import GetParticipantRequest
 import socks
 
-from config import (
+from .config import (
     API_ID, API_HASH, ADMIN_IDS, USE_PROXY,
     PROXY_TYPE, PROXY_HOST, PROXY_PORT, DATA_DIR
 )
-from database import DB, get_cn_time, get_system_config, get_db_conn
-from core_functions import (
+from .database import DB, get_cn_time, get_system_config, get_db_conn
+from .core_functions import (
     get_upline_chain, check_user_conditions, update_level_path,
     distribute_vip_rewards, check_user_in_group, check_bot_is_admin,
     verify_group_link, check_any_bot_in_group
 )
-from bot_commands_addon import (
+from .bot_commands_addon import (
     handle_bind_group, handle_join_upline, handle_group_link_message,
     handle_check_status, handle_my_team
 )
@@ -5069,8 +5069,9 @@ __all__ = [
 启动入口 - 统一启动Bot和Web后台
 """
 import threading
-from database import init_db, sync_member_groups_from_members
-from bot_logic import run_bot
+import time
+from .database import init_db, sync_member_groups_from_members
+from .bot_logic import run_bot
 
 def main():
     print("=" * 60)
@@ -5121,6 +5122,11 @@ def main():
     
     try:
         run_bot()
+
+        print("ℹ️ Bot服务未启动或已结束，主进程进入保活模式以维持Web后台运行...")
+        while True:
+            time.sleep(10)
+
     except KeyboardInterrupt:
         print("\n🛑 收到停止信号，正在关闭服务...")
         if web_thread and web_thread.is_alive():
@@ -5134,6 +5140,10 @@ def main():
         # 如果机器人启动失败，但Web服务可能还在运行
         if web_thread and web_thread.is_alive():
             print("💡 Web服务可能仍在运行，可以单独访问管理后台")
+
+            print("ℹ️ 主进程进入保活模式以维持Web后台运行...")
+            while True:
+                time.sleep(10)
         else:
             print("❌ 所有服务启动失败，请检查配置和网络连接")
 
@@ -5154,8 +5164,8 @@ from flask import Flask, render_template, jsonify, request, redirect, url_for
 from flask_login import LoginManager, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from database import DB, WebDB, AdminUser, get_system_config, get_db_conn, get_cn_time, update_system_config
-from config import UPLOAD_DIR, BASE_DIR
+from .database import DB, WebDB, AdminUser, get_system_config, get_db_conn, get_cn_time, update_system_config
+from .config import UPLOAD_DIR, BASE_DIR
 
 # 延迟导入bot，避免循环依赖
 try:
@@ -9785,9 +9795,9 @@ import re
 from datetime import datetime, timedelta, timezone
 from telethon import Button
 
-from config import ADMIN_IDS
-from database import DB, get_cn_time, get_system_config, get_db_conn
-from core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
+from .config import ADMIN_IDS
+from .database import DB, get_cn_time, get_system_config, get_db_conn
+from .core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
 
 # 支付配置 - 使用数据库配置，带默认值
 PAYMENT_CONFIG = {

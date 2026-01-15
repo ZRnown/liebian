@@ -2,8 +2,8 @@
 机器人逻辑层 - 统一管理所有Telegram机器人交互
 【核心修复】所有VIP开通路径都调用 distribute_vip_rewards，删除冗余的手写分红逻辑
 """
-from payment import create_recharge_order, PAYMENT_CONFIG, generate_payment_sign
-from config import SESSION_DIR
+from .payment import create_recharge_order, PAYMENT_CONFIG, generate_payment_sign
+from .config import SESSION_DIR
 import asyncio
 import sqlite3
 import time
@@ -22,17 +22,17 @@ from telethon.tl.types import (
 from telethon.tl.functions.channels import GetParticipantRequest
 import socks
 
-from config import (
+from .config import (
     API_ID, API_HASH, ADMIN_IDS, USE_PROXY,
     PROXY_TYPE, PROXY_HOST, PROXY_PORT, DATA_DIR
 )
-from database import DB, get_cn_time, get_system_config, get_db_conn
-from core_functions import (
+from .database import DB, get_cn_time, get_system_config, get_db_conn
+from .core_functions import (
     get_upline_chain, check_user_conditions, update_level_path,
     distribute_vip_rewards, check_user_in_group, check_bot_is_admin,
     verify_group_link, check_any_bot_in_group
 )
-from bot_commands_addon import (
+from .bot_commands_addon import (
     handle_bind_group, handle_join_upline, handle_group_link_message,
     handle_check_status, handle_my_team
 )

@@ -10,8 +10,8 @@ from flask import Flask, render_template, jsonify, request, redirect, url_for
 from flask_login import LoginManager, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from database import DB, WebDB, AdminUser, get_system_config, get_db_conn, get_cn_time, update_system_config
-from config import UPLOAD_DIR, BASE_DIR
+from .database import DB, WebDB, AdminUser, get_system_config, get_db_conn, get_cn_time, update_system_config
+from .config import UPLOAD_DIR, BASE_DIR
 
 # 延迟导入bot，避免循环依赖
 try:

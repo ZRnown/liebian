@@ -3,8 +3,8 @@
 """
 import threading
 import time
-from database import init_db, sync_member_groups_from_members
-from bot_logic import run_bot
+from .database import init_db, sync_member_groups_from_members
+from .bot_logic import run_bot
 
 def main():
     print("=" * 60)
@@ -28,7 +28,7 @@ def main():
     print("🌐 启动Web管理后台...")
     web_thread = None
     try:
-        from web_app import run_web
+        from .web_app import run_web
         web_thread = threading.Thread(target=run_web, daemon=True)
         web_thread.start()
         print("✅ Web管理后台已启动 (端口: 5051)")
