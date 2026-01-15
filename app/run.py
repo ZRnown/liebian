@@ -2,6 +2,7 @@
 启动入口 - 统一启动Bot和Web后台
 """
 import threading
+import time
 from database import init_db, sync_member_groups_from_members
 from bot_logic import run_bot
 
@@ -54,6 +55,11 @@ def main():
     
     try:
         run_bot()
+
+        print("ℹ️ Bot服务未启动或已结束，主进程进入保活模式以维持Web后台运行...")
+        while True:
+            time.sleep(10)
+
     except KeyboardInterrupt:
         print("\n🛑 收到停止信号，正在关闭服务...")
         if web_thread and web_thread.is_alive():
@@ -67,6 +73,10 @@ def main():
         # 如果机器人启动失败，但Web服务可能还在运行
         if web_thread and web_thread.is_alive():
             print("💡 Web服务可能仍在运行，可以单独访问管理后台")
+
+            print("ℹ️ 主进程进入保活模式以维持Web后台运行...")
+            while True:
+                time.sleep(10)
         else:
             print("❌ 所有服务启动失败，请检查配置和网络连接")
 
