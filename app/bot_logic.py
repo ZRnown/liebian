@@ -194,7 +194,7 @@ permission_check_triggered = False
 
 # 如果数据库没配置，尝试读取环境变量配置作为默认
 if not active_tokens:
-    from config import BOT_TOKEN
+    from .config import BOT_TOKEN
     if BOT_TOKEN:
         print("[机器人初始化] 数据库无配置，使用默认配置文件Token")
         active_tokens.append((0, BOT_TOKEN))
