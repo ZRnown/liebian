@@ -986,7 +986,7 @@ def api_broadcast_to_groups():
             return jsonify({'success': False, 'message': '未找到对应的群组'}), 404
 
         # 【修复点】正确引用 bot_logic 中的变量
-        import bot_logic
+        from . import bot_logic
         # 确保列表存在
         if not hasattr(bot_logic, 'pending_broadcasts'):
             bot_logic.pending_broadcasts = []

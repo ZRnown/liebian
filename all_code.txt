@@ -1407,20 +1407,23 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
             if bot:
                 await distribute_vip_rewards(bot, telegram_id, vip_price, config)
 
-            from core_functions import generate_vip_success_message
+            from .core_functions import generate_vip_success_message
             msg = generate_vip_success_message(
                 telegram_id, amount, vip_price, new_balance)
             if bot:
                 try:
-                    await bot.send_message(telegram_id, msg, parse_mode='markdown')
-                except BaseException:
-                    pass
+                    await bot.send_message(telegram_id, msg, parse_mode=None)
+                    print(f"[充值处理] ✅ VIP开通通知已发送给 {telegram_id}")
+                except Exception as e:
+                    print(f"[充值处理] ❌ 发送VIP通知失败: {e}")
         else:
-            if not is_vip_order and bot:
+            if bot:
                 try:
-                    await bot.send_message(telegram_id, f'✅ 充值到账通知\n\n💰 金额: {amount} U\n💵 当前余额: {current_balance} U')
-                except BaseException:
-                    pass
+                    msg = f'✅ 充值到账通知\n\n💰 金额: {amount} U\n💵 当前余额: {current_balance} U'
+                    await bot.send_message(telegram_id, msg, parse_mode=None)
+                    print(f"[充值处理] ✅ 普通充值通知已发送给 {telegram_id}")
+                except Exception as e:
+                    print(f"[充值处理] ❌ 发送普通充值通知失败: {e}")
     except Exception as e:
         print(f"[充值处理异常] {e}")
         return False
@@ -5268,7 +5271,7 @@ import requests as req
 def process_vip_upgrade_sync(telegram_id, vip_price, config, deduct_balance=True):
     """同步版本的VIP开通处理（用于支付回调）"""
     try:
-        from bot_logic import DB, distribute_vip_rewards, get_system_config
+        from .bot_logic import DB, distribute_vip_rewards, get_system_config
 
         member = DB.get_member(telegram_id)
         if not member:
@@ -5534,7 +5537,7 @@ def payment_notify():
 
                     # 触发后续逻辑 (推入Bot队列)
                     try:
-                        import bot_logic
+                        from . import bot_logic
                         # 判断是否为VIP开通意向
                         is_vip_order = (remark == '开通')
                         # 如果没有备注但金额足够VIP价格，也可以视为VIP订单
@@ -7439,7 +7442,7 @@ def api_members_broadcast():
 
         # 确保notify_queue已初始化
         if not notify_queue:
-            from bot_logic import notify_queue
+            from .bot_logic import notify_queue
         
         for mid in targets:
             notify_queue.append({'member_id': mid, 'message': message})
@@ -7751,7 +7754,7 @@ def api_manual_vip(telegram_id):
             bot.loop.create_task(admin_manual_vip_handler(telegram_id, config))
         else:
             # 如果bot未初始化，延迟导入
-            from bot_logic import bot, admin_manual_vip_handler
+            from .bot_logic import bot, admin_manual_vip_handler
             bot.loop.create_task(admin_manual_vip_handler(telegram_id, config))
         
         return jsonify({
@@ -8459,10 +8462,10 @@ def generate_vip_success_message(telegram_id, amount, vip_price, current_balance
             u_row = c.fetchone()
 
             if u_row and u_row[1]: # 有群链接
-                # 简单处理群名
                 g_link = u_row[1]
-                u_name = u_row[0] or f"用户{uid}"
-                upline_groups_text += f"{lvl}. @{u_name}的群\n"
+                u_name = u_row[0]
+                display_name = f"@{u_name}" if u_name else f"用户{uid}"
+                upline_groups_text += f"{lvl}. {display_name} 的群\n"
                 group_count += 1
 
         conn.close()
