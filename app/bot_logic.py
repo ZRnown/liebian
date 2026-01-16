@@ -3178,7 +3178,23 @@ async def vip_handler(event):
             f'✅ 机器人推送群裂变\n'
             f'✅ 拓展资源裂变财富\n\n'
             f'✅ 余额充足，可以直接开通',
-            buttons=[[Button.inline('💳 确认开通', b'vip_direct_open')]]
+            buttons=[[Button.inline('💳 确认开通', b'confirm_vip')]]
+        )
+    else:
+        await event.respond(
+            f'💎 开通VIP会员\n\n'
+            f'🏅 VIP价格: {config["vip_price"]} U\n'
+            f'🏦 当前余额: {member["balance"]} U\n'
+            f'💹 还需充值: {config["vip_price"] - member["balance"]} U\n\n'
+            f'--------------------\n\n'
+            f'开通VIP后您将获得:\n'
+            f'✅ 查看裂变数据\n'
+            f'✅ 十级裂变VIP奖励\n'
+            f'✅ 加入上级群组\n'
+            f'✅ 机器人推送群裂变\n'
+            f'✅ 拓展资源裂变财富\n\n'
+            f'❌ 余额不足，请先充值',
+            buttons=[[Button.inline(f'💰 充值 {config["vip_price"]} U 开通VIP', b'recharge_for_vip')]]
         )
 
 
