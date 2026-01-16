@@ -2140,7 +2140,7 @@ async def recharge_for_vip_callback(event):
     
     # 调用充值订单创建函数（传入bot参数）
     try:
-        from payment import create_recharge_order
+        from .payment import create_recharge_order
         await create_recharge_order(bot, event, need_recharge, is_vip_order=True)
     except Exception as e:
         print(f"[充值VIP订单创建失败] {e}")
