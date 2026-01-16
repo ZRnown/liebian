@@ -1583,9 +1583,21 @@ def api_create_bot_config():
         now = get_cn_time()
         c.execute('INSERT INTO bot_configs (bot_token, bot_username, is_active, create_time) VALUES (?, ?, ?, ?)',
                   (token, username, 1, now))
+        new_id = c.lastrowid
         conn.commit()
         conn.close()
-        return jsonify({'success': True, 'message': '机器人已添加'})
+
+        try:
+            from .bot_logic import bot, add_bot_dynamically
+            if bot and getattr(bot, 'loop', None):
+                bot.loop.create_task(add_bot_dynamically(new_id, token))
+                print(f"[Web] 已触发新机器人动态启动: ID {new_id}")
+            else:
+                print("[Web] 主Bot未运行，无法动态启动，需重启生效")
+        except Exception as e:
+            print(f"[Web] 动态启动触发失败 (需手动重启): {e}")
+
+        return jsonify({'success': True, 'message': '机器人已添加 (尝试自动启动中...)'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 

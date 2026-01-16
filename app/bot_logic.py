@@ -189,6 +189,8 @@ def get_active_bot_tokens():
 clients = []
 active_tokens = get_active_bot_tokens()
 
+registered_handlers = []
+
 # 权限检查控制变量
 permission_check_triggered = False
 
@@ -263,6 +265,7 @@ else:
 
 def multi_bot_on(event_builder):
     def decorator(handler):
+        registered_handlers.append((handler, event_builder))
         for client in clients:
             client.add_event_handler(handler, event_builder)
         return handler
@@ -5050,11 +5053,36 @@ def run_bot():
         print("💡 机器人已停止，但Web服务可能仍在运行")
 
 
+async def add_bot_dynamically(db_id, token):
+    try:
+        session_name = f'bot_{db_id}'
+        session_path = os.path.join(SESSION_DIR, session_name)
+        print(f"[动态添加] 正在启动 Bot ID {db_id} (Session: {session_name})...")
+
+        client = TelegramClient(session_path, API_ID, API_HASH, proxy=proxy)
+        await client.start(bot_token=token)
+
+        for handler, event_builder in registered_handlers:
+            client.add_event_handler(handler, event_builder)
+
+        clients.append(client)
+        global bot
+        if bot is None:
+            bot = client
+
+        print(f"[动态添加] ✅ 启动成功: {token[:10]}...")
+        return True, "启动成功"
+    except Exception as e:
+        print(f"[动态添加] ❌ 启动失败 (ID: {db_id}): {e}")
+        return False, str(e)
+
+
 # 导出
 __all__ = [
     'bot', 'clients', 'process_vip_upgrade', 'process_recharge',
     'admin_manual_vip_handler', 'get_main_account_id', 'run_bot',
-    'pending_broadcasts', 'notify_queue'
+    'pending_broadcasts', 'notify_queue',
+    'add_bot_dynamically',
     # 后台任务（供调试使用）
     'auto_broadcast_timer',
     'process_broadcast_queue',
