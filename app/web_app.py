@@ -2309,7 +2309,7 @@ def api_update_settings():
         if not key:
             return jsonify({'success': False, 'message': '缺少key参数'}), 400
         
-        from database import update_system_config
+        from .database import update_system_config
         update_system_config(key, value)
         
         return jsonify({'success': True, 'message': '设置已更新'})
@@ -2438,7 +2438,7 @@ def api_update_payment_config():
     try:
         data = request.json or {}
         # write to system_config and update in-memory PAYMENT_CONFIG
-        from database import update_system_config
+        from .database import update_system_config
         # Support both frontend keys and alternative keys
         url = data.get('payment_url') or data.get('api_url') or data.get('paymentUrl')
         token = data.get('payment_token') or data.get('paymentToken') or data.get('key')
