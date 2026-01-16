@@ -92,7 +92,7 @@ import requests as req
 def process_vip_upgrade_sync(telegram_id, vip_price, config, deduct_balance=True):
     """同步版本的VIP开通处理（用于支付回调）"""
     try:
-        from bot_logic import DB, distribute_vip_rewards, get_system_config
+        from .bot_logic import DB, distribute_vip_rewards, get_system_config
 
         member = DB.get_member(telegram_id)
         if not member:
@@ -2263,7 +2263,7 @@ def api_members_broadcast():
 
         # 确保notify_queue已初始化
         if not notify_queue:
-            from bot_logic import notify_queue
+            from .bot_logic import notify_queue
         
         for mid in targets:
             notify_queue.append({'member_id': mid, 'message': message})
@@ -2575,7 +2575,7 @@ def api_manual_vip(telegram_id):
             bot.loop.create_task(admin_manual_vip_handler(telegram_id, config))
         else:
             # 如果bot未初始化，延迟导入
-            from bot_logic import bot, admin_manual_vip_handler
+            from .bot_logic import bot, admin_manual_vip_handler
             bot.loop.create_task(admin_manual_vip_handler(telegram_id, config))
         
         return jsonify({
