@@ -80,3 +80,10 @@ PROXY_TYPE = os.getenv('PROXY_TYPE') or _env_config.get('PROXY_TYPE', 'socks5')
 PROXY_HOST = os.getenv('PROXY_HOST') or _env_config.get('PROXY_HOST', '127.0.0.1')
 PROXY_PORT = int(os.getenv('PROXY_PORT') or _env_config.get('PROXY_PORT', '7897'))
 
+# ==================== Web / Payment 回调公共配置 ====================
+# 对外可访问的站点根地址（带端口），用于拼接支付回调/跳转等URL。
+# 示例:
+# - http://1.2.3.4:5051
+# - https://your-domain.com
+PUBLIC_BASE_URL = (os.getenv('PUBLIC_BASE_URL') or _env_config.get('PUBLIC_BASE_URL', '')).rstrip('/')
+

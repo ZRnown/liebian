@@ -6,6 +6,7 @@ import time
 # 【注意】这里必须加点 . 表示从当前包导入
 from .database import init_db, sync_member_groups_from_members
 from .bot_logic import run_bot
+from .config import PUBLIC_BASE_URL
 
 def main():
     print("=" * 60)
@@ -43,7 +44,8 @@ def main():
     print("=" * 60)
     print("📱 访问地址：")
     print("   Web后台: http://localhost:5051")
-    print("   公网地址: http://154.201.68.178:5051")
+    if PUBLIC_BASE_URL:
+        print(f"   公网地址: {PUBLIC_BASE_URL}")
     print("=" * 60)
     print()
     

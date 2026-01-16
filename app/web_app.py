@@ -11,7 +11,7 @@ from flask_login import LoginManager, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from .database import DB, WebDB, AdminUser, get_system_config, get_db_conn, get_cn_time, update_system_config
-from .config import UPLOAD_DIR, BASE_DIR
+from .config import UPLOAD_DIR, BASE_DIR, PUBLIC_BASE_URL
 
 # 延迟导入bot，避免循环依赖
 try:
@@ -67,8 +67,8 @@ def api_require_login_for_api():
 # ==================== 支付系统配置 ====================
 # 完全从数据库加载，不使用硬编码默认值
 PAYMENT_CONFIG = {
-    'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
-    'return_url': 'http://154.201.68.178:5051/payment/success',
+    'notify_url': (f"{PUBLIC_BASE_URL}/api/payment/notify" if PUBLIC_BASE_URL else ''),
+    'return_url': (f"{PUBLIC_BASE_URL}/payment/success" if PUBLIC_BASE_URL else ''),
     'version': '1.0'
 }
 

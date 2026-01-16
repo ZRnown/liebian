@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from telethon import Button
 
-from .config import ADMIN_IDS
+from .config import ADMIN_IDS, PUBLIC_BASE_URL
 from .database import DB, get_cn_time, get_system_config, get_db_conn
 from .core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
 
@@ -19,8 +19,8 @@ PAYMENT_CONFIG = {
     'api_url': '',
     'partner_id': '',
     'key': '',
-    'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
-    'return_url': 'http://154.201.68.178:5051/payment/success',
+    'notify_url': (f"{PUBLIC_BASE_URL}/api/payment/notify" if PUBLIC_BASE_URL else ''),
+    'return_url': (f"{PUBLIC_BASE_URL}/payment/success" if PUBLIC_BASE_URL else ''),
     'pay_type': 'trc20',
     'version': '1.0',
     'payment_rate': 1.0

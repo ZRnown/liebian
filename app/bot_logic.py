@@ -3308,9 +3308,10 @@ async def admin_handler(event):
     text += f'💳 提现门槛: {config["withdraw_threshold"]} U\n'
     text += f'💵 USDT地址: {config["usdt_address"][:10] if config["usdt_address"] else "未设置"}...{config["usdt_address"][-10:] if config["usdt_address"] and len(config["usdt_address"]) > 20 else ""}\n\n'
     text += f'客服文本:\n{config["support_text"]}\n\n'
-    from config import USE_PROXY
-    web_url = 'http://154.201.68.178:5051' if not USE_PROXY else 'http://localhost:5051'
-    text += f'🌐 Web管理后台: {web_url}'
+    from .config import USE_PROXY, PUBLIC_BASE_URL
+    web_url = PUBLIC_BASE_URL or ('http://localhost:5051' if USE_PROXY else '')
+    if web_url:
+        text += f'🌐 Web管理后台: {web_url}'
     
     buttons = [
         [
