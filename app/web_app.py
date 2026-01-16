@@ -358,7 +358,7 @@ def payment_notify():
 
                     # 触发后续逻辑 (推入Bot队列)
                     try:
-                        import bot_logic
+                        from . import bot_logic
                         # 判断是否为VIP开通意向
                         is_vip_order = (remark == '开通')
                         # 如果没有备注但金额足够VIP价格，也可以视为VIP订单
