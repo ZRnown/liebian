@@ -539,10 +539,10 @@ def generate_vip_success_message(telegram_id, amount, vip_price, current_balance
             u_row = c.fetchone()
 
             if u_row and u_row[1]: # 有群链接
-                # 简单处理群名
                 g_link = u_row[1]
-                u_name = u_row[0] or f"用户{uid}"
-                upline_groups_text += f"{lvl}. @{u_name}的群\n"
+                u_name = u_row[0]
+                display_name = f"@{u_name}" if u_name else f"用户{uid}"
+                upline_groups_text += f"{lvl}. {display_name} 的群\n"
                 group_count += 1
 
         conn.close()

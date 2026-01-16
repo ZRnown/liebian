@@ -80,9 +80,10 @@ def create_payment_order(amount, out_trade_no, remark=''):
     if remark:
         params['remark'] = remark
     try:
+        load_payment_config()
         print(f'[支付API] 请求参数: {params}')
         if not PAYMENT_CONFIG.get('api_url'):
-            raise ValueError('支付配置错误：payment_url(api_url) 为空，请先在Web后台填写“支付网关地址/支付URL”')
+            raise ValueError('支付配置错误：payment_url(api_url) 为空，请先在Web后台填写“支付网关地址/支付URL”并保存，然后重试')
         response = req.post(PAYMENT_CONFIG['api_url'], data=params, timeout=15)
 
         result = response.json()

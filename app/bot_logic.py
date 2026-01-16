@@ -1406,20 +1406,23 @@ async def process_recharge(telegram_id, amount, is_vip_order=False):
             if bot:
                 await distribute_vip_rewards(bot, telegram_id, vip_price, config)
 
-            from core_functions import generate_vip_success_message
+            from .core_functions import generate_vip_success_message
             msg = generate_vip_success_message(
                 telegram_id, amount, vip_price, new_balance)
             if bot:
                 try:
-                    await bot.send_message(telegram_id, msg, parse_mode='markdown')
-                except BaseException:
-                    pass
+                    await bot.send_message(telegram_id, msg, parse_mode=None)
+                    print(f"[充值处理] ✅ VIP开通通知已发送给 {telegram_id}")
+                except Exception as e:
+                    print(f"[充值处理] ❌ 发送VIP通知失败: {e}")
         else:
-            if not is_vip_order and bot:
+            if bot:
                 try:
-                    await bot.send_message(telegram_id, f'✅ 充值到账通知\n\n💰 金额: {amount} U\n💵 当前余额: {current_balance} U')
-                except BaseException:
-                    pass
+                    msg = f'✅ 充值到账通知\n\n💰 金额: {amount} U\n💵 当前余额: {current_balance} U'
+                    await bot.send_message(telegram_id, msg, parse_mode=None)
+                    print(f"[充值处理] ✅ 普通充值通知已发送给 {telegram_id}")
+                except Exception as e:
+                    print(f"[充值处理] ❌ 发送普通充值通知失败: {e}")
     except Exception as e:
         print(f"[充值处理异常] {e}")
         return False

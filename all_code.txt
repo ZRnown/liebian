@@ -190,6 +190,8 @@ def get_active_bot_tokens():
 clients = []
 active_tokens = get_active_bot_tokens()
 
+registered_handlers = []
+
 # 权限检查控制变量
 permission_check_triggered = False
 
@@ -264,6 +266,7 @@ else:
 
 def multi_bot_on(event_builder):
     def decorator(handler):
+        registered_handlers.append((handler, event_builder))
         for client in clients:
             client.add_event_handler(handler, event_builder)
         return handler
@@ -2138,7 +2141,7 @@ async def recharge_for_vip_callback(event):
     
     # 调用充值订单创建函数（传入bot参数）
     try:
-        from payment import create_recharge_order
+        from .payment import create_recharge_order
         await create_recharge_order(bot, event, need_recharge, is_vip_order=True)
     except Exception as e:
         print(f"[充值VIP订单创建失败] {e}")
@@ -3306,9 +3309,10 @@ async def admin_handler(event):
     text += f'💳 提现门槛: {config["withdraw_threshold"]} U\n'
     text += f'💵 USDT地址: {config["usdt_address"][:10] if config["usdt_address"] else "未设置"}...{config["usdt_address"][-10:] if config["usdt_address"] and len(config["usdt_address"]) > 20 else ""}\n\n'
     text += f'客服文本:\n{config["support_text"]}\n\n'
-    from config import USE_PROXY
-    web_url = 'http://154.201.68.178:5051' if not USE_PROXY else 'http://localhost:5051'
-    text += f'🌐 Web管理后台: {web_url}'
+    from .config import USE_PROXY, PUBLIC_BASE_URL
+    web_url = PUBLIC_BASE_URL or ('http://localhost:5051' if USE_PROXY else '')
+    if web_url:
+        text += f'🌐 Web管理后台: {web_url}'
     
     buttons = [
         [
@@ -4990,7 +4994,7 @@ def run_bot():
                 print(f"📊 共有 {len(connected_clients)} 个机器人可用于同步")
 
                 try:
-                    from database import sync_member_groups_from_members
+                    from .database import sync_member_groups_from_members
                     # 传递已连接的客户端列表给同步函数
                     await sync_member_groups_from_members(connected_clients)
                     print("✅ 会员群组数据同步完成")
@@ -5051,11 +5055,36 @@ def run_bot():
         print("💡 机器人已停止，但Web服务可能仍在运行")
 
 
+async def add_bot_dynamically(db_id, token):
+    try:
+        session_name = f'bot_{db_id}'
+        session_path = os.path.join(SESSION_DIR, session_name)
+        print(f"[动态添加] 正在启动 Bot ID {db_id} (Session: {session_name})...")
+
+        client = TelegramClient(session_path, API_ID, API_HASH, proxy=proxy)
+        await client.start(bot_token=token)
+
+        for handler, event_builder in registered_handlers:
+            client.add_event_handler(handler, event_builder)
+
+        clients.append(client)
+        global bot
+        if bot is None:
+            bot = client
+
+        print(f"[动态添加] ✅ 启动成功: {token[:10]}...")
+        return True, "启动成功"
+    except Exception as e:
+        print(f"[动态添加] ❌ 启动失败 (ID: {db_id}): {e}")
+        return False, str(e)
+
+
 # 导出
 __all__ = [
     'bot', 'clients', 'process_vip_upgrade', 'process_recharge',
     'admin_manual_vip_handler', 'get_main_account_id', 'run_bot',
-    'pending_broadcasts', 'notify_queue'
+    'pending_broadcasts', 'notify_queue',
+    'add_bot_dynamically',
     # 后台任务（供调试使用）
     'auto_broadcast_timer',
     'process_broadcast_queue',
@@ -5073,6 +5102,7 @@ import time
 # 【注意】这里必须加点 . 表示从当前包导入
 from .database import init_db, sync_member_groups_from_members
 from .bot_logic import run_bot
+from .config import PUBLIC_BASE_URL
 
 def main():
     print("=" * 60)
@@ -5110,7 +5140,8 @@ def main():
     print("=" * 60)
     print("📱 访问地址：")
     print("   Web后台: http://localhost:5051")
-    print("   公网地址: http://154.201.68.178:5051")
+    if PUBLIC_BASE_URL:
+        print(f"   公网地址: {PUBLIC_BASE_URL}")
     print("=" * 60)
     print()
     
@@ -5156,7 +5187,7 @@ from flask_login import LoginManager, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from .database import DB, WebDB, AdminUser, get_system_config, get_db_conn, get_cn_time, update_system_config
-from .config import UPLOAD_DIR, BASE_DIR
+from .config import UPLOAD_DIR, BASE_DIR, PUBLIC_BASE_URL
 
 # 延迟导入bot，避免循环依赖
 try:
@@ -5212,8 +5243,8 @@ def api_require_login_for_api():
 # ==================== 支付系统配置 ====================
 # 完全从数据库加载，不使用硬编码默认值
 PAYMENT_CONFIG = {
-    'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
-    'return_url': 'http://154.201.68.178:5051/payment/success',
+    'notify_url': (f"{PUBLIC_BASE_URL}/api/payment/notify" if PUBLIC_BASE_URL else ''),
+    'return_url': (f"{PUBLIC_BASE_URL}/payment/success" if PUBLIC_BASE_URL else ''),
     'version': '1.0'
 }
 
@@ -6728,9 +6759,21 @@ def api_create_bot_config():
         now = get_cn_time()
         c.execute('INSERT INTO bot_configs (bot_token, bot_username, is_active, create_time) VALUES (?, ?, ?, ?)',
                   (token, username, 1, now))
+        new_id = c.lastrowid
         conn.commit()
         conn.close()
-        return jsonify({'success': True, 'message': '机器人已添加'})
+
+        try:
+            from .bot_logic import bot, add_bot_dynamically
+            if bot and getattr(bot, 'loop', None):
+                bot.loop.create_task(add_bot_dynamically(new_id, token))
+                print(f"[Web] 已触发新机器人动态启动: ID {new_id}")
+            else:
+                print("[Web] 主Bot未运行，无法动态启动，需重启生效")
+        except Exception as e:
+            print(f"[Web] 动态启动触发失败 (需手动重启): {e}")
+
+        return jsonify({'success': True, 'message': '机器人已添加 (尝试自动启动中...)'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -7442,7 +7485,7 @@ def api_update_settings():
         if not key:
             return jsonify({'success': False, 'message': '缺少key参数'}), 400
         
-        from database import update_system_config
+        from .database import update_system_config
         update_system_config(key, value)
         
         return jsonify({'success': True, 'message': '设置已更新'})
@@ -7571,7 +7614,7 @@ def api_update_payment_config():
     try:
         data = request.json or {}
         # write to system_config and update in-memory PAYMENT_CONFIG
-        from database import update_system_config
+        from .database import update_system_config
         # Support both frontend keys and alternative keys
         url = data.get('payment_url') or data.get('api_url') or data.get('paymentUrl')
         token = data.get('payment_token') or data.get('paymentToken') or data.get('key')
@@ -7865,6 +7908,13 @@ USE_PROXY = (os.getenv('USE_PROXY') or _env_config.get('USE_PROXY', 'False')).lo
 PROXY_TYPE = os.getenv('PROXY_TYPE') or _env_config.get('PROXY_TYPE', 'socks5')
 PROXY_HOST = os.getenv('PROXY_HOST') or _env_config.get('PROXY_HOST', '127.0.0.1')
 PROXY_PORT = int(os.getenv('PROXY_PORT') or _env_config.get('PROXY_PORT', '7897'))
+
+# ==================== Web / Payment 回调公共配置 ====================
+# 对外可访问的站点根地址（带端口），用于拼接支付回调/跳转等URL。
+# 示例:
+# - http://1.2.3.4:5051
+# - https://your-domain.com
+PUBLIC_BASE_URL = (os.getenv('PUBLIC_BASE_URL') or _env_config.get('PUBLIC_BASE_URL', '')).rstrip('/')
 
 
 --- File: ./app/core_functions.py ---
@@ -9786,7 +9836,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from telethon import Button
 
-from .config import ADMIN_IDS
+from .config import ADMIN_IDS, PUBLIC_BASE_URL
 from .database import DB, get_cn_time, get_system_config, get_db_conn
 from .core_functions import update_level_path, distribute_vip_rewards, get_upline_chain
 
@@ -9795,8 +9845,8 @@ PAYMENT_CONFIG = {
     'api_url': '',
     'partner_id': '',
     'key': '',
-    'notify_url': 'http://154.201.68.178:5051/api/payment/notify',
-    'return_url': 'http://154.201.68.178:5051/payment/success',
+    'notify_url': (f"{PUBLIC_BASE_URL}/api/payment/notify" if PUBLIC_BASE_URL else ''),
+    'return_url': (f"{PUBLIC_BASE_URL}/payment/success" if PUBLIC_BASE_URL else ''),
     'pay_type': 'trc20',
     'version': '1.0',
     'payment_rate': 1.0
@@ -9856,7 +9906,10 @@ def create_payment_order(amount, out_trade_no, remark=''):
     if remark:
         params['remark'] = remark
     try:
+        load_payment_config()
         print(f'[支付API] 请求参数: {params}')
+        if not PAYMENT_CONFIG.get('api_url'):
+            raise ValueError('支付配置错误：payment_url(api_url) 为空，请先在Web后台填写“支付网关地址/支付URL”并保存，然后重试')
         response = req.post(PAYMENT_CONFIG['api_url'], data=params, timeout=15)
 
         result = response.json()
