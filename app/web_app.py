@@ -2205,7 +2205,7 @@ def api_update_recharge_status(recharge_id):
         # 3. 【核心】告诉机器人去处理业务（开VIP、分红、发通知）
         # 这会触发 bot_logic.process_recharge，它会自动识别余额是否足够开VIP
         try:
-            import bot_logic
+            from . import bot_logic
             if hasattr(bot_logic, 'process_recharge_queue'):
                 # 推入队列，让机器人线程去扣款、开通VIP、发分红
                 bot_logic.process_recharge_queue.append({
@@ -2214,6 +2214,8 @@ def api_update_recharge_status(recharge_id):
                     'is_vip_order': is_vip_order  # 传递正确的标志
                 })
                 print(f"[Web后台手动通过] 已将订单 {order_id} 推送给机器人处理VIP逻辑，VIP订单: {is_vip_order}")
+            else:
+                print("[Web后台手动通过] 推送机器人队列失败: bot_logic.process_recharge_queue 不存在")
         except Exception as e:
             print(f"[Web后台手动通过] 推送机器人队列失败: {e}")
 

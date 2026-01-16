@@ -1152,7 +1152,7 @@ async def bind_command_handler(event):
         conn.close()
 
         # 更新 member_groups 表 (upsert)
-        from database import upsert_member_group
+        from .database import upsert_member_group
         upsert_member_group(
             sender_id,
             final_link,
